@@ -81,24 +81,6 @@ st.markdown("""
         opacity: 0.9;
     }
 
-    /* Custom table style for subjects per stream */
-    .subjects-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 1rem 0;
-        font-size: 1rem;
-    }
-
-    .subjects-table th, .subjects-table td {
-        padding: 0.75rem;
-        text-align: left;
-        border-bottom: 1px solid;
-    }
-
-    .subjects-table th {
-        font-weight: bold;
-    }
-
     /* Light mode styles */
     @media (prefers-color-scheme: light) {
         .main-header {
@@ -161,19 +143,6 @@ st.markdown("""
 
         .metric-card {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        .subjects-table th, .subjects-table td {
-            border-bottom: 1px solid #dee2e6;
-        }
-
-        .subjects-table th {
-            background: #e9ecef;
-            color: #495057;
-        }
-
-        .subjects-table tr:nth-child(even) {
-            background: #f8f9fa;
         }
 
         .footer {
@@ -245,19 +214,6 @@ st.markdown("""
 
         .metric-card {
             background: linear-gradient(135deg, #4a5db0 0%, #5a3e8a 100%);
-        }
-
-        .subjects-table th, .subjects-table td {
-            border-bottom: 1px solid #444;
-        }
-
-        .subjects-table th {
-            background: #444;
-            color: #e9ecef;
-        }
-
-        .subjects-table tr:nth-child(even) {
-            background: #2a2a2a;
         }
 
         .footer {
@@ -710,16 +666,14 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 exam_days[branch].add(exam_day)
                 last_exam[branch] = exam_day
 
-        remaining_subjects = {}
+        scheduled_subjects = set(df_sem[df_sem['Exam Date'] != '']['Subject'])
+        remaining_subjects_per_branch = {}
         for branch in all_branches:
-            branch_df = df_sem[df_sem['Branch'] == branch]
-            scheduled_subjs = branch_df[branch_df['Exam Date'] != '']['Subject'].unique()
-            all_subjs = branch_df['Subject'].unique()
-            remaining = [subj for subj in all_subjs if subj not in scheduled_subjs]
-            remaining_subjects[branch] = list(remaining)
+            branch_subjects = set(df_sem[df_sem['Branch'] == branch]['Subject'])
+            remaining_subjects_per_branch[branch] = list(branch_subjects - scheduled_subjects)
 
         current_day = base_date
-        while any(remaining_subjects[branch] for branch in all_branches):
+        while any(len(remaining_subjects_per_branch[branch]) > 0 for branch in all_branches):
             current_day_date = current_day.date()
             if current_day.weekday() == 6 or current_day_date in holidays_dates:
                 current_day += timedelta(days=1)
@@ -727,10 +681,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             branch_list = list(all_branches)
             random.shuffle(branch_list)
             for branch in branch_list:
-                if remaining_subjects[branch]:
+                if remaining_subjects_per_branch[branch]:
                     if (current_day.date() not in {d.date() for d in exam_days[branch]}) and (
                             last_exam[branch] is None or (current_day - last_exam[branch]).days >= 2):
-                        subj = remaining_subjects[branch].pop(0)
+                        subj = remaining_subjects_per_branch[branch].pop(0)
                         df_sem.loc[
                             (df_sem['Branch'] == branch) & (
                                         df_sem['Subject'] == subj), 'Exam Date'] = current_day.strftime("%d-%m-%Y")
@@ -1030,50 +984,6 @@ def main():
     # Display results if available
     if hasattr(st.session_state, 'processing_complete') and st.session_state.processing_complete:
         st.markdown("---")
-        # Download section
-        st.markdown("---")
-        st.markdown("### 📥 Download Options")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            # Excel download
-            excel_data = save_to_excel(sem_dict)
-            if excel_data:
-                st.download_button(
-                    label="📊 Download Excel File",
-                    data=excel_data.getvalue(),
-                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-
-        with col2:
-            # PDF download
-            if sem_dict:
-                pdf_output = io.BytesIO()
-                temp_pdf_path = "temp_timetable.pdf"
-                generate_pdf_timetable(sem_dict, temp_pdf_path)
-                with open(temp_pdf_path, "rb") as f:
-                    pdf_output.write(f.read())
-                pdf_output.seek(0)
-                if os.path.exists(temp_pdf_path):
-                    os.remove(temp_pdf_path)
-                st.download_button(
-                    label="📄 Download PDF File",
-                    data=pdf_output.getvalue(),
-                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-
-        with col2:
-            if st.button("🔄 Generate New Timetable", use_container_width=True):
-                if hasattr(st.session_state, 'processing_complete'):
-                    del st.session_state.processing_complete
-                if hasattr(st.session_state, 'timetable_data'):
-                    del st.session_state.timetable_data
-                st.rerun()
 
         # Enhanced Statistics Section
         sem_dict = st.session_state.timetable_data
@@ -1138,15 +1048,10 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>📆 {elective_dates_str}</h3><p>Elective Exam Dates</p></div>',
                         unsafe_allow_html=True)
 
-        # Display subjects per stream in a table (using st.write instead of st.markdown)
+        # Display subjects per stream using st.dataframe instead of custom HTML
         st.markdown("#### Subjects Per Stream")
         if not stream_counts.empty:
-            # Simplified HTML table structure
-            table_html = '<table class="subjects-table"><thead><tr><th>Stream</th><th>Subject Count</th></tr></thead><tbody>'
-            for _, row in stream_counts.iterrows():
-                table_html += f'<tr><td>{row["Stream"]}</td><td>{row["Subject Count"]}</td></tr>'
-            table_html += '</tbody></table>'
-            st.write(table_html, unsafe_allow_html=True)
+            st.dataframe(stream_counts, use_container_width=True)
         else:
             st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
 
@@ -1199,7 +1104,50 @@ def main():
 
                     st.dataframe(formatted_pivot, use_container_width=True)
 
+        # Download section
+        st.markdown("---")
+        st.markdown("### 📥 Download Options")
 
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Excel download
+            excel_data = save_to_excel(sem_dict)
+            if excel_data:
+                st.download_button(
+                    label="📊 Download Excel File",
+                    data=excel_data.getvalue(),
+                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+        with col2:
+            # PDF download
+            if sem_dict:
+                pdf_output = io.BytesIO()
+                temp_pdf_path = "temp_timetable.pdf"
+                generate_pdf_timetable(sem_dict, temp_pdf_path)
+                with open(temp_pdf_path, "rb") as f:
+                    pdf_output.write(f.read())
+                pdf_output.seek(0)
+                if os.path.exists(temp_pdf_path):
+                    os.remove(temp_pdf_path)
+                st.download_button(
+                    label="📄 Download PDF File",
+                    data=pdf_output.getvalue(),
+                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+        with col2:
+            if st.button("🔄 Generate New Timetable", use_container_width=True):
+                if hasattr(st.session_state, 'processing_complete'):
+                    del st.session_state.processing_complete
+                if hasattr(st.session_state, 'timetable_data'):
+                    del st.session_state.timetable_data
+                st.rerun()
 
     # Footer
     st.markdown("---")
