@@ -880,13 +880,15 @@ def save_verification_excel(original_df, semester_wise_timetable):
         stream = row["Stream"]
         branch = f"{program}-{stream}"
         subject = f"{row['SubjectName']} - ({row['ModuleCode']})"
+        module_code = row['ModuleCode']
         semester = row["Semester"]
 
         # Find matching entry in scheduled data
         match = scheduled_data[
             (scheduled_data["Branch"] == branch) &
             (scheduled_data["Subject"] == subject) &
-            (scheduled_data["Semester"] == semester)
+            (scheduled_data["Semester"] == semester)&
+            (scheduled_data["ModuleCode"] ==module_code)
         ]
 
         if not match.empty:
