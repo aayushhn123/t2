@@ -81,6 +81,28 @@ st.markdown("""
         opacity: 0.9;
     }
 
+    /* Button hover animations */
+    .stButton>button {
+        transition: all 0.3s ease;
+        border-radius: 5px;
+        border: 1px solid transparent;
+    }
+
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        border: 1px solid #951C1C;
+        background-color: #C73E1D;
+        color: white;
+    }
+
+    /* Download button specific hover effects */
+    .stDownloadButton>button:hover {
+        background-color: #A23217;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
     /* Light mode styles */
     @media (prefers-color-scheme: light) {
         .main-header {
@@ -871,56 +893,12 @@ def main():
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
 
-        # Holiday selection
-        st.markdown("#### 📅 Select Predefined Holidays")
-        holiday_dates = []
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.checkbox("April 14, 2025", value=True):
-                holiday_dates.append(datetime(2025, 4, 14))
-        with col2:
-            if st.checkbox("May 1, 2025", value=True):
-                holiday_dates.append(datetime(2025, 5, 1))
-
-        if st.checkbox("August 15, 2025", value=True):
-            holiday_dates.append(datetime(2025, 8, 15))
-
-        # Custom holidays
-        st.markdown("#### 📅 Add Custom Holidays")
-
-        if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
-            st.session_state.custom_holidays.extend(
-                [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
-            )
-
-        for i in range(st.session_state.num_custom_holidays):
-            st.session_state.custom_holidays[i] = st.date_input(
-                f"Custom Holiday {i + 1}",
-                value=st.session_state.custom_holidays[i],
-                key=f"custom_holiday_{i}"
-            )
-
-        if st.button("➕ Add Another Holiday"):
-            st.session_state.num_custom_holidays += 1
-            st.session_state.custom_holidays.append(None)
-            st.rerun()
-
-        custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
-        for custom_holiday in custom_holidays:
-            holiday_dates.append(datetime.combine(custom_holiday, datetime.min.time()))
-
-        if holiday_dates:
-            st.markdown("#### Selected Holidays:")
-            for holiday in sorted(holiday_dates):
-                st.write(f"• {holiday.strftime('%B %d, %Y')}")
-
-        # Base date selection
+        # Base date selection (outside collapsible menu)
         st.markdown("#### 📅 Base Date for Scheduling")
         base_date = st.date_input("Start date for exams", value=datetime(2025, 4, 1))
         base_date = datetime.combine(base_date, datetime.min.time())
 
-        # Scheduling mode selection
+        # Scheduling mode selection (outside collapsible menu)
         st.markdown("#### 🛠️ Scheduling Mode")
         schedule_by_difficulty = st.checkbox("Schedule by Difficulty (Alternate Easy/Difficult)", value=False)
         if schedule_by_difficulty:
@@ -929,6 +907,52 @@ def main():
         else:
             st.markdown('<div class="status-info">ℹ️ Normal scheduling without considering difficulty.</div>',
                         unsafe_allow_html=True)
+
+        # Collapsible section for holiday configurations
+        with st.expander("Holiday Configuration", expanded=True):
+            # Holiday selection
+            st.markdown("#### 📅 Select Predefined Holidays")
+            holiday_dates = []
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.checkbox("April 14, 2025", value=True):
+                    holiday_dates.append(datetime(2025, 4, 14))
+            with col2:
+                if st.checkbox("May 1, 2025", value=True):
+                    holiday_dates.append(datetime(2025, 5, 1))
+
+            if st.checkbox("August 15, 2025", value=True):
+                holiday_dates.append(datetime(2025, 8, 15))
+
+            # Custom holidays
+            st.markdown("#### 📅 Add Custom Holidays")
+
+            if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
+                st.session_state.custom_holidays.extend(
+                    [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
+                )
+
+            for i in range(st.session_state.num_custom_holidays):
+                st.session_state.custom_holidays[i] = st.date_input(
+                    f"Custom Holiday {i + 1}",
+                    value=st.session_state.custom_holidays[i],
+                    key=f"custom_holiday_{i}"
+                )
+
+            if st.button("➕ Add Another Holiday"):
+                st.session_state.num_custom_holidays += 1
+                st.session_state.custom_holidays.append(None)
+                st.rerun()
+
+            custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
+            for custom_holiday in custom_holidays:
+                holiday_dates.append(datetime.combine(custom_holiday, datetime.min.time()))
+
+            if holiday_dates:
+                st.markdown("#### Selected Holidays:")
+                for holiday in sorted(holiday_dates):
+                    st.write(f"• {holiday.strftime('%B %d, %Y')}")
 
     # Main content area
     col1, col2 = st.columns([2, 1])
