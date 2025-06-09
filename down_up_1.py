@@ -433,9 +433,9 @@ def read_timetable(uploaded_file):
             if pd.isna(sem):
                 return 0
             m = {
-                "Sem I": 'I', "Sem II": 'II', "Sem III": 'III', "Sem IV": 'IV',
-                "Sem V": 'V', "Sem VI": 'VI', "Sem VII": 'VII', "Sem VIII": 'VIII',
-                "Sem IX": 'IX', "Sem X": 'X', "Sem XI": 'X'
+                "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
+                "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
+                "Sem IX": 9, "Sem X": 10, "Sem XI": 11
             }
             return m.get(sem.strip(), 0)
 
