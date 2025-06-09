@@ -405,7 +405,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
         convert_excel_to_pdf(temp_excel, output_pdf)
         if os.path.exists(temp_excel):
             os.remove(temp_excel)
-    else:
+    elseGLE:
         st.error("No data to save to Excel.")
         return
     try:
@@ -856,40 +856,48 @@ def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
         return None
 
-    # Create a copy of the original input DataFrame to preserve all columns
-    verification_df = original_df.copy()
-    
-    # Add the new columns
+    # Define the columns to retain from original_df up to 'Exam mode'
+    columns_to_retain = [
+        "School Name", "Campus", "Program", "Stream", "Current Academic Year",
+        "Semester", "ModuleCode", "SubjectName", "Difficulty", "Category", "OE", "Exam mode"
+    ]
+
+    # Filter original_df to keep only the specified columns
+    # Ensure that only columns that exist in original_df are selected to avoid KeyError
+    available_columns = [col for col in columns_to_retain if col in original_df.columns]
+    verification_df = original_df[available_columns].copy()
+
+    # Add the new columns for Exam Date and Exam Time
     verification_df["Exam Date"] = ""
     verification_df["Exam Time"] = ""
-    
+
     # Create a lookup DataFrame from semester_wise_timetable
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
-    
-    # Map the exam date and time to the original DataFrame
+
+    # Map the exam date and time to the verification DataFrame
     for idx, row in verification_df.iterrows():
         program = row["Program"]
         stream = row["Stream"]
         branch = f"{program}-{stream}"
-        subject = row["Subject"]
+        subject = f"{row['SubjectName']} - ({row['ModuleCode']})"
         semester = row["Semester"]
-        
+
         # Find matching entry in scheduled data
         match = scheduled_data[
             (scheduled_data["Branch"] == branch) &
             (scheduled_data["Subject"] == subject) &
             (scheduled_data["Semester"] == semester)
         ]
-        
+
         if not match.empty:
             verification_df.at[idx, "Exam Date"] = match.iloc[0]["Exam Date"]
             verification_df.at[idx, "Exam Time"] = match.iloc[0]["Time Slot"]
-    
+
     # Save to Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         verification_df.to_excel(writer, sheet_name="Verification", index=False)
-    
+
     output.seek(0)
     return output
 
