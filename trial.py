@@ -874,22 +874,22 @@ def save_verification_excel(original_df, semester_wise_timetable):
     # Create a lookup DataFrame from semester_wise_timetable
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
 
+    # Extract ModuleCode in scheduled_data for matching
+    scheduled_data["ModuleCode"] = scheduled_data["Subject"].str.extract(r'\((.*?)\)', expand=False)
+
     # Map the exam date and time to the verification DataFrame
     for idx, row in verification_df.iterrows():
-        program = row["Program"]
-        stream = row["Stream"]
-        branch = f"{program}-{stream}"
-        subject = f"{row['SubjectName']} - ({row['ModuleCode']})"
+        module_code = row["ModuleCode"]
         semester = row["Semester"]
 
-        # Find matching entry in scheduled data
+        # Find matching entry in scheduled data based on ModuleCode and Semester
         match = scheduled_data[
-            (scheduled_data["Branch"] == branch) &
-            (scheduled_data["Subject"] == subject) &
+            (scheduled_data["ModuleCode"] == module_code) &
             (scheduled_data["Semester"] == semester)
         ]
 
         if not match.empty:
+            # If multiple matches, take the first one
             verification_df.at[idx, "Exam Date"] = match.iloc[0]["Exam Date"]
             verification_df.at[idx, "Exam Time"] = match.iloc[0]["Time Slot"]
 
@@ -900,6 +900,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     output.seek(0)
     return output
+
 
 def main():
     # Header section
