@@ -405,7 +405,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
         convert_excel_to_pdf(temp_excel, output_pdf)
         if os.path.exists(temp_excel):
             os.remove(temp_excel)
-    elseGLE:
+    else:
         st.error("No data to save to Excel.")
         return
     try:
