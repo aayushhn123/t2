@@ -81,6 +81,41 @@ st.markdown("""
         opacity: 0.9;
     }
 
+    /* Add gap between difficulty selector and holiday collapsible menu */
+    .stCheckbox + .stExpander {
+        margin-top: 2rem;
+    }
+
+    /* Button hover animations for regular buttons */
+    .stButton>button {
+        transition: all 0.3s ease;
+        border-radius: 5px;
+        border: 1px solid transparent;
+    }
+
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        border: 1px solid #951C1C;
+        background-color: #C73E1D;
+        color: white;
+    }
+
+    /* Download button hover effects (aligned with regular buttons) */
+    .stDownloadButton>button {
+        transition: all 0.3s ease;
+        border-radius: 5px;
+        border: 1px solid transparent;
+    }
+
+    .stDownloadButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        border: 1px solid #951C1C;
+        background-color: #C73E1D;
+        color: white;
+    }
+
     /* Light mode styles */
     @media (prefers-color-scheme: light) {
         .main-header {
@@ -224,7 +259,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
 # Define the mapping of main branch abbreviations to full forms
 BRANCH_FULL_FORM = {
     "B TECH": "BACHELOR OF TECHNOLOGY",
@@ -917,68 +951,72 @@ def main():
     if 'custom_holidays' not in st.session_state:
         st.session_state.custom_holidays = [None]
 
-    # Sidebar configuration
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
 
-        # Holiday selection
-        st.markdown("#### 📅 Select Predefined Holidays")
-        holiday_dates = []
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.checkbox("April 14, 2025", value=True):
-                holiday_dates.append(datetime(2025, 4, 14))
-        with col2:
-            if st.checkbox("May 1, 2025", value=True):
-                holiday_dates.append(datetime(2025, 5, 1))
-
-        if st.checkbox("August 15, 2025", value=True):
-            holiday_dates.append(datetime(2025, 8, 15))
-
-        # Custom holidays
-        st.markdown("#### 📅 Add Custom Holidays")
-
-        if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
-            st.session_state.custom_holidays.extend(
-                [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
-            )
-
-        for i in range(st.session_state.num_custom_holidays):
-            st.session_state.custom_holidays[i] = st.date_input(
-                f"Custom Holiday {i + 1}",
-                value=st.session_state.custom_holidays[i],
-                key=f"custom_holiday_{i}"
-            )
-
-        if st.button("➕ Add Another Holiday"):
-            st.session_state.num_custom_holidays += 1
-            st.session_state.custom_holidays.append(None)
-            st.rerun()
-
-        custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
-        for custom_holiday in custom_holidays:
-            holiday_dates.append(datetime.combine(custom_holiday, datetime.min.time()))
-
-        if holiday_dates:
-            st.markdown("#### Selected Holidays:")
-            for holiday in sorted(holiday_dates):
-                st.write(f"• {holiday.strftime('%B %d, %Y')}")
-
-        # Base date selection
+        # Base date selection (outside collapsible menu)
         st.markdown("#### 📅 Base Date for Scheduling")
         base_date = st.date_input("Start date for exams", value=datetime(2025, 4, 1))
         base_date = datetime.combine(base_date, datetime.min.time())
 
-        # Scheduling mode selection
+    # Scheduling mode selection (outside collapsible menu)
         st.markdown("#### 🛠️ Scheduling Mode")
         schedule_by_difficulty = st.checkbox("Schedule by Difficulty (Alternate Easy/Difficult)", value=False)
         if schedule_by_difficulty:
             st.markdown('<div class="status-info">ℹ️ Exams will alternate between Easy and Difficult subjects.</div>',
-                        unsafe_allow_html=True)
+                    unsafe_allow_html=True)
         else:
             st.markdown('<div class="status-info">ℹ️ Normal scheduling without considering difficulty.</div>',
-                        unsafe_allow_html=True)
+                    unsafe_allow_html=True)
+
+    # Add a gap between difficulty selector and holiday configuration
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+
+    # Collapsible section for holiday configurations
+        with st.expander("Holiday Configuration", expanded=True):
+            # Holiday selection
+            st.markdown("#### 📅 Select Predefined Holidays")
+            holiday_dates = []
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.checkbox("April 14, 2025", value=True):
+                    holiday_dates.append(datetime(2025, 4, 14))
+            with col2:
+                if st.checkbox("May 1, 2025", value=True):
+                    holiday_dates.append(datetime(2025, 5, 1))
+
+            if st.checkbox("August 15, 2025", value=True):
+                holiday_dates.append(datetime(2025, 8, 15))
+
+        # Custom holidays
+            st.markdown("#### 📅 Add Custom Holidays")
+
+            if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
+                st.session_state.custom_holidays.extend(
+                    [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
+                )
+
+            for i in range(st.session_state.num_custom_holidays):
+                st.session_state.custom_holidays[i] = st.date_input(
+                    f"Custom Holiday {i + 1}",
+                    value=st.session_state.custom_holidays[i],
+                    key=f"custom_holiday_{i}"
+                )
+
+            if st.button("➕ Add Another Holiday"):
+                st.session_state.num_custom_holidays += 1
+                st.session_state.custom_holidays.append(None)
+                st.rerun()
+
+            custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
+            for custom_holiday in custom_holidays:
+                holiday_dates.append(datetime.combine(custom_holiday, datetime.min.time()))
+
+            if holiday_dates:
+                st.markdown("#### Selected Holidays:")
+                for holiday in sorted(holiday_dates):
+                    st.write(f"• {holiday.strftime('%B %d, %Y')}")
 
     # Main content area
     col1, col2 = st.columns([2, 1])
@@ -1030,7 +1068,7 @@ def main():
             with st.spinner("Processing your timetable... Please wait..."):
                 try:
                     holidays_set = set(holiday_dates)
-                    df_non_elec, df_elec, original_df = read_timetable(uploaded_file)
+                    df_non_elec, df_elec, original_df = read_timetable(uploaded_file)  # Updated to receive third return value
 
                     if df_non_elec is not None and df_elec is not None:
                         # Process non-electives with the selected scheduling mode
@@ -1066,7 +1104,7 @@ def main():
                                         sorted(final_df["Semester"].unique())}
 
                             st.session_state.timetable_data = sem_dict
-                            st.session_state.original_df = original_df
+                            st.session_state.original_df = original_df  # Store original_df in session state
                             st.session_state.processing_complete = True
 
                             st.markdown('<div class="status-success">🎉 Timetable generated successfully!</div>',
@@ -1125,7 +1163,7 @@ def main():
         st.markdown("---")
         st.markdown("### 📥 Download Options")
 
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4 = st.columns(4)  # Changed to 4 columns
 
         with col1:
             # Excel download
@@ -1176,7 +1214,7 @@ def main():
                     del st.session_state.processing_complete
                 if hasattr(st.session_state, 'timetable_data'):
                     del st.session_state.timetable_data
-                if hasattr(st.session_state, 'original_df'):
+                if hasattr(st.session_state, 'original_df'):  # Clear original_df from session state
                     del st.session_state.original_df
                 st.rerun()
 
@@ -1221,45 +1259,12 @@ def main():
             </table>
         </div>
         """.format(non_elective_range=non_elective_range, elective_dates_str=elective_dates_str), unsafe_allow_html=True)
-
-        # Display subjects per stream in a styled card with an HTML table
+        # Display subjects per stream using st.dataframe
         st.markdown("#### Subjects Per Stream")
         if not stream_counts.empty:
-            # Build the HTML table rows
-            table_rows = []
-            for _, row in stream_counts.iterrows():
-                table_rows.append(
-                    f'<tr>'
-                    f'<td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{row["Stream"]}</td>'
-                    f'<td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{row["Subject Count"]}</td>'
-                    f'</tr>'
-                )
-            table_html = "".join(table_rows)
-            
-            # Render the card with the HTML table
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
-                        <tr style="background: rgba(255, 255, 255, 0.1);">
-                            <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Stream</th>
-                            <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Subject Count</th>
-                        </tr>
-                        {table_html}
-                    </table>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            st.dataframe(stream_counts, hide_index=True, use_container_width=True)
         else:
-            st.markdown(
-                """
-                <div class="metric-card">
-                    <div class="status-info" style="margin: 0.5rem;">ℹ️ No stream data available.</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
 
         st.markdown("---")
 
