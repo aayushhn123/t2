@@ -871,7 +871,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
         program = row["Program"]
         stream = row["Stream"]
         branch = f"{program}-{stream}"
-        subject = f"{row['Module Description']} - ({row['Module Abbreviation']})"
+        subject = row["Subject"]  # Use the pre-formatted "Subject" column
         semester = row["Semester"]
         
         # Find matching entry in scheduled data
