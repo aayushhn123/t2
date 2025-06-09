@@ -481,10 +481,10 @@ def read_timetable(uploaded_file):
 
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
                 "Difficulty"]
-        return df_non[cols], df_ele[cols]
+        return df_non[cols], df_ele[cols], df  # Return the original df as well for the verification file
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
-        return None, None
+        return None, None, None
 
 def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_difficulty=False):
     df_sem['SubjectCode'] = df_sem['Subject'].str.extract(r'\((.*?)\)', expand=False)
@@ -852,6 +852,70 @@ def save_to_excel(semester_wise_timetable):
     output.seek(0)
     return output
 
+def save_to_verification_excel(original_df, semester_wise_timetable):
+    if not semester_wise_timetable or original_df is None:
+        return None
+
+    # Create a copy of the original DataFrame
+    verification_df = original_df.copy()
+
+    # Ensure the columns exist in the original DataFrame
+    if 'Exam Date' not in verification_df.columns:
+        verification_df['Exam Date'] = ""
+    if 'Exam Time' not in verification_df.columns:
+        verification_df['Exam Time'] = ""
+
+    # Create a merged DataFrame from semester_wise_timetable for lookup
+    scheduled_df = pd.concat(semester_wise_timetable.values(), ignore_index=True)
+
+    # Create a unique key for matching based on available columns
+    # Use 'Program', 'Stream', 'Semester', 'SubjectName', 'ModuleCode' to match
+    verification_df['Key'] = (
+        verification_df['Program'].astype(str) + '|' +
+        verification_df['Stream'].astype(str) + '|' +
+        verification_df['Current Session'].astype(str) + '|' +
+        verification_df['SubjectName'].astype(str) + '|' +
+        verification_df['ModuleCode'].astype(str)
+    )
+
+    scheduled_df['Key'] = (
+        scheduled_df['MainBranch'].astype(str) + '|' +
+        scheduled_df['SubBranch'].astype(str) + '|' +
+        scheduled_df['Semester'].astype(str).map({
+            1: 'Sem I', 2: 'Sem II', 3: 'Sem III', 4: 'Sem IV',
+            5: 'Sem V', 6: 'Sem VI', 7: 'Sem VII', 8: 'Sem VIII',
+            9: 'Sem IX', 10: 'Sem X', 11: 'Sem XI'
+        }) + '|' +
+        scheduled_df['Subject'].str.extract(r'^(.*?)\s*-\s*\(.*\)$')[0].astype(str) + '|' +
+        scheduled_df['Subject'].str.extract(r'\((.*?)\)')[0].astype(str)
+    )
+
+    # Merge to get Exam Date and Time Slot
+    merge_df = scheduled_df[['Key', 'Exam Date', 'Time Slot']].drop_duplicates()
+    verification_df = verification_df.merge(
+        merge_df,
+        on='Key',
+        how='left',
+        suffixes=('', '_new')
+    )
+
+    # Update Exam Date and Exam Time
+    verification_df['Exam Date'] = verification_df['Exam Date_new'].combine_first(verification_df['Exam Date'])
+    verification_df['Exam Time'] = verification_df['Time Slot'].combine_first(verification_df['Exam Time'])
+
+    # Drop temporary columns
+    verification_df = verification_df.drop(columns=['Key', 'Exam Date_new', 'Time Slot'])
+
+    # Sort by original index to maintain order
+    verification_df = verification_df.sort_index()
+
+    # Save to Excel
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        verification_df.to_excel(writer, index=False, sheet_name='Verification')
+    output.seek(0)
+    return output
+
 def main():
     # Header section
     st.markdown("""
@@ -980,7 +1044,7 @@ def main():
             with st.spinner("Processing your timetable... Please wait..."):
                 try:
                     holidays_set = set(holiday_dates)
-                    df_non_elec, df_elec = read_timetable(uploaded_file)
+                    df_non_elec, df_elec, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None and df_elec is not None:
                         # Process non-electives with the selected scheduling mode
@@ -1016,6 +1080,7 @@ def main():
                                         sorted(final_df["Semester"].unique())}
 
                             st.session_state.timetable_data = sem_dict
+                            st.session_state.original_df = original_df  # Store original_df in session state
                             st.session_state.processing_complete = True
 
                             st.markdown('<div class="status-success">🎉 Timetable generated successfully!</div>',
@@ -1074,7 +1139,7 @@ def main():
         st.markdown("---")
         st.markdown("### 📥 Download Options")
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)  # Changed to 4 columns
 
         with col1:
             # Excel download
@@ -1108,11 +1173,26 @@ def main():
                 )
 
         with col3:
+            # Verification Excel download
+            if hasattr(st.session_state, 'original_df'):
+                verification_data = save_to_verification_excel(st.session_state.original_df, sem_dict)
+                if verification_data:
+                    st.download_button(
+                        label="📋 Download Verification File",
+                        data=verification_data.getvalue(),
+                        file_name=f"verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+        with col4:
             if st.button("🔄 Generate New Timetable", use_container_width=True):
                 if hasattr(st.session_state, 'processing_complete'):
                     del st.session_state.processing_complete
                 if hasattr(st.session_state, 'timetable_data'):
                     del st.session_state.timetable_data
+                if hasattr(st.session_state, 'original_df'):
+                    del st.session_state.original_df
                 st.rerun()
 
         st.markdown("""
