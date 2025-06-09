@@ -1015,8 +1015,9 @@ def main():
         elective_dates_list = sorted(set(elective_dates.dt.strftime("%d %b %Y")))
         elective_dates_str = ", ".join(elective_dates_list) if elective_dates_list else "N/A"
 
-        # 3. Number of subjects per stream (MainBranch + SubBranch)
-        stream_counts = all_data.groupby(['MainBranch', 'SubBranch'])['Subject'].nunique().reset_index()
+        # 3. Number of non-OE subjects per stream (MainBranch + SubBranch)
+        non_oe_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
+        stream_counts = non_oe_data.groupby(['MainBranch', 'SubBranch'])['Subject'].count().reset_index()
         stream_counts['Stream'] = stream_counts['MainBranch'] + " " + stream_counts['SubBranch']
         stream_counts = stream_counts[['Stream', 'Subject']].rename(columns={'Subject': 'Subject Count'}).sort_values('Stream')
 
@@ -1086,19 +1087,30 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>📅 {overall_date_range}</h3><p>Days Span</p></div>',
                         unsafe_allow_html=True)
 
-        # Display new stats in cards
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f'<div class="metric-card"><h3>📆 {non_elective_range}</h3><p>Non-Elective Exam Range</p></div>',
-                        unsafe_allow_html=True)
-        with col2:
-            st.markdown(f'<div class="metric-card"><h3>📆 {elective_dates_str}</h3><p>Elective Exam Dates</p></div>',
-                        unsafe_allow_html=True)
-
+        # Display new stats in a tabular card
+        st.markdown("""
+        <div class="metric-card">
+            <h3>📆 Exam Dates Overview</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
+                <tr style="background: rgba(255, 255, 255, 0.1);">
+                    <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Type</th>
+                    <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Dates</th>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">Non-Elective Range</td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{non_elective_range}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem;">Elective Dates</td>
+                    <td style="padding: 0.5rem;">{elective_dates_str}</td>
+                </tr>
+            </table>
+        </div>
+        """.format(non_elective_range=non_elective_range, elective_dates_str=elective_dates_str), unsafe_allow_html=True)
         # Display subjects per stream using st.dataframe
         st.markdown("#### Subjects Per Stream")
         if not stream_counts.empty:
-            st.dataframe(stream_counts, use_container_width=True)
+            st.dataframe(stream_counts, hide_index=True,use_container_width=True)
         else:
             st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
 
