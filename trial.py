@@ -873,7 +873,7 @@ def save_to_verification_excel(original_df, semester_wise_timetable):
     verification_df['Key'] = (
         verification_df['Program'].astype(str) + '|' +
         verification_df['Stream'].astype(str) + '|' +
-        verification_df['Current Session'].astype(str) + '|' +
+        verification_df['Semester'].astype(str) + '|' +  # Changed from 'Current Session' to 'Semester'
         verification_df['SubjectName'].astype(str) + '|' +
         verification_df['ModuleCode'].astype(str)
     )
@@ -1259,7 +1259,7 @@ def main():
                 f"""
                 <div class="metric-card">
                     <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
-                        <tr style="background: rgba(255, 255, 221, 0.1);">
+                        <tr style="background: rgba(255, 255, 255, 0.1);">
                             <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Stream</th>
                             <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Subject Count</th>
                         </tr>
