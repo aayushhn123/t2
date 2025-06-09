@@ -81,7 +81,12 @@ st.markdown("""
         opacity: 0.9;
     }
 
-    /* Button hover animations */
+    /* Add gap between difficulty selector and holiday collapsible menu */
+    .stCheckbox + .stExpander {
+        margin-top: 2rem;
+    }
+
+    /* Button hover animations for regular buttons */
     .stButton>button {
         transition: all 0.3s ease;
         border-radius: 5px;
@@ -96,11 +101,19 @@ st.markdown("""
         color: white;
     }
 
-    /* Download button specific hover effects */
+    /* Download button hover effects (aligned with regular buttons) */
+    .stDownloadButton>button {
+        transition: all 0.3s ease;
+        border-radius: 5px;
+        border: 1px solid transparent;
+    }
+
     .stDownloadButton>button:hover {
-        background-color: #A23217;
         transform: translateY(-2px);
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        border: 1px solid #951C1C;
+        background-color: #C73E1D;
+        color: white;
     }
 
     /* Light mode styles */
