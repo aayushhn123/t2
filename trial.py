@@ -856,7 +856,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
         return None
 
-    # Create a copy of the original input DataFrame
+    # Create a copy of the original input DataFrame to preserve all columns
     verification_df = original_df.copy()
     
     # Add the new columns
@@ -871,7 +871,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
         program = row["Program"]
         stream = row["Stream"]
         branch = f"{program}-{stream}"
-        subject = row["Subject"]  # Use the pre-formatted "Subject" column
+        subject = row["Subject"]
         semester = row["Semester"]
         
         # Find matching entry in scheduled data
