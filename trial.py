@@ -902,8 +902,7 @@ def main():
     if 'custom_holidays' not in st.session_state:
         st.session_state.custom_holidays = [None]
 
-    # Sidebar configuration
-with st.sidebar:
+    with st.sidebar:
     st.markdown("### ⚙️ Configuration")
 
     # Base date selection (outside collapsible menu)
