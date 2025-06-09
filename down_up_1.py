@@ -319,6 +319,21 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=True, margin=15)
     df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
+    
+    # Roman numeral conversion
+    def int_to_roman(num):
+        roman_values = [
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
+        ]
+        result = ""
+        for value, numeral in roman_values:
+            while num >= value:
+                result += numeral
+                num -= value
+        return result
+
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
             continue
@@ -329,6 +344,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         main_branch = parts[0]
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
         semester = parts[1] if len(parts) > 1 else ""
+        # Convert semester to Roman numeral
+        semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
         exam_date_width = 30
         time_slot_width = 40
         table_font_size = 8
@@ -356,7 +373,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             pdf.set_font("Arial", 'B', 15)
             pdf.set_text_color(0, 0, 0)
             pdf.set_xy(10, 51)
-            pdf.cell(pdf.w - 20, 8, f"{main_branch_full} - Semester {semester}", 0, 1, 'C')
+            # Use Roman numeral for semester in header
+            pdf.cell(pdf.w - 20, 8, f"{main_branch_full} - Semester {semester_roman}", 0, 1, 'C')
             ts = chunk_df['Time Slot'].iloc[0]
             if ts.strip():
                 pdf.set_font("Arial", 'I', 13)
@@ -695,7 +713,15 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             current_day += timedelta(days=1)
 
     sem = df_sem["Semester"].iloc[0]
-    slot_str = "10:00 AM - 1:00 PM" if sem % 2 == 0 else "2:00 PM - 5:00 PM"
+    # Both odd and even semesters alternate morning/afternoon based on their position
+    if sem % 2 != 0:  # Odd semesters
+        # Calculate position among odd semesters (1, 3, 5, ...): Sem 1 -> 1st, Sem 3 -> 2nd, Sem 5 -> 3rd
+        odd_sem_position = (sem + 1) // 2
+        slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+    else:  # Even semesters
+        # Calculate position among even semesters (2, 4, 6, ...): Sem 2 -> 1st, Sem 4 -> 2nd, Sem 6 -> 3rd
+        even_sem_position = sem // 2
+        slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
     df_sem['Time Slot'] = slot_str
     return df_sem
 
@@ -753,7 +779,14 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
         day += timedelta(days=2)
 
     sem = df_elec["Semester"].iloc[0]
-    time_slot = "10:00 AM - 1:00 PM" if sem % 2 == 0 else "2:00 PM - 5:00 PM"
+    # Apply same alternating logic for electives based on semester
+    if sem % 2 != 0:  # Odd semesters
+        odd_sem_position = (sem + 1) // 2
+        time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+    else:  # Even semesters
+        even_sem_position = sem // 2
+        time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+
     for idx, row in df_elec.iterrows():
         oe = row["OE"]
         exam_day = schedule_oe_date.get(oe)
@@ -768,6 +801,20 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
+
+    # Roman numeral conversion
+    def int_to_roman(num):
+        roman_values = [
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
+        ]
+        result = ""
+        for value, numeral in roman_values:
+            while num >= value:
+                result += numeral
+                num -= value
+        return result
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -795,7 +842,9 @@ def save_to_excel(semester_wise_timetable):
                 pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
                 formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
                 pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
-                sheet_name = f"{main_branch}_Sem_{sem}"
+                # Use Roman numerals for semester in sheet name
+                roman_sem = int_to_roman(sem)
+                sheet_name = f"{main_branch}_Sem_{roman_sem}"
                 if len(sheet_name) > 31:
                     sheet_name = sheet_name[:31]
                 pivot_df.to_excel(writer, sheet_name=sheet_name)
@@ -1107,12 +1156,45 @@ def main():
             </table>
         </div>
         """.format(non_elective_range=non_elective_range, elective_dates_str=elective_dates_str), unsafe_allow_html=True)
-        # Display subjects per stream using st.dataframe
+
+        # Display subjects per stream in a styled card with an HTML table
         st.markdown("#### Subjects Per Stream")
         if not stream_counts.empty:
-            st.dataframe(stream_counts, hide_index=True,use_container_width=True)
+            # Build the HTML table rows
+            table_rows = []
+            for _, row in stream_counts.iterrows():
+                table_rows.append(
+                    f'<tr>'
+                    f'<td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{row["Stream"]}</td>'
+                    f'<td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{row["Subject Count"]}</td>'
+                    f'</tr>'
+                )
+            table_html = "".join(table_rows)
+            
+            # Render the card with the HTML table
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
+                        <tr style="background: rgba(255, 255, 255, 0.1);">
+                            <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Stream</th>
+                            <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Subject Count</th>
+                        </tr>
+                        {table_html}
+                    </table>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         else:
-            st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
+            st.markdown(
+                """
+                <div class="metric-card">
+                    <div class="status-info" style="margin: 0.5rem;">ℹ️ No stream data available.</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
         st.markdown("---")
 
@@ -1162,8 +1244,6 @@ def main():
                         formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
 
                     st.dataframe(formatted_pivot, use_container_width=True)
-
-
 
     # Footer
     st.markdown("---")
