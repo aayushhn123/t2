@@ -481,7 +481,7 @@ def read_timetable(uploaded_file):
 
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
                 "Difficulty"]
-        return df_non[cols], df_ele[cols], df  # Return the original df as well for the verification file
+        return df_non[cols], df_ele[cols], df
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
@@ -1046,7 +1046,7 @@ def main():
                     holidays_set = set(holiday_dates)
                     df_non_elec, df_elec, original_df = read_timetable(uploaded_file)
 
-                    if df_non_elec is not None and df_elec is not None:
+                    if df_non_elec is not None and df_elec is not None and original_df is not None:
                         # Process non-electives with the selected scheduling mode
                         non_elec_sched = process_constraints(df_non_elec, holidays_set, base_date,
                                                              schedule_by_difficulty)
@@ -1080,7 +1080,7 @@ def main():
                                         sorted(final_df["Semester"].unique())}
 
                             st.session_state.timetable_data = sem_dict
-                            st.session_state.original_df = original_df  # Store original_df in session state
+                            st.session_state.original_df = original_df
                             st.session_state.processing_complete = True
 
                             st.markdown('<div class="status-success">🎉 Timetable generated successfully!</div>',
@@ -1139,7 +1139,7 @@ def main():
         st.markdown("---")
         st.markdown("### 📥 Download Options")
 
-        col1, col2, col3, col4 = st.columns(4)  # Changed to 4 columns
+        col1, col2, col3, col4 = st.columns(4)
 
         with col1:
             # Excel download
@@ -1174,8 +1174,9 @@ def main():
 
         with col3:
             # Verification Excel download
-            if hasattr(st.session_state, 'original_df'):
-                verification_data = save_to_verification_excel(st.session_state.original_df, sem_dict)
+            if sem_dict:  # Check if timetable data exists
+                original_df = getattr(st.session_state, 'original_df', None)
+                verification_data = save_to_verification_excel(original_df, sem_dict)
                 if verification_data:
                     st.download_button(
                         label="📋 Download Verification File",
@@ -1184,6 +1185,8 @@ def main():
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
+                else:
+                    st.warning("Verification file could not be generated. Original data may be missing.")
 
         with col4:
             if st.button("🔄 Generate New Timetable", use_container_width=True):
@@ -1256,7 +1259,7 @@ def main():
                 f"""
                 <div class="metric-card">
                     <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
-                        <tr style="background: rgba(255, 255, 255, 0.1);">
+                        <tr style="background: rgba(255, 255, 221, 0.1);">
                             <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Stream</th>
                             <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Subject Count</th>
                         </tr>
