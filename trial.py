@@ -447,8 +447,13 @@ def read_timetable(uploaded_file):
             "Difficulty Score": "Difficulty"
         })
 
+        # Clean the data: strip whitespace, handle NaN
+        for col in ['Program', 'Stream', 'Semester', 'SubjectName', 'ModuleCode', 'Campus']:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.strip()
+
         def convert_sem(sem):
-            if pd.isna(sem):
+            if pd.isna(sem) or sem == 'nan':
                 return 0
             m = {
                 "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
@@ -457,6 +462,7 @@ def read_timetable(uploaded_file):
             }
             return m.get(sem.strip(), 0)
 
+        # Convert Semester to integer for scheduling, but keep original in df
         df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
         df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
         df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
@@ -479,8 +485,7 @@ def read_timetable(uploaded_file):
         for d in (df_non, df_ele):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
 
-        cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty"]
+        cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot", "Difficulty"]
         return df_non[cols], df_ele[cols], df
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
@@ -868,27 +873,46 @@ def save_to_verification_excel(original_df, semester_wise_timetable):
     # Create a merged DataFrame from semester_wise_timetable for lookup
     scheduled_df = pd.concat(semester_wise_timetable.values(), ignore_index=True)
 
+    # Clean the data in both DataFrames
+    for col in ['Program', 'Stream', 'Semester', 'SubjectName', 'ModuleCode']:
+        if col in verification_df.columns:
+            verification_df[col] = verification_df[col].astype(str).str.strip().str.upper()
+
+    for col in ['MainBranch', 'SubBranch', 'Semester', 'Subject']:
+        if col in scheduled_df.columns:
+            scheduled_df[col] = scheduled_df[col].astype(str).str.strip().str.upper()
+
     # Create a unique key for matching based on available columns
-    # Use 'Program', 'Stream', 'Semester', 'SubjectName', 'ModuleCode' to match
     verification_df['Key'] = (
         verification_df['Program'].astype(str) + '|' +
         verification_df['Stream'].astype(str) + '|' +
-        verification_df['Semester'].astype(str) + '|' +  # Changed from 'Current Session' to 'Semester'
+        verification_df['Semester'].astype(str) + '|' +
         verification_df['SubjectName'].astype(str) + '|' +
         verification_df['ModuleCode'].astype(str)
     )
+
+    # Extract SubjectName and ModuleCode from scheduled_df['Subject']
+    scheduled_df['ExtractedSubjectName'] = scheduled_df['Subject'].str.extract(r'^(.*?)\s*-\s*\(.*\)$')[0].astype(str).str.strip().str.upper()
+    scheduled_df['ExtractedModuleCode'] = scheduled_df['Subject'].str.extract(r'\((.*?)\)')[0].astype(str).str.strip().str.upper()
 
     scheduled_df['Key'] = (
         scheduled_df['MainBranch'].astype(str) + '|' +
         scheduled_df['SubBranch'].astype(str) + '|' +
         scheduled_df['Semester'].astype(str).map({
-            1: 'Sem I', 2: 'Sem II', 3: 'Sem III', 4: 'Sem IV',
-            5: 'Sem V', 6: 'Sem VI', 7: 'Sem VII', 8: 'Sem VIII',
-            9: 'Sem IX', 10: 'Sem X', 11: 'Sem XI'
+            1: 'SEM I', 2: 'SEM II', 3: 'SEM III', 4: 'SEM IV',
+            5: 'SEM V', 6: 'SEM VI', 7: 'SEM VII', 8: 'SEM VIII',
+            9: 'SEM IX', 10: 'SEM X', 11: 'SEM XI'
         }) + '|' +
-        scheduled_df['Subject'].str.extract(r'^(.*?)\s*-\s*\(.*\)$')[0].astype(str) + '|' +
-        scheduled_df['Subject'].str.extract(r'\((.*?)\)')[0].astype(str)
+        scheduled_df['ExtractedSubjectName'] + '|' +
+        scheduled_df['ExtractedModuleCode']
     )
+
+    # Debug: Check for mismatches
+    unmatched_verification = verification_df[~verification_df['Key'].isin(scheduled_df['Key'])]
+    if not unmatched_verification.empty:
+        st.warning(f"Warning: {len(unmatched_verification)} rows in the original data could not be matched with scheduled data. Exam Date and Time may be missing for these rows.")
+        st.write("Sample unmatched keys from original data:", unmatched_verification['Key'].head().tolist())
+        st.write("Sample keys from scheduled data:", scheduled_df['Key'].head().tolist())
 
     # Merge to get Exam Date and Time Slot
     merge_df = scheduled_df[['Key', 'Exam Date', 'Time Slot']].drop_duplicates()
@@ -904,7 +928,7 @@ def save_to_verification_excel(original_df, semester_wise_timetable):
     verification_df['Exam Time'] = verification_df['Time Slot'].combine_first(verification_df['Exam Time'])
 
     # Drop temporary columns
-    verification_df = verification_df.drop(columns=['Key', 'Exam Date_new', 'Time Slot'])
+    verification_df = verification_df.drop(columns=['Key', 'Exam Date_new', 'Time Slot'], errors='ignore')
 
     # Sort by original index to maintain order
     verification_df = verification_df.sort_index()
