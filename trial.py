@@ -382,88 +382,120 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             return 3.0
 
+    def add_page_header(pdf, main_branch_full, semester_roman, time_slot, branches):
+        pdf.add_page()
+        logo_width = 45
+        logo_x = (pdf.w - logo_width) / 2
+        pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+        pdf.set_fill_color(149, 33, 28)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Arial", 'B', 16)
+        pdf.rect(10, 30, pdf.w - 20, 14, 'F')
+        pdf.set_xy(10, 30)
+        pdf.cell(pdf.w - 20, 14,
+                 "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
+                 0, 1, 'C')
+        pdf.set_font("Arial", 'B', 15)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_xy(10, 51)
+        pdf.cell(pdf.w - 20, 8, f"{main_branch_full} - Semester {semester_roman}", 0, 1, 'C')
+        if time_slot.strip():
+            pdf.set_font("Arial", 'I', 13)
+            pdf.set_xy(10, 61)
+            pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
+        pdf.set_font("Arial", '', 12)
+        pdf.set_xy(10, 69)
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.set_y(83)
+
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
             continue
-        pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-        fixed_cols = ["Exam Date", "Time Slot"]
-        sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols]
         parts = sheet_name.split('_Sem_')
         main_branch = parts[0]
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
         semester = parts[1] if len(parts) > 1 else ""
         semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
-        exam_date_width = 30
-        time_slot_width = 40
-        table_font_size = 8
-        line_height = 8
 
-        for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
-            chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
-            cols_to_print = fixed_cols + chunk
-            chunk_df = pivot_df[cols_to_print].copy()
-            mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
-            chunk_df = chunk_df[mask].reset_index(drop=True)
-            if chunk_df.empty:
-                continue
+        # Handle normal subjects
+        if not sheet_name.endswith('_Electives'):
+            pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
+            fixed_cols = ["Exam Date", "Time Slot"]
+            sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols]
+            exam_date_width = 30
+            time_slot_width = 40
+            table_font_size = 12
+            line_height = 10
 
-            # Modify subjects to include time range if duration != 3 hours
-            for sub_branch in chunk:
-                for idx in chunk_df.index:
-                    cell_value = chunk_df.at[idx, sub_branch]
-                    if cell_value == "---":
-                        continue
-                    subjects = cell_value.split(", ")
-                    modified_subjects = []
-                    for subject in subjects:
-                        duration = extract_duration(subject)
-                        # Remove the duration suffix
-                        base_subject = re.sub(r' \[\Duration: \d+\.?\d* hrs\]', '', subject)
-                        if duration != 3:
-                            time_slot = chunk_df.at[idx, "Time Slot"]
-                            start_time = time_slot.split(" - ")[0]
-                            end_time = calculate_end_time(start_time, duration)
-                            modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
-                        else:
-                            modified_subjects.append(base_subject)
-                    # Join back the modified subjects
-                    chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
+            for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
+                chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
+                cols_to_print = fixed_cols + chunk
+                chunk_df = pivot_df[cols_to_print].copy()
+                mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
+                chunk_df = chunk_df[mask].reset_index(drop=True)
+                if chunk_df.empty:
+                    continue
 
-            pdf.add_page()
-            logo_width = 45
-            logo_x = (pdf.w - logo_width) / 2
-            pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
-            pdf.set_fill_color(149, 33, 28)
-            pdf.set_text_color(255, 255, 255)
-            pdf.set_font("Arial", 'B', 16)
-            pdf.rect(10, 30, pdf.w - 20, 14, 'F')
-            pdf.set_xy(10, 30)
-            pdf.cell(pdf.w - 20, 14,
-                     "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
-                     0, 1, 'C')
-            pdf.set_font("Arial", 'B', 15)
-            pdf.set_text_color(0, 0, 0)
-            pdf.set_xy(10, 51)
-            pdf.cell(pdf.w - 20, 8, f"{main_branch_full} - Semester {semester_roman}", 0, 1, 'C')
-            ts = chunk_df['Time Slot'].iloc[0]
-            if ts.strip():
-                pdf.set_font("Arial", 'I', 13)
-                pdf.set_xy(10, 61)
-                pdf.cell(pdf.w - 20, 6, f"Time Slot: {ts}", 0, 1, 'C')
-            pdf.set_font("Arial", '', 12)
-            pdf.set_xy(10, 69)
-            pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(chunk)}", 0, 1, 'C')
-            page_width = pdf.w - 2 * pdf.l_margin
-            remaining = page_width - (exam_date_width + time_slot_width)
-            sub_width = remaining / max(len(chunk), 1)
-            col_widths = [exam_date_width, time_slot_width] + [sub_width] * len(chunk)
-            total_w = sum(col_widths)
-            if total_w > page_width:
-                factor = page_width / total_w
-                col_widths = [w * factor for w in col_widths]
-            pdf.set_y(83)
-            pdf.set_font("Arial", size=table_font_size)
-            print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height)
+                # Modify subjects to include time range if duration != 3 hours
+                for sub_branch in chunk:
+                    for idx in chunk_df.index:
+                        cell_value = chunk_df.at[idx, sub_branch]
+                        if cell_value == "---":
+                            continue
+                        subjects = cell_value.split(", ")
+                        modified_subjects = []
+                        for subject in subjects:
+                            duration = extract_duration(subject)
+                            base_subject = re.sub(r' \[\Duration: \d+\.?\d* hrs\]', '', subject)
+                            if duration != 3:
+                                time_slot = chunk_df.at[idx, "Time Slot"]
+                                start_time = time_slot.split(" - ")[0]
+                                end_time = calculate_end_time(start_time, duration)
+                                modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
+                            else:
+                                modified_subjects.append(base_subject)
+                        chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
+
+                # Add header for normal subjects
+                time_slot = chunk_df['Time Slot'].iloc[0]
+                add_page_header(pdf, main_branch_full, semester_roman, time_slot, chunk)
+
+                # Print normal subjects table
+                page_width = pdf.w - 2 * pdf.l_margin
+                remaining = page_width - (exam_date_width + time_slot_width)
+                sub_width = remaining / max(len(chunk), 1)
+                col_widths = [exam_date_width, time_slot_width] + [sub_width] * len(chunk)
+                total_w = sum(col_widths)
+                if total_w > page_width:
+                    factor = page_width / total_w
+                    col_widths = [w * factor for w in col_widths]
+                pdf.set_font("Arial", size=table_font_size)
+                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height)
+
+        # Handle electives
+        if sheet_name.endswith('_Electives'):
+            pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
+            # Prepare elective data: one row per OE with all subjects merged
+            time_slot = pivot_df['Time Slot'].iloc[0]
+            elective_data = pivot_df.groupby('OE').agg({
+                'Exam Date': 'first',
+                'Time Slot': 'first',
+                'SubjectDisplay': lambda x: ", ".join(x)
+            }).reset_index()
+
+            # Add header for electives
+            add_page_header(pdf, main_branch_full, semester_roman, time_slot, ['All Streams'])
+
+            # Set up table for electives with adjusted font size and line height
+            exam_date_width = 30
+            time_slot_width = 40
+            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - time_slot_width
+            col_widths = [exam_date_width, time_slot_width, subject_width]
+            cols_to_print = ['Exam Date', 'Time Slot', 'SubjectDisplay']
+
+            pdf.set_font("Arial", size=12)  # Reduced font size for electives
+            print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10)  # Reduced line height
+
     pdf.output(pdf_path)
 
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
@@ -864,35 +896,59 @@ def save_to_excel(semester_wise_timetable):
         for sem, df_sem in semester_wise_timetable.items():
             for main_branch in df_sem["MainBranch"].unique():
                 df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-                has_oe = df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")
-                difficulty_str = df_mb['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                df_mb["SubjectDisplay"] = df_mb["Subject"]
-                df_mb.loc[has_oe, "SubjectDisplay"] = (
-                        df_mb.loc[has_oe, "Subject"] + " [" + df_mb.loc[has_oe, "OE"] + "]"
-                )
-                # Add Exam Duration to Excel output for reference
-                duration_suffix = df_mb.apply(
-                    lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
-                df_mb["SubjectDisplay"] = df_mb["SubjectDisplay"] + difficulty_suffix + duration_suffix
-                df_mb["Exam Date"] = pd.to_datetime(
-                    df_mb["Exam Date"], format="%d-%m-%Y", errors='coerce'
-                )
-                df_mb = df_mb.sort_values(by="Exam Date", ascending=True)
-                pivot_df = df_mb.pivot_table(
-                    index=["Exam Date", "Time Slot"],
-                    columns="SubBranch",
-                    values="SubjectDisplay",
-                    aggfunc=lambda x: ", ".join(str(i) for i in x)
-                ).fillna("---")
-                pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
-                formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
-                pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
-                roman_sem = int_to_roman(sem)
-                sheet_name = f"{main_branch}_Sem_{roman_sem}"
-                if len(sheet_name) > 31:
-                    sheet_name = sheet_name[:31]
-                pivot_df.to_excel(writer, sheet_name=sheet_name)
+                # Separate non-electives and electives
+                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+
+                # Process non-electives
+                if not df_non_elec.empty:
+                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
+                    duration_suffix = df_non_elec.apply(
+                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
+                    df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                    df_non_elec["Exam Date"] = pd.to_datetime(
+                        df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce'
+                    )
+                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                    pivot_df = df_non_elec.pivot_table(
+                        index=["Exam Date", "Time Slot"],
+                        columns="SubBranch",
+                        values="SubjectDisplay",
+                        aggfunc=lambda x: ", ".join(str(i) for i in x)
+                    ).fillna("---")
+                    pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
+                    formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
+                    pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
+                    roman_sem = int_to_roman(sem)
+                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
+                    if len(sheet_name) > 31:
+                        sheet_name = sheet_name[:31]
+                    pivot_df.to_excel(writer, sheet_name=sheet_name)
+
+                # Process electives in a separate sheet
+                if not df_elec.empty:
+                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]"
+                    duration_suffix = df_elec.apply(
+                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
+                    df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                    # Group by OE to merge subjects, ensuring no duplicates in SubjectDisplay
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                        lambda x: ", ".join(sorted(set(x)))
+                    ).reset_index()
+                    # Ensure Exam Date is in the correct string format (dd-mm-yyyy)
+                    elec_pivot['Exam Date'] = pd.to_datetime(
+                        elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
+                    ).dt.strftime("%d-%m-%Y")
+                    elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
+                    roman_sem = int_to_roman(sem)
+                    sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
+                    if len(sheet_name) > 31:
+                        sheet_name = sheet_name[:31]
+                    elec_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
 
     output.seek(0)
     return output
@@ -1328,45 +1384,54 @@ def main():
                 main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
                 df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
 
-                # Prepare SubjectDisplay with OE, Difficulty, and Duration using vectorized operations
-                has_oe = df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")
-                difficulty_str = df_mb['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                # Separate non-electives and electives for display
+                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
-                # Compute time_range_suffix for non-standard durations
-                time_range_suffix = df_mb.apply(
-                    lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-                    if row['Exam Duration'] != 3 else '', axis=1
-                )
+                # Display non-electives
+                if not df_non_elec.empty:
+                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    time_range_suffix = df_non_elec.apply(
+                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
+                        if row['Exam Duration'] != 3 else '', axis=1
+                    )
+                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + time_range_suffix + difficulty_suffix
+                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                    df_non_elec = df_non_elec.drop_duplicates(subset=["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"])
+                    pivot_df = df_non_elec.pivot_table(
+                        index=["Exam Date", "Time Slot"],
+                        columns="SubBranch",
+                        values="SubjectDisplay",
+                        aggfunc=lambda x: ", ".join(x)
+                    ).fillna("---")
+                    if not pivot_df.empty:
+                        st.markdown(f"#### {main_branch_full} - Core Subjects")
+                        formatted_pivot = pivot_df.copy()
+                        if len(formatted_pivot.index.levels) > 0:
+                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
+                                               formatted_pivot.index.levels[0]]
+                            formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
+                        st.dataframe(formatted_pivot, use_container_width=True)
 
-                # Construct SubjectDisplay
-                df_mb["SubjectDisplay"] = df_mb["Subject"]
-                df_mb.loc[has_oe, "SubjectDisplay"] = df_mb.loc[has_oe, "Subject"] + " [" + df_mb.loc[has_oe, "OE"] + "]"
-                df_mb["SubjectDisplay"] = df_mb["SubjectDisplay"] + time_range_suffix + difficulty_suffix
-
-                # Sort by Exam Date
-                df_mb["Exam Date"] = pd.to_datetime(df_mb["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                df_mb = df_mb.sort_values(by="Exam Date", ascending=True)
-
-                # Remove duplicates to prevent repetition in the pivot table
-                df_mb = df_mb.drop_duplicates(subset=["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"])
-
-                # Create pivot table with unique subjects
-                pivot_df = df_mb.pivot_table(
-                    index=["Exam Date", "Time Slot"],
-                    columns="SubBranch",
-                    values="SubjectDisplay",
-                    aggfunc=lambda x: ", ".join(x)  # Join any remaining distinct subjects
-                ).fillna("---")
-
-                if not pivot_df.empty:
-                    st.markdown(f"#### {main_branch_full}")
-                    formatted_pivot = pivot_df.copy()
-                    if len(formatted_pivot.index.levels) > 0:
-                        formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
-                                           formatted_pivot.index.levels[0]]
-                        formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
-                    st.dataframe(formatted_pivot, use_container_width=True)
+                # Display electives
+                if not df_elec.empty:
+                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    time_range_suffix = df_elec.apply(
+                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
+                        if row['Exam Duration'] != 3 else '', axis=1
+                    )
+                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
+                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                    df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                        lambda x: ", ".join(x)
+                    ).reset_index()
+                    if not elec_pivot.empty:
+                        st.markdown(f"#### {main_branch_full} - Open Electives")
+                        st.dataframe(elec_pivot, use_container_width=True)
 
     # Display footer
     st.markdown("---")
