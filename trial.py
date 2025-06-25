@@ -664,8 +664,16 @@ def read_timetable(uploaded_file):
             "Module Abbreviation": "ModuleCode",
             "Campus Name": "Campus",
             "Difficulty Score": "Difficulty",
-            "Exam Duration": "Exam Duration"
+            "Exam Duration": "Exam Duration",
+            "Student count": "StudentCount"
         })
+
+        # Check if StudentCount column exists, set default to 0 if missing
+        if "StudentCount" not in df.columns:
+            st.warning("⚠️ 'Student Count' column not found in the Excel file. Setting default value to 0.")
+            df["StudentCount"] = 0
+        else:
+            df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
 
         def convert_sem(sem):
             if pd.isna(sem):
@@ -700,8 +708,8 @@ def read_timetable(uploaded_file):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
 
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty", "Exam Duration"]
-        return df_non[cols], df_ele[cols], df
+                "Difficulty", "Exam Duration", "StudentCount"]
+        return df_non[cols], df_ele[cols], df[cols]
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
@@ -738,11 +746,69 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             current_date += timedelta(days=1)
         return working_days
 
+    def get_default_time_slot(sem):
+        if sem % 2 != 0:  # Odd semesters
+            odd_sem_position = (sem + 1) // 2
+            return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        else:  # Even semesters
+            even_sem_position = sem // 2
+            return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+
+    # Identify common module codes across semesters
+    subject_info = df_sem.groupby(['SubjectCode', 'Semester']).agg({
+        'StudentCount': 'sum',
+        'Branch': set,
+        'Subject': 'first'
+    }).reset_index()
+    subject_to_branches = df_sem.groupby('SubjectCode')['Branch'].apply(set).to_dict()
+    common_subject_codes = [sc for sc in subject_to_branches if len(subject_to_branches[sc]) > 1]
+
+    # Resolve time slot conflicts for common subjects
+    common_subject_scheduling = {}
+    for subj_code in common_subject_codes:
+        subject_data = subject_info[subject_info['SubjectCode'] == subj_code]
+        if len(subject_data) > 1:  # Common across multiple semesters
+            # Find semester with highest student count
+            max_student_sem = subject_data.loc[subject_data['StudentCount'].idxmax()]
+            chosen_sem = max_student_sem['Semester']
+            chosen_time_slot = get_default_time_slot(chosen_sem)
+            exam_day = find_next_valid_day(base_date, subject_to_branches[subj_code])
+            common_subject_scheduling[subj_code] = {
+                'exam_day': exam_day,
+                'time_slot': chosen_time_slot,
+                'semesters': subject_data['Semester'].tolist()
+            }
+            # Update subject names with chosen time slot for other semesters
+            for sem in subject_data['Semester']:
+                if sem != chosen_sem:
+                    mask = (df_sem['SubjectCode'] == subj_code) & (df_sem['Semester'] == sem)
+                    original_time_slot = get_default_time_slot(sem)
+                    if original_time_slot != chosen_time_slot:
+                        df_sem.loc[mask, 'Subject'] = df_sem.loc[mask, 'Subject'].apply(
+                            lambda x: f"{x} [{chosen_time_slot}]"
+                        )
+                    df_sem.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+                    df_sem.loc[mask, 'Time Slot'] = chosen_time_slot
+                    for branch in subject_to_branches[subj_code]:
+                        exam_days[branch].add(exam_day.date())
+        else:
+            # Single semester, use default scheduling
+            branches = subject_to_branches[subj_code]
+            exam_day = find_next_valid_day(base_date, branches)
+            time_slot = get_default_time_slot(subject_data['Semester'].iloc[0])
+            mask = (df_sem['SubjectCode'] == subj_code)
+            df_sem.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+            df_sem.loc[mask, 'Time Slot'] = time_slot
+            for branch in branches:
+                exam_days[branch].add(exam_day.date())
+
+    # Schedule remaining subjects
     if schedule_by_difficulty:
-        subject_info = df_sem.groupby('SubjectCode').agg({
+        subject_info = df_sem[df_sem['Exam Date'] == ''].groupby('SubjectCode').agg({
             'Difficulty': 'first',
             'Branch': set,
-            'Subject': 'first'
+            'Subject': 'first',
+            'Semester': 'first'
         }).reset_index()
         subject_to_difficulty = dict(zip(subject_info['SubjectCode'], subject_info['Difficulty']))
         subject_to_branches = dict(zip(subject_info['SubjectCode'], subject_info['Branch']))
@@ -750,7 +816,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
 
         common_events = [sc for sc in subject_to_branches if len(subject_to_branches[sc]) > 1]
         individual_events = [(sc, list(subject_to_branches[sc])[0]) for sc in subject_to_branches if
-                             len(subject_to_branches[sc]) == 1]
+                            len(subject_to_branches[sc]) == 1]
 
         common_easy = [sc for sc in common_events if subject_to_difficulty[sc] == 0]
         common_difficult = [sc for sc in common_events if subject_to_difficulty[sc] == 1]
@@ -805,11 +871,13 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
 
         assignments = []
         for E_C in sorted_common:
+            if E_C in common_subject_scheduling:
+                continue  # Skip already scheduled common subjects
             found = False
             for i in range(len(assignments)):
                 day_assignments = assignments[i]
                 day_date = day_assignments[0][1].date() if isinstance(day_assignments[0][1], datetime) else \
-                day_assignments[0][1]
+                    day_assignments[0][1]
                 conflicts = False
                 for _, _, branches in day_assignments:
                     if any(branch in branches for branch in subject_to_branches[E_C]):
@@ -832,7 +900,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 for i in range(len(assignments)):
                     day_assignments = assignments[i]
                     day_date = day_assignments[0][1].date() if isinstance(day_assignments[0][1], datetime) else \
-                    day_assignments[0][1]
+                        day_assignments[0][1]
                     conflicts = False
                     for _, _, branches in day_assignments:
                         if B in branches:
@@ -851,7 +919,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             for E, exam_day, branches in day_assignments:
                 subject = subject_code_to_subject[E]
                 mask = (df_sem['SubjectCode'] == E) & (df_sem['Branch'].isin(branches))
+                sem = df_sem.loc[mask, 'Semester'].iloc[0]
+                time_slot = get_default_time_slot(sem)
                 df_sem.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+                df_sem.loc[mask, 'Time Slot'] = time_slot
                 exam_day_date = exam_day.date() if isinstance(exam_day, datetime) else exam_day
                 for branch in branches:
                     exam_days[branch].add(exam_day_date)
@@ -864,32 +935,11 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 st.warning(f"⚠️ The timetable spans {total_span} exam days, exceeding the limit of 16 days.")
 
     else:
-        subject_branch_count = df_sem.groupby('SubjectCode')['Branch'].nunique()
-        common_subject_codes = subject_branch_count[subject_branch_count > 1].index.tolist()
-        common_subject_branches = {}
-        for subj_code in common_subject_codes:
-            branches = df_sem[df_sem['SubjectCode'] == subj_code]['Branch'].unique()
-            common_subject_branches[subj_code] = branches
-        common_subject_codes_sorted = sorted(common_subject_codes, key=lambda x: len(common_subject_branches[x]),
-                                             reverse=True)
-
-        for subj_code in common_subject_codes_sorted:
-            branches = common_subject_branches[subj_code]
-            exam_day = find_next_valid_day(base_date, branches)
-            df_sem.loc[
-                (df_sem['SubjectCode'] == subj_code) & (
-                    df_sem['Branch'].isin(branches)), 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            exam_day_date = exam_day.date() if isinstance(exam_day, datetime) else exam_day
-            for branch in branches:
-                exam_days[branch].add(exam_day_date)
-
         remaining_subjects = {}
         for branch in all_branches:
-            branch_df = df_sem[df_sem['Branch'] == branch]
-            scheduled_subjs = branch_df[branch_df['Exam Date'] != '']['Subject'].unique()
+            branch_df = df_sem[(df_sem['Branch'] == branch) & (df_sem['Exam Date'] == '')]
             all_subjs = branch_df['Subject'].unique()
-            remaining = [subj for subj in all_subjs if subj not in scheduled_subjs]
-            remaining_subjects[branch] = list(remaining)
+            remaining_subjects[branch] = list(all_subjs)
 
         current_day = base_date
         while any(remaining_subjects[branch] for branch in all_branches):
@@ -903,20 +953,14 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 if remaining_subjects[branch]:
                     if current_day_date not in exam_days[branch]:
                         subj = remaining_subjects[branch].pop(0)
-                        df_sem.loc[
-                            (df_sem['Branch'] == branch) & (
-                                    df_sem['Subject'] == subj), 'Exam Date'] = current_day.strftime("%d-%m-%Y")
+                        mask = (df_sem['Branch'] == branch) & (df_sem['Subject'] == subj)
+                        sem = df_sem.loc[mask, 'Semester'].iloc[0]
+                        time_slot = get_default_time_slot(sem)
+                        df_sem.loc[mask, 'Exam Date'] = current_day.strftime("%d-%m-%Y")
+                        df_sem.loc[mask, 'Time Slot'] = time_slot
                         exam_days[branch].add(current_day_date)
             current_day = current_day + timedelta(days=1)
 
-    sem = df_sem["Semester"].iloc[0]
-    if sem % 2 != 0:  # Odd semesters
-        odd_sem_position = (sem + 1) // 2
-        slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    else:  # Even semesters
-        even_sem_position = sem // 2
-        slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    df_sem['Time Slot'] = slot_str
     return df_sem
 
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
