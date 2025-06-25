@@ -386,7 +386,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         pdf.add_page()
         # Add generation date at top right
         current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
-        pdf.set_font("Arial", size=14)
+        pdf.set_font("Arial", size=8)
         text_width = pdf.get_string_width(current_date)
         x = pdf.w - 10 - text_width
         pdf.set_xy(x, 5)
@@ -417,13 +417,18 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         pdf.set_y(71)
 
     def add_page_footer(pdf):
-        # Add COE name and signature space at bottom left
-        pdf.set_font("Arial", 'B', 14)
-        pdf.set_xy(10, pdf.h - 25)
+        # Add COE name and signature space at bottom left with safe positioning
+        footer_height = 25  # Total height reserved for footer
+        current_y = pdf.get_y()
+        if current_y + footer_height > pdf.h - pdf.b_margin:
+            pdf.add_page()
+            current_y = pdf.t_margin
+        pdf.set_xy(10, pdf.h - footer_height)
+        pdf.set_font("Arial", 'B', 10)
         pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
-        pdf.line(10, pdf.h - 20, 75, pdf.h - 20)  # 50mm line
+        pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)  # 50mm line
         pdf.set_font("Arial", size=8)
-        pdf.set_xy(14, pdf.h - 14)
+        pdf.set_xy(10, pdf.h - footer_height + 7)
         pdf.cell(0, 5, "Signature", 0, 1, 'L')
 
     for sheet_name, pivot_df in df_dict.items():
