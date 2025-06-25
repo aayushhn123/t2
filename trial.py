@@ -386,7 +386,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot from DataFrame
+    # Extract time slot from the scheduled DataFrame
     if not df.empty and 'Time Slot' in df.columns:
         time_slot = df['Time Slot'].iloc[0].strip() if pd.notna(df['Time Slot'].iloc[0]) else ""
         if time_slot:
@@ -486,7 +486,7 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot from DataFrame
+    # Extract time slot from the scheduled DataFrame
     if not df.empty and 'Time Slot' in df.columns:
         time_slot = df['Time Slot'].iloc[0].strip() if pd.notna(df['Time Slot'].iloc[0]) else ""
         if time_slot:
@@ -580,7 +580,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[\Duration: \d+\.?\d* hrs\]', '', subject)
                             if duration != 3:
-                                time_slot = pivot_df.at[idx, "Time Slot"]
+                                time_slot = chunk_df.at[idx, "Time Slot"]
                                 start_time = time_slot.split(" - ")[0]
                                 end_time = calculate_end_time(start_time, duration)
                                 modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
@@ -588,10 +588,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                                 modified_subjects.append(base_subject)
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
-                # Get time slot for header
-                time_slot = chunk_df['Time Slot'].iloc[0] if 'Time Slot' in chunk_df.columns and not chunk_df['Time Slot'].empty else ""
+                # Get time slot for header from the scheduled DataFrame
+                time_slot = chunk_df['Time Slot'].iloc[0].strip() if 'Time Slot' in chunk_df.columns and pd.notna(chunk_df['Time Slot'].iloc[0]) else ""
                 header_content = {
-                    'main_branch_full': main_branch_full, 
+                    'main_branch_full': main_branch_full,
                     'semester_roman': semester_roman,
                     'time_slot': time_slot
                 }
@@ -616,9 +616,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         # Handle electives
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else ""
+            time_slot = pivot_df['Time Slot'].iloc[0].strip() if 'Time Slot' in pivot_df.columns and pd.notna(pivot_df['Time Slot'].iloc[0]) else ""
             header_content = {
-                'main_branch_full': main_branch_full, 
+                'main_branch_full': main_branch_full,
                 'semester_roman': semester_roman,
                 'time_slot': time_slot
             }
@@ -1576,22 +1576,31 @@ def main():
                         if row['Exam Duration'] != 3 else '', axis=1
                     )
                     df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
-                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                                        df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                     df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-                        lambda x: ", ".join(x)
-                    ).reset_index()
-                    if not elec_pivot.empty:
-                        st.markdown(f"#### {main_branch_full} - Open Electives")
-                        st.dataframe(elec_pivot, use_container_width=True)
+                    df_elec = df_elec.drop_duplicates(subset=["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"])
+                    pivot_df = df_elec.pivot_table(
+                        index=["Exam Date", "Time Slot"],
+                        columns="SubBranch",
+                        values="SubjectDisplay",
+                        aggfunc=lambda x: ", ".join(x)
+                    ).fillna("---")
+                    if not pivot_df.empty:
+                        st.markdown(f"#### {main_branch_full} - Elective Subjects")
+                        formatted_pivot = pivot_df.copy()
+                        if len(formatted_pivot.index.levels) > 0:
+                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in formatted_pivot.index.levels[0]]
+                            formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
+                        st.dataframe(formatted_pivot, use_container_width=True)
 
-    # Display footer
-    st.markdown("---")
-    st.markdown(""" <div class="footer">
-        <p>&copy; 2025 Mukesh Patel School of Technology Management & Engineering. All rights reserved.</p>
-        <p>Developed by xAI | Powered by Grok 3</p>
-    </div>
-    """, unsafe_allow_html=True)
+        # Display footer
+        st.markdown("---")
+        st.markdown("""
+        <div class="footer">
+            <p>© 2025 Mukesh Patel School of Technology Management & Engineering. All rights reserved.</p>
+            <p>Developed by xAI | Powered by Grok 3</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
