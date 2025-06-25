@@ -357,6 +357,7 @@ def calculate_end_time(start_time, duration_hours):
     end = start + duration
     return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
 
+
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -415,6 +416,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         pdf.set_xy(10, 65)
         pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(71)
+        # Add COE name and signature space at bottom left
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_xy(10, pdf.h - 25)
+        pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+        pdf.line(10, pdf.h - 20, 60, pdf.h - 20)  # 50mm line
+        pdf.set_font("Arial", size=8)
+        pdf.set_xy(10, pdf.h - 18)
+        pdf.cell(0, 5, "Signature", 0, 1, 'L')
 
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
@@ -508,6 +517,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10)  # Reduced line height
 
     pdf.output(pdf_path)
+
+   
 
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
