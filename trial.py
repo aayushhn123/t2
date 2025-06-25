@@ -337,6 +337,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
+
 def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None):
     if df.empty:
         return
@@ -361,7 +362,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
     
     # Add header
-    header_height = 77  # Increased to accommodate exam slot timing
+    header_height = 83  # Adjusted to accommodate new layout
     pdf.set_y(0)
     current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
     pdf.set_font("Arial", size=14)
@@ -384,19 +385,14 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    # Reverted time slot logic to use header_content
-    if header_content and 'time_slot' in header_content:
-        time_slot = header_content['time_slot'] if header_content['time_slot'] else "Not Assigned"
-        pdf.set_font("Arial", 'B', 12)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, f"Exam Slot: {time_slot}", 0, 1, 'C')
-    pdf.set_font("Arial", 'I', 10)
-    pdf.set_xy(10, 65)
-    pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+    if header_content and 'time_slot' in header_content and header_content['time_slot'].strip():
+        pdf.set_font("Arial", 'I', 13)
+        pdf.set_xy(10, 61)
+        pdf.cell(pdf.w - 20, 6, f"Time Slot: {header_content['time_slot']}", 0, 1, 'C')
     pdf.set_font("Arial", '', 12)
-    pdf.set_xy(10, 71)
+    pdf.set_xy(10, 69)
     pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-    pdf.set_y(77)
+    pdf.set_y(83)
     
     # Calculate available space
     available_height = pdf.h - pdf.t_margin - footer_height - header_height
@@ -481,19 +477,14 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    # Reverted time slot logic to use header_content
-    if header_content and 'time_slot' in header_content:
-        time_slot = header_content['time_slot'] if header_content['time_slot'] else "Not Assigned"
-        pdf.set_font("Arial", 'B', 12)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, f"Exam Slot: {time_slot}", 0, 1, 'C')
-    pdf.set_font("Arial", 'I', 10)
-    pdf.set_xy(10, 65)
-    pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+    if header_content and 'time_slot' in header_content and header_content['time_slot'].strip():
+        pdf.set_font("Arial", 'I', 13)
+        pdf.set_xy(10, 61)
+        pdf.cell(pdf.w - 20, 6, f"Time Slot: {header_content['time_slot']}", 0, 1, 'C')
     pdf.set_font("Arial", '', 12)
-    pdf.set_xy(10, 71)
+    pdf.set_xy(10, 69)
     pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-    pdf.set_y(77)
+    pdf.set_y(83)
 
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
@@ -583,6 +574,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
                 time_slot = chunk_df['Time Slot'].iloc[0] if 'Time Slot' in chunk_df.columns else ""
+                header_content['time_slot'] = time_slot
                 page_width = pdf.w - 2 * pdf.l_margin
                 remaining = page_width - exam_date_width
                 sub_width = remaining / max(len(chunk), 1)
@@ -623,6 +615,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
             
+            header_content['time_slot'] = time_slot
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, header_content=header_content, branches=['All Streams'])
 
     pdf.output(pdf_path)
