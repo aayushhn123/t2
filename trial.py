@@ -321,9 +321,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         max_lines = max(max_lines, len(lines))
 
     row_h = line_height * max_lines
-    if pdf.get_y() + row_h > pdf.page_break_trigger:
-        pdf.add_page(pdf.cur_orientation)
-
     x0, y0 = pdf.get_x(), pdf.get_y()
     if header or row_number % 2 == 1:
         pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
@@ -340,15 +337,132 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None):
     if df.empty:
         return
     setattr(pdf, '_row_counter', 0)
+    
+    # Add footer first
+    footer_height = 25
+    pdf.set_xy(10, pdf.h - footer_height)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+    pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+    pdf.set_font("Arial", size=8)
+    pdf.set_xy(10, pdf.h - footer_height + 7)
+    pdf.cell(0, 5, "Signature", 0, 1, 'L')
+    
+    # Add header
+    header_height = 71  # Approximate height from add_page_header
+    pdf.set_y(0)
+    current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
+    pdf.set_font("Arial", size=8)
+    text_width = pdf.get_string_width(current_date)
+    x = pdf.w - 10 - text_width
+    pdf.set_xy(x, 5)
+    pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+    logo_width = 45
+    logo_x = (pdf.w - logo_width) / 2
+    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+    pdf.set_fill_color(149, 33, 28)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", 'B', 16)
+    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
+    pdf.set_xy(10, 30)
+    pdf.cell(pdf.w - 20, 14,
+             "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
+             0, 1, 'C')
+    pdf.set_font("Arial", 'B', 15)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(10, 51)
+    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
+    pdf.set_font("Arial", 'I', 10)
+    pdf.set_xy(10, 59)
+    pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+    pdf.set_font("Arial", '', 12)
+    pdf.set_xy(10, 65)
+    pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+    pdf.set_y(71)
+    
+    # Calculate available space
+    available_height = pdf.h - pdf.t_margin - footer_height - header_height
+    pdf.set_font("Arial", size=12)
+    
+    # Print header row
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
+    
+    # Print data rows, checking space
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
-        if any(cell.strip() for cell in row):
-            print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
+        if not any(cell.strip() for cell in row):
+            continue
+            
+        # Estimate row height
+        wrapped_cells = []
+        max_lines = 0
+        for i, cell_text in enumerate(row):
+            text = str(cell_text) if cell_text is not None else ""
+            avail_w = col_widths[i] - 2 * 2
+            lines = wrap_text(pdf, text, avail_w)
+            wrapped_cells.append(lines)
+            max_lines = max(max_lines, len(lines))
+        row_h = line_height * max_lines
+        
+        # Check if row fits
+        if pdf.get_y() + row_h > pdf.h - footer_height:
+            # Add footer to current page
+            pdf.set_xy(10, pdf.h - footer_height)
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+            pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+            pdf.set_font("Arial", size=8)
+            pdf.set_xy(10, pdf.h - footer_height + 7)
+            pdf.cell(0, 5, "Signature", 0, 1, 'L')
+            
+            # Start new page
+            pdf.add_page()
+            # Add footer to new page
+            pdf.set_xy(10, pdf.h - footer_height)
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+            pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+            pdf.set_font("Arial", size=8)
+            pdf.set_xy(10, pdf.h - footer_height + 7)
+            pdf.cell(0, 5, "Signature", 0, 1, 'L')
+            
+            # Add header to new page
+            pdf.set_y(0)
+            pdf.set_font("Arial", size=8)
+            text_width = pdf.get_string_width(current_date)
+            x = pdf.w - 10 - text_width
+            pdf.set_xy(x, 5)
+            pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+            pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+            pdf.set_fill_color(149, 33, 28)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Arial", 'B', 16)
+            pdf.rect(10, 30, pdf.w - 20, 14, 'F')
+            pdf.set_xy(10, 30)
+            pdf.cell(pdf.w - 20, 14,
+                     "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
+                     0, 1, 'C')
+            pdf.set_font("Arial", 'B', 15)
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_xy(10, 51)
+            pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
+            pdf.set_font("Arial", 'I', 10)
+            pdf.set_xy(10, 59)
+            pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+            pdf.set_font("Arial", '', 12)
+            pdf.set_xy(10, 65)
+            pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+            pdf.set_y(71)
+            
+            # Reprint header row
+            pdf.set_font("Arial", size=12)
+            print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
+        
+        print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
@@ -359,7 +473,7 @@ def calculate_end_time(start_time, duration_hours):
 
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=False, margin=15)
     df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
 
     def int_to_roman(num):
@@ -382,55 +496,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             return 3.0
 
-    def add_page_header(pdf, main_branch_full, semester_roman, time_slot, branches):
-        pdf.add_page()
-        # Add generation date at top right
-        current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
-        pdf.set_font("Arial", size=8)
-        text_width = pdf.get_string_width(current_date)
-        x = pdf.w - 10 - text_width
-        pdf.set_xy(x, 5)
-        pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
-        # Logo and other header elements
-        logo_width = 45
-        logo_x = (pdf.w - logo_width) / 2
-        pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
-        pdf.set_fill_color(149, 33, 28)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font("Arial", 'B', 16)
-        pdf.rect(10, 30, pdf.w - 20, 14, 'F')
-        pdf.set_xy(10, 30)
-        pdf.cell(pdf.w - 20, 14,
-                 "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
-                 0, 1, 'C')
-        pdf.set_font("Arial", 'B', 15)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_xy(10, 51)
-        pdf.cell(pdf.w - 20, 8, f"{main_branch_full} - Semester {semester_roman}", 0, 1, 'C')
-        # Add note below branch information
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(71)
-
-    def add_page_footer(pdf):
-        # Add COE name and signature space at bottom left with safe positioning
-        footer_height = 25  # Total height reserved for footer
-        current_y = pdf.get_y()
-        if current_y + footer_height > pdf.h - pdf.b_margin:
-            pdf.add_page()
-            current_y = pdf.t_margin
-        pdf.set_xy(10, pdf.h - footer_height)
-        pdf.set_font("Arial", 'B', 10)
-        pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
-        pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)  # 50mm line
-        pdf.set_font("Arial", size=8)
-        pdf.set_xy(10, pdf.h - footer_height + 7)
-        pdf.cell(0, 5, "Signature", 0, 1, 'L')
-
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
             continue
@@ -439,13 +504,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
         semester = parts[1] if len(parts) > 1 else ""
         semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
+        header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
 
         # Handle normal subjects
         if not sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            fixed_cols = ["Exam Date"]  # Removed Time Slot from fixed columns
+            fixed_cols = ["Exam Date"]
             sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols and c != "Time Slot"]
-            exam_date_width = 60  # Increased width to accommodate longer date format
+            exam_date_width = 60
             table_font_size = 12
             line_height = 10
 
@@ -481,11 +547,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                                 modified_subjects.append(base_subject)
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
-                # Add header for normal subjects
                 time_slot = chunk_df['Time Slot'].iloc[0] if 'Time Slot' in chunk_df.columns else ""
-                add_page_header(pdf, main_branch_full, semester_roman, time_slot, chunk)
-
-                # Print normal subjects table
                 page_width = pdf.w - 2 * pdf.l_margin
                 remaining = page_width - exam_date_width
                 sub_width = remaining / max(len(chunk), 1)
@@ -494,15 +556,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 if total_w > page_width:
                     factor = page_width / total_w
                     col_widths = [w * factor for w in col_widths]
-                pdf.set_font("Arial", size=table_font_size)
-                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height)
-                # Add footer after table
-                add_page_footer(pdf)
+                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, header_content=header_content, branches=chunk)
 
         # Handle electives
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            # Prepare elective data: one row per OE with all subjects merged
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns else ""
             elective_data = pivot_df.groupby('OE').agg({
                 'Exam Date': 'first',
@@ -512,19 +570,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             # Convert Exam Date to desired format
             elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-            # Add header for electives
-            add_page_header(pdf, main_branch_full, semester_roman, time_slot, ['All Streams'])
-
-            # Set up table for electives with adjusted font size and line height
-            exam_date_width = 60  # Increased width for longer date format
+            exam_date_width = 60
             subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width
             col_widths = [exam_date_width, subject_width]
             cols_to_print = ['Exam Date', 'SubjectDisplay']
 
-            pdf.set_font("Arial", size=12)  # Reduced font size for electives
-            print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10)  # Reduced line height
-            # Add footer after table
-            add_page_footer(pdf)
+            print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, header_content=header_content, branches=['All Streams'])
 
     pdf.output(pdf_path)
 
@@ -881,7 +932,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
         day = day + timedelta(days=1)
 
     for oe in individual_oe:
-        day = advance_to_valid_next(day)
+        day = advance_to_next_valid(day)
         schedule_oe_date[oe] = day
         day = day + timedelta(days=1)
 
