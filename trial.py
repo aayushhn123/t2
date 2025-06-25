@@ -435,19 +435,19 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
-'''
+
 def add_footer_with_page_number(pdf, footer_height):
     """Add footer with signature and page number"""
     pdf.set_xy(10, pdf.h - footer_height)
-    pdf.set_font("Arial", 'B', 10)
+    pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
     pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
-    pdf.set_font("Arial", size=8)
+    pdf.set_font("Arial", size=13)
     pdf.set_xy(10, pdf.h - footer_height + 7)
     pdf.cell(0, 5, "Signature", 0, 1, 'L')
     
     # Add page numbers in bottom right
-    pdf.set_font("Arial", size=8)
+    pdf.set_font("Arial", size=14)
     pdf.set_text_color(0, 0, 0)
     page_text = f"{pdf.page_no()} of {{nb}}"
     text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))  # Estimate width
@@ -482,7 +482,7 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 65)
     pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
     pdf.set_y(71)
-'''
+
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
     start = datetime.strptime(start_time, "%I:%M %p")
