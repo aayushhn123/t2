@@ -1555,7 +1555,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-  for sem, df_sem in st.session_state.timetable_data.items():
+for sem, df_sem in st.session_state.timetable_data.items():
     st.markdown(f"### 📚 Semester {sem}")
 
     for main_branch in df_sem["MainBranch"].unique():
