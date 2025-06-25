@@ -433,7 +433,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             add_footer_with_page_number(pdf, footer_height)
             
             # Add header to new page
-            add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches)
+            add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, df)
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
@@ -460,7 +460,7 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches):
+def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, df):
     """Add header to a new page"""
     pdf.set_y(0)
     pdf.set_font("Arial", size=14)
