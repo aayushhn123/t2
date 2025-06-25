@@ -1587,4 +1587,11 @@ def main():
 
     # Display footer
     st.markdown("---")
-    st.markdown("""
+    st.markdown(""" <div class="footer">
+        <p>&copy; 2025 Mukesh Patel School of Technology Management & Engineering. All rights reserved.</p>
+        <p>Developed by xAI | Powered by Grok 3</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
