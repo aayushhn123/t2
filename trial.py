@@ -1556,12 +1556,34 @@ def main():
         """, unsafe_allow_html=True)
 
         for sem, df_sem in st.session_state.timetable_data.items():
-            st.markdown(f"### 📚 Semester {sem}")
+    st.markdown(f"### 📚 Semester {sem}")
 
-            for main_branch in df_sem["MainBranch"].unique():
-                main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
-                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+    for main_branch in df_sem["MainBranch"].unique():
+        main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+        df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
 
-                # Separate non-electives and electives for display
-                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                df_elec = df_mb[df_mb['OE'].notna() & (df
+        # Separate non-electives and electives for display
+        df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+        df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+
+        # Display non-elective timetable
+        if not df_non_elec.empty:
+            st.markdown(f"#### 🎓 {main_branch_full} - Non-Electives")
+            st.dataframe(df_non_elec[['Exam Date', 'Time Slot', 'SubBranch', 'Subject', 'Difficulty']], 
+                        hide_index=True, use_container_width=True)
+
+        # Display elective timetable
+        if not df_elec.empty:
+            st.markdown(f"#### 🎓 {main_branch_full} - Electives")
+            st.dataframe(df_elec[['Exam Date', 'Time Slot', 'OE', 'Subject', 'Difficulty']], 
+                        hide_index=True, use_container_width=True)
+
+# Footer
+st.markdown("""
+<div class="footer">
+    <p>Generated on: Wednesday, June 25, 2025, 01:11 PM IST | © 2025 xAI</p>
+</div>
+""", unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
