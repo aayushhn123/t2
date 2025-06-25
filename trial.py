@@ -342,7 +342,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         return
     setattr(pdf, '_row_counter', 0)
 
-    '''
     # Add footer first
     footer_height = 25
     pdf.set_xy(10, pdf.h - footer_height)
@@ -392,7 +391,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 65)
     pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
     pdf.set_y(71)
-    '''
+
     # Calculate available space
     available_height = pdf.h - pdf.t_margin - footer_height - header_height
     pdf.set_font("Arial", size=12)
