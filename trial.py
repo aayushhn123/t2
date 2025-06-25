@@ -384,6 +384,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
     def add_page_header(pdf, main_branch_full, semester_roman, time_slot, branches):
         pdf.add_page()
+        # Add generation date at top right
+        current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
+        pdf.set_font("Arial", size=8)
+        text_width = pdf.get_string_width(current_date)
+        x = pdf.w - 10 - text_width
+        pdf.set_xy(x, 5)
+        pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+        # Logo and other header elements
         logo_width = 45
         logo_x = (pdf.w - logo_width) / 2
         pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
@@ -399,14 +407,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 51)
         pdf.cell(pdf.w - 20, 8, f"{main_branch_full} - Semester {semester_roman}", 0, 1, 'C')
-        if time_slot.strip():
-            pdf.set_font("Arial", 'I', 13)
-            pdf.set_xy(10, 61)
-            pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
+        # Add note below branch information
+        pdf.set_font("Arial", 'I', 10)
+        pdf.set_xy(10, 59)
+        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 69)
+        pdf.set_xy(10, 65)
         pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(83)
+        pdf.set_y(71)
 
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
@@ -420,10 +428,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         # Handle normal subjects
         if not sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            fixed_cols = ["Exam Date", "Time Slot"]
-            sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols]
-            exam_date_width = 30
-            time_slot_width = 40
+            fixed_cols = ["Exam Date"]  # Removed Time Slot from fixed columns
+            sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols and c != "Time Slot"]
+            exam_date_width = 60  # Increased width to accommodate longer date format
             table_font_size = 12
             line_height = 10
 
@@ -435,6 +442,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 chunk_df = chunk_df[mask].reset_index(drop=True)
                 if chunk_df.empty:
                     continue
+
+                # Convert Exam Date to desired format
+                chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
                 # Modify subjects to include time range if duration != 3 hours
                 for sub_branch in chunk:
@@ -448,7 +458,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[\Duration: \d+\.?\d* hrs\]', '', subject)
                             if duration != 3:
-                                time_slot = chunk_df.at[idx, "Time Slot"]
+                                time_slot = pivot_df.at[idx, "Time Slot"]
                                 start_time = time_slot.split(" - ")[0]
                                 end_time = calculate_end_time(start_time, duration)
                                 modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
@@ -457,14 +467,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
                 # Add header for normal subjects
-                time_slot = chunk_df['Time Slot'].iloc[0]
+                time_slot = chunk_df['Time Slot'].iloc[0] if 'Time Slot' in chunk_df.columns else ""
                 add_page_header(pdf, main_branch_full, semester_roman, time_slot, chunk)
 
                 # Print normal subjects table
                 page_width = pdf.w - 2 * pdf.l_margin
-                remaining = page_width - (exam_date_width + time_slot_width)
+                remaining = page_width - exam_date_width
                 sub_width = remaining / max(len(chunk), 1)
-                col_widths = [exam_date_width, time_slot_width] + [sub_width] * len(chunk)
+                col_widths = [exam_date_width] + [sub_width] * len(chunk)
                 total_w = sum(col_widths)
                 if total_w > page_width:
                     factor = page_width / total_w
@@ -476,22 +486,23 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             # Prepare elective data: one row per OE with all subjects merged
-            time_slot = pivot_df['Time Slot'].iloc[0]
+            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns else ""
             elective_data = pivot_df.groupby('OE').agg({
                 'Exam Date': 'first',
-                'Time Slot': 'first',
                 'SubjectDisplay': lambda x: ", ".join(x)
             }).reset_index()
+
+            # Convert Exam Date to desired format
+            elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
             # Add header for electives
             add_page_header(pdf, main_branch_full, semester_roman, time_slot, ['All Streams'])
 
             # Set up table for electives with adjusted font size and line height
-            exam_date_width = 30
-            time_slot_width = 40
-            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - time_slot_width
-            col_widths = [exam_date_width, time_slot_width, subject_width]
-            cols_to_print = ['Exam Date', 'Time Slot', 'SubjectDisplay']
+            exam_date_width = 60  # Increased width for longer date format
+            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width
+            col_widths = [exam_date_width, subject_width]
+            cols_to_print = ['Exam Date', 'SubjectDisplay']
 
             pdf.set_font("Arial", size=12)  # Reduced font size for electives
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10)  # Reduced line height
@@ -967,7 +978,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     verification_df["Exam Date"] = ""
     verification_df["Exam Time"] = ""
-    verification_df["Is Common"] = ""
 
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
     scheduled_data["ModuleCode"] = scheduled_data["Subject"].str.extract(r'\((.*?)\)', expand=False)
@@ -990,9 +1000,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
-            # Check if the subject is common (appears in multiple branches)
-            branch_count = len(scheduled_data[scheduled_data["ModuleCode"] == module_code]["Branch"].unique())
-            verification_df.at[idx, "Is Common"] = "YES" if branch_count > 1 else "NO"
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
