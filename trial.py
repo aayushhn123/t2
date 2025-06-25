@@ -386,13 +386,11 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Extract time slot from the scheduled DataFrame
-    if not df.empty and 'Time Slot' in df.columns:
-        time_slot = df['Time Slot'].iloc[0].strip() if pd.notna(df['Time Slot'].iloc[0]) else ""
-        if time_slot:
-            pdf.set_font("Arial", 'I', 13)
-            pdf.set_xy(10, 61)
-            pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
+    # Add time slot from header_content, ensuring it's set after scheduling
+    if header_content and 'time_slot' in header_content and header_content['time_slot'].strip():
+        pdf.set_font("Arial", 'I', 13)
+        pdf.set_xy(10, 61)
+        pdf.cell(pdf.w - 20, 6, f"Time Slot: {header_content['time_slot']}", 0, 1, 'C')
     
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
@@ -487,12 +485,10 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
     # Extract time slot from the scheduled DataFrame
-    if not df.empty and 'Time Slot' in df.columns:
-        time_slot = df['Time Slot'].iloc[0].strip() if pd.notna(df['Time Slot'].iloc[0]) else ""
-        if time_slot:
-            pdf.set_font("Arial", 'I', 13)
-            pdf.set_xy(10, 61)
-            pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
+    if header_content and 'time_slot' in header_content and header_content['time_slot'].strip():
+        pdf.set_font("Arial", 'I', 13)
+        pdf.set_xy(10, 61)
+        pdf.cell(pdf.w - 20, 6, f"Time Slot: {header_content['time_slot']}", 0, 1, 'C')
         
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
@@ -588,7 +584,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                                 modified_subjects.append(base_subject)
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
-                # Get time slot for header from the scheduled DataFrame
+                # Get time slot from the scheduled DataFrame for header
                 time_slot = chunk_df['Time Slot'].iloc[0].strip() if 'Time Slot' in chunk_df.columns and pd.notna(chunk_df['Time Slot'].iloc[0]) else ""
                 header_content = {
                     'main_branch_full': main_branch_full,
