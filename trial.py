@@ -563,7 +563,7 @@ def read_timetable(uploaded_file):
         df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
         df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
         df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
-        df = df[df["Campus"].str.strip() == "Mumbai"]
+        #df = df[df["Campus"].str.strip() == "Mumbai"] # Campus filter
 
         comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
         df["Difficulty"] = None
