@@ -778,124 +778,91 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 'time_slot': chosen_time_slot,
                 'semesters': subject_data['Semester'].tolist()
             }
-            # Update subject names with chosen time slot for other semesters
+            # Update all semesters with the chosen date and time slot
             for sem in subject_data['Semester']:
-                if sem != chosen_sem:
-                    mask = (df_sem['SubjectCode'] == subj_code) & (df_sem['Semester'] == sem)
-                    original_time_slot = get_default_time_slot(sem)
-                    if original_time_slot != chosen_time_slot:
-                        df_sem.loc[mask, 'Subject'] = df_sem.loc[mask, 'Subject'].apply(
-                            lambda x: f"{x} [{chosen_time_slot}]"
-                        )
-                    df_sem.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-                    df_sem.loc[mask, 'Time Slot'] = chosen_time_slot
-                    for branch in subject_to_branches[subj_code]:
-                        exam_days[branch].add(exam_day.date())
-        else:
-            # Single semester, use default scheduling
-            branches = subject_to_branches[subj_code]
-            exam_day = find_next_valid_day(base_date, branches)
-            time_slot = get_default_time_slot(subject_data['Semester'].iloc[0])
-            mask = (df_sem['SubjectCode'] == subj_code)
-            df_sem.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            df_sem.loc[mask, 'Time Slot'] = time_slot
-            for branch in branches:
-                exam_days[branch].add(exam_day.date())
+                mask = (df_sem['SubjectCode'] == subj_code) & (df_sem['Semester'] == sem)
+                original_time_slot = get_default_time_slot(sem)
+                if original_time_slot != chosen_time_slot:
+                    df_sem.loc[mask, 'Subject'] = df_sem.loc[mask, 'Subject'].apply(
+                        lambda x: f"{x} [{chosen_time_slot}]"
+                    )
+                df_sem.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+                df_sem.loc[mask, 'Time Slot'] = chosen_time_slot
+                for branch in subject_to_branches[subj_code]:
+                    exam_days[branch].add(exam_day.date())
 
-    # Schedule remaining subjects
+    # Schedule remaining subjects (non-common or difficulty-based)
     if schedule_by_difficulty:
-        subject_info = df_sem[df_sem['Exam Date'] == ''].groupby('SubjectCode').agg({
-            'Difficulty': 'first',
-            'Branch': set,
-            'Subject': 'first',
-            'Semester': 'first'
-        }).reset_index()
-        subject_to_difficulty = dict(zip(subject_info['SubjectCode'], subject_info['Difficulty']))
-        subject_to_branches = dict(zip(subject_info['SubjectCode'], subject_info['Branch']))
-        subject_code_to_subject = dict(zip(subject_info['SubjectCode'], subject_info['Subject']))
+        # Filter out subjects already scheduled as common
+        remaining_df = df_sem[df_sem['Exam Date'] == ''].copy()
+        if not remaining_df.empty:
+            subject_info = remaining_df.groupby('SubjectCode').agg({
+                'Difficulty': 'first',
+                'Branch': set,
+                'Subject': 'first',
+                'Semester': 'first'
+            }).reset_index()
+            subject_to_difficulty = dict(zip(subject_info['SubjectCode'], subject_info['Difficulty']))
+            subject_to_branches = dict(zip(subject_info['SubjectCode'], subject_info['Branch']))
+            subject_code_to_subject = dict(zip(subject_info['SubjectCode'], subject_info['Subject']))
 
-        common_events = [sc for sc in subject_to_branches if len(subject_to_branches[sc]) > 1]
-        individual_events = [(sc, list(subject_to_branches[sc])[0]) for sc in subject_to_branches if
-                            len(subject_to_branches[sc]) == 1]
+            common_events = [sc for sc in subject_to_branches if len(subject_to_branches[sc]) > 1]
+            individual_events = [(sc, list(subject_to_branches[sc])[0]) for sc in subject_to_branches if
+                                len(subject_to_branches[sc]) == 1]
 
-        common_easy = [sc for sc in common_events if subject_to_difficulty[sc] == 0]
-        common_difficult = [sc for sc in common_events if subject_to_difficulty[sc] == 1]
-        common_neutral = [sc for sc in common_events if subject_to_difficulty[sc] is None]
-        sorted_common = []
-        while common_easy or common_difficult:
-            if common_easy:
-                sorted_common.append(common_easy.pop(0))
-            if common_difficult:
-                sorted_common.append(common_difficult.pop(0))
-        sorted_common += common_neutral
+            common_easy = [sc for sc in common_events if subject_to_difficulty[sc] == 0]
+            common_difficult = [sc for sc in common_events if subject_to_difficulty[sc] == 1]
+            common_neutral = [sc for sc in common_events if subject_to_difficulty[sc] is None]
+            sorted_common = []
+            while common_easy or common_difficult:
+                if common_easy:
+                    sorted_common.append(common_easy.pop(0))
+                if common_difficult:
+                    sorted_common.append(common_difficult.pop(0))
+            sorted_common += common_neutral
 
-        individual_per_branch = defaultdict(list)
-        for subj_code, B in individual_events:
-            individual_per_branch[B].append((subj_code, subject_to_difficulty[subj_code]))
+            individual_per_branch = defaultdict(list)
+            for subj_code, B in individual_events:
+                individual_per_branch[B].append((subj_code, subject_to_difficulty[subj_code]))
 
-        for B in individual_per_branch:
-            subjects = individual_per_branch[B]
-            easy = [s[0] for s in subjects if s[1] == 0]
-            difficult = [s[0] for s in subjects if s[1] == 1]
-            neutral = [s[0] for s in subjects if s[1] is None]
-            sorted_individual_B = []
-            last_difficulty = None
-            while easy or difficult or neutral:
-                if last_difficulty is None or last_difficulty == 1:
-                    if easy:
-                        s = easy.pop(0)
-                        sorted_individual_B.append(s)
-                        last_difficulty = 0
-                    elif neutral:
-                        s = neutral.pop(0)
-                        sorted_individual_B.append(s)
-                        last_difficulty = None
-                    elif difficult:
-                        s = difficult.pop(0)
-                        sorted_individual_B.append(s)
-                        last_difficulty = 1
-                else:
-                    if difficult:
-                        s = difficult.pop(0)
-                        sorted_individual_B.append(s)
-                        last_difficulty = 1
-                    elif neutral:
-                        s = neutral.pop(0)
-                        sorted_individual_B.append(s)
-                        last_difficulty = None
-                    elif easy:
-                        s = easy.pop(0)
-                        sorted_individual_B.append(s)
-                        last_difficulty = 0
-            individual_per_branch[B] = sorted_individual_B
+            for B in individual_per_branch:
+                subjects = individual_per_branch[B]
+                easy = [s[0] for s in subjects if s[1] == 0]
+                difficult = [s[0] for s in subjects if s[1] == 1]
+                neutral = [s[0] for s in subjects if s[1] is None]
+                sorted_individual_B = []
+                last_difficulty = None
+                while easy or difficult or neutral:
+                    if last_difficulty is None or last_difficulty == 1:
+                        if easy:
+                            s = easy.pop(0)
+                            sorted_individual_B.append(s)
+                            last_difficulty = 0
+                        elif neutral:
+                            s = neutral.pop(0)
+                            sorted_individual_B.append(s)
+                            last_difficulty = None
+                        elif difficult:
+                            s = difficult.pop(0)
+                            sorted_individual_B.append(s)
+                            last_difficulty = 1
+                    else:
+                        if difficult:
+                            s = difficult.pop(0)
+                            sorted_individual_B.append(s)
+                            last_difficulty = 1
+                        elif neutral:
+                            s = neutral.pop(0)
+                            sorted_individual_B.append(s)
+                            last_difficulty = None
+                        elif easy:
+                            s = easy.pop(0)
+                            sorted_individual_B.append(s)
+                            last_difficulty = 0
+                individual_per_branch[B] = sorted_individual_B
 
-        assignments = []
-        for E_C in sorted_common:
-            if E_C in common_subject_scheduling:
-                continue  # Skip already scheduled common subjects
-            found = False
-            for i in range(len(assignments)):
-                day_assignments = assignments[i]
-                day_date = day_assignments[0][1].date() if isinstance(day_assignments[0][1], datetime) else \
-                    day_assignments[0][1]
-                conflicts = False
-                for _, _, branches in day_assignments:
-                    if any(branch in branches for branch in subject_to_branches[E_C]):
-                        conflicts = True
-                        break
-                if not conflicts:
-                    day_assignments.append((E_C, day_assignments[0][1], subject_to_branches[E_C]))
-                    found = True
-                    break
-            if not found:
-                day = find_next_valid_day(base_date if not assignments else assignments[-1][0][1] + timedelta(days=1),
-                                          subject_to_branches[E_C])
-                assignments.append([(E_C, day, subject_to_branches[E_C])])
-
-        for B in all_branches:
-            if B not in individual_per_branch:
-                continue
-            for E_I in individual_per_branch[B]:
+            assignments = []
+            for E_C in sorted_common:
                 found = False
                 for i in range(len(assignments)):
                     day_assignments = assignments[i]
@@ -903,65 +870,96 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                         day_assignments[0][1]
                     conflicts = False
                     for _, _, branches in day_assignments:
-                        if B in branches:
+                        if any(branch in branches for branch in subject_to_branches[E_C]):
                             conflicts = True
                             break
                     if not conflicts:
-                        day_assignments.append((E_I, day_assignments[0][1], {B}))
+                        day_assignments.append((E_C, day_assignments[0][1], subject_to_branches[E_C]))
                         found = True
                         break
                 if not found:
-                    day = find_next_valid_day(
-                        base_date if not assignments else assignments[-1][0][1] + timedelta(days=1), {B})
-                    assignments.append([(E_I, day, {B})])
+                    day = find_next_valid_day(base_date if not assignments else assignments[-1][0][1] + timedelta(days=1),
+                                              subject_to_branches[E_C])
+                    assignments.append([(E_C, day, subject_to_branches[E_C])])
 
-        for day_assignments in assignments:
-            for E, exam_day, branches in day_assignments:
-                subject = subject_code_to_subject[E]
-                mask = (df_sem['SubjectCode'] == E) & (df_sem['Branch'].isin(branches))
-                sem = df_sem.loc[mask, 'Semester'].iloc[0]
-                time_slot = get_default_time_slot(sem)
-                df_sem.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-                df_sem.loc[mask, 'Time Slot'] = time_slot
-                exam_day_date = exam_day.date() if isinstance(exam_day, datetime) else exam_day
-                for branch in branches:
-                    exam_days[branch].add(exam_day_date)
+            for B in all_branches:
+                if B not in individual_per_branch:
+                    continue
+                for E_I in individual_per_branch[B]:
+                    found = False
+                    for i in range(len(assignments)):
+                        day_assignments = assignments[i]
+                        day_date = day_assignments[0][1].date() if isinstance(day_assignments[0][1], datetime) else \
+                            day_assignments[0][1]
+                        conflicts = False
+                        for _, _, branches in day_assignments:
+                            if B in branches:
+                                conflicts = True
+                                break
+                        if not conflicts:
+                            day_assignments.append((E_I, day_assignments[0][1], {B}))
+                            found = True
+                            break
+                    if not found:
+                        day = find_next_valid_day(
+                            base_date if not assignments else assignments[-1][0][1] + timedelta(days=1), {B})
+                        assignments.append([(E_I, day, {B})])
 
-        if assignments:
-            first_exam = assignments[0][0][1]
-            last_exam_date = assignments[-1][0][1]
-            total_span = count_working_days(first_exam, last_exam_date, holidays_dates)
-            if total_span > 16:
-                st.warning(f"⚠️ The timetable spans {total_span} exam days, exceeding the limit of 16 days.")
+            for day_assignments in assignments:
+                for E, exam_day, branches in day_assignments:
+                    subject = subject_code_to_subject[E]
+                    mask = (df_sem['SubjectCode'] == E) & (df_sem['Branch'].isin(branches))
+                    sem = df_sem.loc[mask, 'Semester'].iloc[0]
+                    time_slot = get_default_time_slot(sem)
+                    df_sem.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+                    df_sem.loc[mask, 'Time Slot'] = time_slot
+                    exam_day_date = exam_day.date() if isinstance(exam_day, datetime) else exam_day
+                    for branch in branches:
+                        exam_days[branch].add(exam_day_date)
+
+            if assignments:
+                first_exam = assignments[0][0][1]
+                last_exam_date = assignments[-1][0][1]
+                total_span = count_working_days(first_exam, last_exam_date, holidays_dates)
+                if total_span > 16:
+                    st.warning(f"⚠️ The timetable spans {total_span} exam days, exceeding the limit of 16 days.")
 
     else:
-        remaining_subjects = {}
-        for branch in all_branches:
-            branch_df = df_sem[(df_sem['Branch'] == branch) & (df_sem['Exam Date'] == '')]
-            all_subjs = branch_df['Subject'].unique()
-            remaining_subjects[branch] = list(all_subjs)
+        # Schedule remaining subjects (non-common)
+        remaining_df = df_sem[df_sem['Exam Date'] == ''].copy()
+        if not remaining_df.empty:
+            remaining_subjects = {}
+            for branch in all_branches:
+                branch_df = remaining_df[remaining_df['Branch'] == branch]
+                all_subjs = branch_df['Subject'].unique()
+                remaining_subjects[branch] = list(all_subjs)
 
-        current_day = base_date
-        while any(remaining_subjects[branch] for branch in all_branches):
-            current_day_date = current_day.date() if isinstance(current_day, datetime) else current_day
-            if current_day.weekday() == 6 or current_day_date in holidays_dates:
+            current_day = base_date
+            while any(remaining_subjects[branch] for branch in all_branches):
+                current_day_date = current_day.date() if isinstance(current_day, datetime) else current_day
+                if current_day.weekday() == 6 or current_day_date in holidays_dates:
+                    current_day = current_day + timedelta(days=1)
+                    continue
+                branch_list = list(all_branches)
+                random.shuffle(branch_list)
+                for branch in branch_list:
+                    if remaining_subjects[branch]:
+                        if current_day_date not in exam_days[branch]:
+                            subj = remaining_subjects[branch].pop(0)
+                            mask = (df_sem['Branch'] == branch) & (df_sem['Subject'] == subj)
+                            sem = df_sem.loc[mask, 'Semester'].iloc[0]
+                            time_slot = get_default_time_slot(sem)
+                            df_sem.loc[mask, 'Exam Date'] = current_day.strftime("%d-%m-%Y")
+                            df_sem.loc[mask, 'Time Slot'] = time_slot
+                            exam_days[branch].add(current_day_date)
                 current_day = current_day + timedelta(days=1)
-                continue
-            branch_list = list(all_branches)
-            random.shuffle(branch_list)
-            for branch in branch_list:
-                if remaining_subjects[branch]:
-                    if current_day_date not in exam_days[branch]:
-                        subj = remaining_subjects[branch].pop(0)
-                        mask = (df_sem['Branch'] == branch) & (df_sem['Subject'] == subj)
-                        sem = df_sem.loc[mask, 'Semester'].iloc[0]
-                        time_slot = get_default_time_slot(sem)
-                        df_sem.loc[mask, 'Exam Date'] = current_day.strftime("%d-%m-%Y")
-                        df_sem.loc[mask, 'Time Slot'] = time_slot
-                        exam_days[branch].add(current_day_date)
-            current_day = current_day + timedelta(days=1)
 
     return df_sem
+
+
+
+
+
 
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     final_list = []
