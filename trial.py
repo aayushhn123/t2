@@ -345,15 +345,15 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     # Add footer first
     footer_height = 25
     pdf.set_xy(10, pdf.h - footer_height)
-    pdf.set_font("Arial", 'B', 10)
+    pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
     pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
-    pdf.set_font("Arial", size=8)
+    pdf.set_font("Arial", size=13)
     pdf.set_xy(10, pdf.h - footer_height + 7)
     pdf.cell(0, 5, "Signature", 0, 1, 'L')
     
     # Add page numbers in bottom right
-    pdf.set_font("Arial", size=8)
+    pdf.set_font("Arial", size=14)
     pdf.set_text_color(0, 0, 0)
     page_text = f"{pdf.page_no()} of {{nb}}"
     text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))  # Estimate width
