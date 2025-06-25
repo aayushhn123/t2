@@ -342,10 +342,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         return
     setattr(pdf, '_row_counter', 0)
     
-    # Ensure a page is open
-    if not pdf.page_no:
-        pdf.add_page()
-    
     # Add footer first
     footer_height = 25
     pdf.set_xy(10, pdf.h - footer_height)
@@ -560,6 +556,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 if total_w > page_width:
                     factor = page_width / total_w
                     col_widths = [w * factor for w in col_widths]
+                # Add page before printing the table
+                pdf.add_page()
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, header_content=header_content, branches=chunk)
 
         # Handle electives
@@ -578,7 +576,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width
             col_widths = [exam_date_width, subject_width]
             cols_to_print = ['Exam Date', 'SubjectDisplay']
-
+            # Add page before printing the electives table
+            pdf.add_page()
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, header_content=header_content, branches=['All Streams'])
 
     pdf.output(pdf_path)
