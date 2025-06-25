@@ -274,50 +274,34 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 
 # Cache for text wrapping results
 wrap_text_cache = {}
+
 # PDF generation utilities
 def wrap_text(pdf, text, col_width):
-    """Wrap text to fit within column width with caching"""
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
         return wrap_text_cache[cache_key]
-    
-    if not text or text.strip() == "":
-        wrap_text_cache[cache_key] = [""]
-        return [""]
-    
-    words = str(text).split()
+    words = text.split()
     lines = []
     current_line = ""
-    
     for word in words:
         test_line = word if not current_line else current_line + " " + word
         if pdf.get_string_width(test_line) <= col_width:
             current_line = test_line
         else:
-            if current_line:
-                lines.append(current_line)
+            lines.append(current_line)
             current_line = word
-    
     if current_line:
         lines.append(current_line)
-    
-    if not lines:
-        lines = [""]
-    
     wrap_text_cache[cache_key] = lines
     return lines
 
 def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
-    """Print a custom row with proper formatting and wrapping"""
     cell_padding = 2
     header_bg_color = (149, 33, 28)
     header_text_color = (255, 255, 255)
     alt_row_color = (240, 240, 240)
 
-    # Get or initialize row counter
     row_number = getattr(pdf, '_row_counter', 0)
-    
-    # Set font and colors based on header status
     if header:
         pdf.set_font("Arial", 'B', 10)
         pdf.set_text_color(*header_text_color)
@@ -327,96 +311,68 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         pdf.set_text_color(0, 0, 0)
         pdf.set_fill_color(*alt_row_color if row_number % 2 == 1 else (255, 255, 255))
 
-    # Wrap text for each cell
     wrapped_cells = []
     max_lines = 0
     for i, cell_text in enumerate(row_data):
         text = str(cell_text) if cell_text is not None else ""
-        avail_width = col_widths[i] - 2 * cell_padding
-        lines = wrap_text(pdf, text, avail_width)
+        avail_w = col_widths[i] - 2 * cell_padding
+        lines = wrap_text(pdf, text, avail_w)
         wrapped_cells.append(lines)
         max_lines = max(max_lines, len(lines))
 
-    # Calculate row height
-    row_height = line_height * max_lines
+    row_h = line_height * max_lines
     x0, y0 = pdf.get_x(), pdf.get_y()
-    
-    # Draw background for header or alternating rows
     if header or row_number % 2 == 1:
-        pdf.rect(x0, y0, sum(col_widths), row_height, 'F')
+        pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
 
-    # Print each cell
     for i, lines in enumerate(wrapped_cells):
-        cell_x = pdf.get_x()
-        # Calculate vertical padding for centering
-        vertical_padding = (row_height - len(lines) * line_height) / 2 if len(lines) < max_lines else 0
-        
-        # Print each line in the cell
-        for j, line in enumerate(lines):
-            pdf.set_xy(cell_x + cell_padding, y0 + j * line_height + vertical_padding)
-            pdf.cell(col_widths[i] - 2 * cell_padding, line_height, line, border=0, align='C')
-        
-        # Draw cell border
-        pdf.rect(cell_x, y0, col_widths[i], row_height)
-        pdf.set_xy(cell_x + col_widths[i], y0)
+        cx = pdf.get_x()
+        pad_v = (row_h - len(lines) * line_height) / 2 if len(lines) < max_lines else 0
+        for j, ln in enumerate(lines):
+            pdf.set_xy(cx + cell_padding, y0 + j * line_height + pad_v)
+            pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln, border=0, align='C')
+        pdf.rect(cx, y0, col_widths[i], row_h)
+        pdf.set_xy(cx + col_widths[i], y0)
 
-    # Update row counter and position
     setattr(pdf, '_row_counter', row_number + 1)
-    pdf.set_xy(x0, y0 + row_height)
+    pdf.set_xy(x0, y0 + row_h)
 
-def add_footer_with_page_number(pdf, footer_height=25):
-    """Add footer with signature and page number"""
-    # Save current position
-    current_y = pdf.get_y()
-    
-    # Set footer position
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None):
+    if df.empty:
+        return
+    setattr(pdf, '_row_counter', 0)
+
+    '''
+    # Add footer first
+    footer_height = 25
     pdf.set_xy(10, pdf.h - footer_height)
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
-    
-    # Draw signature line
     pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
-    
-    pdf.set_font("Arial", size=10)
+    pdf.set_font("Arial", size=13)
     pdf.set_xy(10, pdf.h - footer_height + 7)
     pdf.cell(0, 5, "Signature", 0, 1, 'L')
     
     # Add page numbers in bottom right
-    pdf.set_font("Arial", size=8)
+    pdf.set_font("Arial", size=14)
     pdf.set_text_color(0, 0, 0)
     page_text = f"{pdf.page_no()} of {{nb}}"
-    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
+    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))  # Estimate width
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
     
-    # Restore position if needed
-    if current_y < pdf.h - footer_height:
-        pdf.set_y(current_y)
-
-def add_header_to_page(pdf, header_content, branches):
-    """Add header to a page with proper formatting"""
+    # Add header
+    header_height = 71  # Approximate height from add_page_header
+    pdf.set_y(0)
     current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
-    logo_width = 45
-    logo_x = (pdf.w - logo_width) / 2
-    
-    # Reset position to top
-    pdf.set_y(5)
-    
-    # Add generation date
     pdf.set_font("Arial", size=14)
     text_width = pdf.get_string_width(current_date)
     x = pdf.w - 10 - text_width
     pdf.set_xy(x, 5)
     pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
-    
-    # Add logo if it exists
-    if os.path.exists(LOGO_PATH):
-        try:
-            pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
-        except Exception as e:
-            print(f"Warning: Could not load logo: {e}")
-    
-    # Add school header
+    logo_width = 45
+    logo_x = (pdf.w - logo_width) / 2
+    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Arial", 'B', 16)
@@ -425,44 +381,18 @@ def add_header_to_page(pdf, header_content, branches):
     pdf.cell(pdf.w - 20, 14,
              "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
              0, 1, 'C')
-    
-    # Add branch and semester info
     pdf.set_font("Arial", 'B', 15)
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    
-    # Add note about exam time
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 59)
     pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
-    
-    # Add branches
     pdf.set_font("Arial", '', 12)
     pdf.set_xy(10, 65)
-    branches_text = f"Branches: {', '.join(branches)}" if branches else "All Branches"
-    pdf.cell(pdf.w - 20, 6, branches_text, 0, 1, 'C')
-    
-    # Set position after header
-    pdf.set_y(75)
-
-def add_new_page(pdf, header_content, branches):
-    """Add a new page with header and footer"""
-    pdf.add_page()
-    add_header_to_page(pdf, header_content, branches)
-    add_footer_with_page_number(pdf)
-
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None):
-    """Print a custom table with proper pagination"""
-    if df.empty:
-        return
-    
-    # Initialize row counter
-    setattr(pdf, '_row_counter', 0)
-    
-    footer_height = 25
-    header_height = 80  # Increased to accommodate header
-    
+    pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+    pdf.set_y(71)
+    '''
     # Calculate available space
     available_height = pdf.h - pdf.t_margin - footer_height - header_height
     pdf.set_font("Arial", size=12)
@@ -473,94 +403,126 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     # Print data rows, checking space
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
-        
-        # Skip empty rows
         if not any(cell.strip() for cell in row):
             continue
-        
+            
         # Estimate row height
         wrapped_cells = []
         max_lines = 0
         for i, cell_text in enumerate(row):
             text = str(cell_text) if cell_text is not None else ""
-            avail_width = col_widths[i] - 2 * 2  # cell padding
-            lines = wrap_text(pdf, text, avail_width)
+            avail_w = col_widths[i] - 2 * 2
+            lines = wrap_text(pdf, text, avail_w)
             wrapped_cells.append(lines)
             max_lines = max(max_lines, len(lines))
+        row_h = line_height * max_lines
         
-        row_height = line_height * max_lines
-        
-        # Check if row fits on current page
-        if pdf.get_y() + row_height > pdf.h - footer_height:
-            # Start new page with header and footer
-            add_new_page(pdf, header_content, branches)
+        # Check if row fits
+        if pdf.get_y() + row_h > pdf.h - footer_height:
+            # Add footer to current page
+            add_footer_with_page_number(pdf, footer_height)
+            
+            # Start new page
+            pdf.add_page()
+            # Add footer to new page
+            add_footer_with_page_number(pdf, footer_height)
+            
+            # Add header to new page
+            add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches)
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
             print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
         
-        # Print the data row
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
+
+
+def add_footer_with_page_number(pdf, footer_height):
+    """Add footer with signature and page number"""
+    pdf.set_xy(10, pdf.h - footer_height)
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+    pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+    pdf.set_font("Arial", size=13)
+    pdf.set_xy(10, pdf.h - footer_height + 7)
+    pdf.cell(0, 5, "Signature", 0, 1, 'L')
+    
+    # Add page numbers in bottom right
+    pdf.set_font("Arial", size=14)
+    pdf.set_text_color(0, 0, 0)
+    page_text = f"{pdf.page_no()} of {{nb}}"
+    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))  # Estimate width
+    pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
+    pdf.cell(text_width, 5, page_text, 0, 0, 'R')
+
+def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches):
+    """Add header to a new page"""
+    pdf.set_y(0)
+    pdf.set_font("Arial", size=14)
+    text_width = pdf.get_string_width(current_date)
+    x = pdf.w - 10 - text_width
+    pdf.set_xy(x, 5)
+    pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+    pdf.set_fill_color(149, 33, 28)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", 'B', 16)
+    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
+    pdf.set_xy(10, 30)
+    pdf.cell(pdf.w - 20, 14,
+             "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
+             0, 1, 'C')
+    pdf.set_font("Arial", 'B', 15)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(10, 51)
+    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
+    pdf.set_font("Arial", 'I', 10)
+    pdf.set_xy(10, 59)
+    pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+    pdf.set_font("Arial", '', 12)
+    pdf.set_xy(10, 65)
+    pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+    pdf.set_y(71)
 
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
-    try:
-        start = datetime.strptime(start_time, "%I:%M %p")
-        duration = timedelta(hours=duration_hours)
-        end = start + duration
-        return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
-    except ValueError:
-        # Handle different time formats
-        try:
-            start = datetime.strptime(start_time, "%H:%M")
-            duration = timedelta(hours=duration_hours)
-            end = start + duration
-            return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
-        except ValueError:
-            return start_time  # Return original if parsing fails
-
-def int_to_roman(num):
-    """Convert integer to Roman numeral"""
-    roman_values = [
-        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
-    ]
-    result = ""
-    for value, numeral in roman_values:
-        while num >= value:
-            result += numeral
-            num -= value
-    return result
-
-def extract_duration(subject_str):
-    """Extract duration from subject string"""
-    if not subject_str:
-        return 3.0
-    
-    match = re.search(r'\[Duration: (\d+\.?\d*) hrs\]', str(subject_str))
-    if match:
-        return float(match.group(1))
-    else:
-        return 3.0
+    start = datetime.strptime(start_time, "%I:%M %p")
+    duration = timedelta(hours=duration_hours)
+    end = start + duration
+    return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
 
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
-    """Convert Excel file to PDF with proper formatting"""
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
-    pdf.alias_nb_pages()  # Enable page numbering
     
-    try:
-        df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
-    except Exception as e:
-        print(f"Error reading Excel file: {e}")
-        return False
+    # Enable automatic page numbering with alias
+    pdf.alias_nb_pages()
+    
+    df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
+
+    def int_to_roman(num):
+        roman_values = [
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
+        ]
+        result = ""
+        for value, numeral in roman_values:
+            while num >= value:
+                result += numeral
+                num -= value
+        return result
+
+    def extract_duration(subject_str):
+        match = re.search(r'\[Duration: (\d+\.?\d*) hrs\]', subject_str)
+        if match:
+            return float(match.group(1))
+        else:
+            return 3.0
 
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
             continue
-            
-        # Parse sheet name
         parts = sheet_name.split('_Sem_')
         main_branch = parts[0]
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
@@ -574,188 +536,123 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             fixed_cols = ["Exam Date"]
             sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols and c != "Time Slot"]
             exam_date_width = 60
+            table_font_size = 12
             line_height = 10
 
-            # Process in chunks
             for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
                 chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
                 cols_to_print = fixed_cols + chunk
                 chunk_df = pivot_df[cols_to_print].copy()
-                
-                # Filter out empty rows
                 mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
                 chunk_df = chunk_df[mask].reset_index(drop=True)
-                
                 if chunk_df.empty:
                     continue
 
-                # Format exam dates
-                try:
-                    chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                except Exception as e:
-                    print(f"Date formatting error: {e}")
+                # Convert Exam Date to desired format
+                chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
                 # Modify subjects to include time range if duration != 3 hours
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
                         cell_value = chunk_df.at[idx, sub_branch]
-                        if pd.isna(cell_value) or str(cell_value).strip() in ["", "---"]:
+                        if cell_value == "---":
                             continue
-                            
-                        subjects = str(cell_value).split(", ")
+                        subjects = cell_value.split(", ")
                         modified_subjects = []
-                        
                         for subject in subjects:
                             duration = extract_duration(subject)
-                            base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            
-                            if duration != 3 and "Time Slot" in pivot_df.columns:
-                                try:
-                                    time_slot = pivot_df.at[idx, "Time Slot"]
-                                    if pd.notna(time_slot) and " - " in str(time_slot):
-                                        start_time = str(time_slot).split(" - ")[0]
-                                        end_time = calculate_end_time(start_time, duration)
-                                        modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
-                                    else:
-                                        modified_subjects.append(base_subject)
-                                except:
-                                    modified_subjects.append(base_subject)
+                            base_subject = re.sub(r' \[\Duration: \d+\.?\d* hrs\]', '', subject)
+                            if duration != 3:
+                                time_slot = pivot_df.at[idx, "Time Slot"]
+                                start_time = time_slot.split(" - ")[0]
+                                end_time = calculate_end_time(start_time, duration)
+                                modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
                             else:
                                 modified_subjects.append(base_subject)
-                        
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
-                # Calculate column widths
+                time_slot = chunk_df['Time Slot'].iloc[0] if 'Time Slot' in chunk_df.columns else ""
                 page_width = pdf.w - 2 * pdf.l_margin
                 remaining = page_width - exam_date_width
                 sub_width = remaining / max(len(chunk), 1)
                 col_widths = [exam_date_width] + [sub_width] * len(chunk)
-                
-                # Adjust if total width exceeds page width
-                total_width = sum(col_widths)
-                if total_width > page_width:
-                    factor = page_width / total_width
+                total_w = sum(col_widths)
+                if total_w > page_width:
+                    factor = page_width / total_w
                     col_widths = [w * factor for w in col_widths]
                 
-                # Add new page and print table
-                add_new_page(pdf, header_content, chunk)
-                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, 
-                                 line_height=line_height, header_content=header_content, branches=chunk)
+                # Add page before printing the table
+                pdf.add_page()
+                # Add footer with page number to the new page
+                footer_height = 25
+                add_footer_with_page_number(pdf, footer_height)
+                
+                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, header_content=header_content, branches=chunk)
 
         # Handle electives
-        elif sheet_name.endswith('_Electives'):
+        if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
+            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns else ""
+            elective_data = pivot_df.groupby('OE').agg({
+                'Exam Date': 'first',
+                'SubjectDisplay': lambda x: ", ".join(x)
+            }).reset_index()
+
+            # Convert Exam Date to desired format
+            elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+
+            exam_date_width = 60
+            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width
+            col_widths = [exam_date_width, subject_width]
+            cols_to_print = ['Exam Date', 'SubjectDisplay']
             
-            if 'OE' in pivot_df.columns and 'SubjectDisplay' in pivot_df.columns:
-                elective_data = pivot_df.groupby('OE').agg({
-                    'Exam Date': 'first',
-                    'SubjectDisplay': lambda x: ", ".join(x.dropna())
-                }).reset_index()
+            # Add page before printing the electives table
+            pdf.add_page()
+            # Add footer with page number to the new page
+            footer_height = 25
+            add_footer_with_page_number(pdf, footer_height)
+            
+            print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, header_content=header_content, branches=['All Streams'])
 
-                # Format exam dates
-                try:
-                    elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                except Exception as e:
-                    print(f"Elective date formatting error: {e}")
+    pdf.output(pdf_path)
 
-                # Set column widths
-                exam_date_width = 60
-                subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width
-                col_widths = [exam_date_width, subject_width]
-                cols_to_print = ['Exam Date', 'SubjectDisplay']
-                
-                # Add new page and print table
-                add_new_page(pdf, header_content, ['All Streams'])
-                print_table_custom(pdf, elective_data, cols_to_print, col_widths, 
-                                 line_height=10, header_content=header_content, branches=['All Streams'])
-
-    try:
-        pdf.output(pdf_path)
-        return True
-    except Exception as e:
-        print(f"Error saving PDF: {e}")
-        return False
-
-def generate_pdf_timetable(semester_wise_timetable, output_pdf, save_to_excel_func):
-    """Generate PDF timetable from semester-wise data"""
+def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
-    
-    try:
-        # Generate Excel data
-        excel_data = save_to_excel_func(semester_wise_timetable)
-        if not excel_data:
-            if hasattr(st, 'error'):
-                st.error("No data to save to Excel.")
-            return False
-        
-        # Save temporary Excel file
+    excel_data = save_to_excel(semester_wise_timetable)
+    if excel_data:
         with open(temp_excel, "wb") as f:
             f.write(excel_data.getvalue())
-        
-        # Convert to PDF
-        success = convert_excel_to_pdf(temp_excel, output_pdf)
-        
-        # Clean up temporary file
+        convert_excel_to_pdf(temp_excel, output_pdf)
         if os.path.exists(temp_excel):
             os.remove(temp_excel)
-        
-        if not success:
-            if hasattr(st, 'error'):
-                st.error("Failed to convert Excel to PDF.")
-            return False
-        
-        # Post-process PDF to remove blank pages
-        try:
-            reader = PdfReader(output_pdf)
-            writer = PdfWriter()
-            page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
-            
-            pages_kept = 0
-            for page_num in range(len(reader.pages)):
-                page = reader.pages[page_num]
-                try:
-                    text = page.extract_text() if page else ""
-                except:
-                    text = ""
-                
-                cleaned_text = text.strip() if text else ""
-                is_blank_or_page_number = (
+    else:
+        st.error("No data to save to Excel.")
+        return
+    try:
+        reader = PdfReader(output_pdf)
+        writer = PdfWriter()
+        page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
+        for page_num in range(len(reader.pages)):
+            page = reader.pages[page_num]
+            try:
+                text = page.extract_text() if page else ""
+            except:
+                text = ""
+            cleaned_text = text.strip() if text else ""
+            is_blank_or_page_number = (
                     not cleaned_text or
                     page_number_pattern.match(cleaned_text) or
                     len(cleaned_text) <= 10
-                )
-                
-                if not is_blank_or_page_number:
-                    writer.add_page(page)
-                    pages_kept += 1
-            
-            if pages_kept > 0:
-                with open(output_pdf, 'wb') as output_file:
-                    writer.write(output_file)
-                return True
-            else:
-                if hasattr(st, 'warning'):
-                    st.warning("Warning: All pages were filtered out - keeping original PDF")
-                return True
-                
-        except Exception as e:
-            if hasattr(st, 'error'):
-                st.error(f"Error during PDF post-processing: {str(e)}")
-            return True  # Return True since basic PDF was created
-            
+            )
+            if not is_blank_or_page_number:
+                writer.add_page(page)
+        if len(writer.pages) > 0:
+            with open(output_pdf, 'wb') as output_file:
+                writer.write(output_file)
+        else:
+            st.warning("Warning: All pages were filtered out - keeping original PDF")
     except Exception as e:
-        if hasattr(st, 'error'):
-            st.error(f"Error generating PDF timetable: {str(e)}")
-        
-        # Clean up temporary file if it exists
-        if os.path.exists(temp_excel):
-            try:
-                os.remove(temp_excel)
-            except:
-                pass
-        
-        return False
-
+        st.error(f"Error during PDF post-processing: {str(e)}")
 
 def read_timetable(uploaded_file):
     try:
