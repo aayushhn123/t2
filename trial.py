@@ -386,7 +386,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         pdf.add_page()
         # Add generation date at top right
         current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
-        pdf.set_font("Arial", size=10)
+        pdf.set_font("Arial", size=14)
         text_width = pdf.get_string_width(current_date)
         x = pdf.w - 10 - text_width
         pdf.set_xy(x, 5)
