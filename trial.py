@@ -388,7 +388,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     # Add exam slot timing from DataFrame
     if not df.empty and 'Time Slot' in df.columns:
         time_slot = df['Time Slot'].iloc[0] if df['Time Slot'].notna().any() else "Not Assigned"
-        pdf.set_font("Arial", 'B', 12)
+        pdf.set_font("Arial", 'B', 5)
         pdf.set_xy(10, 59)
         pdf.cell(pdf.w - 20, 6, f"Exam Slot: {time_slot}", 0, 1, 'C')
     pdf.set_font("Arial", 'I', 10)
@@ -485,7 +485,7 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     # Add exam slot timing from DataFrame
     if not df.empty and 'Time Slot' in df.columns:
         time_slot = df['Time Slot'].iloc[0] if df['Time Slot'].notna().any() else "Not Assigned"
-        pdf.set_font("Arial", 'B', 12)
+        pdf.set_font("Arial", 'B', 5)
         pdf.set_xy(10, 59)
         pdf.cell(pdf.w - 20, 6, f"Exam Slot: {time_slot}", 0, 1, 'C')
     pdf.set_font("Arial", 'I', 10)
