@@ -364,7 +364,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     header_height = 71  # Approximate height from add_page_header
     pdf.set_y(0)
     current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
-    pdf.set_font("Arial", size=8)
+    pdf.set_font("Arial", size=14)
     text_width = pdf.get_string_width(current_date)
     x = pdf.w - 10 - text_width
     pdf.set_xy(x, 5)
@@ -457,7 +457,7 @@ def add_footer_with_page_number(pdf, footer_height):
 def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches):
     """Add header to a new page"""
     pdf.set_y(0)
-    pdf.set_font("Arial", size=8)
+    pdf.set_font("Arial", size=14)
     text_width = pdf.get_string_width(current_date)
     x = pdf.w - 10 - text_width
     pdf.set_xy(x, 5)
