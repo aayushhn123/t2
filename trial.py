@@ -270,7 +270,7 @@ BRANCH_FULL_FORM = {
 }
 
 # Define logo path (adjust as needed for your environment)
-LOGO_PATH = "19th June, feedback changes/logo.png"  # Ensure this path is valid in your environment
+LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 
 # Cache for text wrapping results
 wrap_text_cache = {}
