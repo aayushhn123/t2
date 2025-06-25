@@ -357,7 +357,6 @@ def calculate_end_time(start_time, duration_hours):
     end = start + duration
     return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
 
-
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -416,6 +415,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         pdf.set_xy(10, 65)
         pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(71)
+
+    def add_page_footer(pdf):
         # Add COE name and signature space at bottom left
         pdf.set_font("Arial", 'B', 10)
         pdf.set_xy(10, pdf.h - 25)
@@ -490,6 +491,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     col_widths = [w * factor for w in col_widths]
                 pdf.set_font("Arial", size=table_font_size)
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height)
+                # Add footer after table
+                add_page_footer(pdf)
 
         # Handle electives
         if sheet_name.endswith('_Electives'):
@@ -515,10 +518,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
             pdf.set_font("Arial", size=12)  # Reduced font size for electives
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10)  # Reduced line height
+            # Add footer after table
+            add_page_footer(pdf)
 
     pdf.output(pdf_path)
-
-   
 
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
@@ -873,7 +876,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
         day = day + timedelta(days=1)
 
     for oe in individual_oe:
-        day = advance_to_next_valid(day)
+        day = advance_to_valid_next(day)
         schedule_oe_date[oe] = day
         day = day + timedelta(days=1)
 
