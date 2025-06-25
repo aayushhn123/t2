@@ -388,11 +388,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     
     # Add time slot from DataFrame
     if not df.empty and 'Time Slot' in df.columns:
-        time_slot = df['Time Slot'].iloc[0] if df['Time Slot'].notna().any() else "Not Assigned"
-        pdf.set_font("Arial", 'I', 13)
-        pdf.set_xy(10, 61)
-        pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
-        
+        time_slot = df['Time Slot'].iloc[0].strip() if pd.notna(df['Time Slot'].iloc[0]) else ""
+        if time_slot:
+            pdf.set_font("Arial", 'I', 13)
+            pdf.set_xy(10, 61)
+            pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
+    
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
     pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
@@ -487,10 +488,11 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     
     # Add time slot from DataFrame
     if not df.empty and 'Time Slot' in df.columns:
-        time_slot = df['Time Slot'].iloc[0] if df['Time Slot'].notna().any() else "Not Assigned"
-        pdf.set_font("Arial", 'I', 13)
-        pdf.set_xy(10, 61)
-        pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
+        time_slot = df['Time Slot'].iloc[0].strip() if pd.notna(df['Time Slot'].iloc[0]) else ""
+        if time_slot:
+            pdf.set_font("Arial", 'I', 13)
+            pdf.set_xy(10, 61)
+            pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
         
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
@@ -1586,5 +1588,3 @@ def main():
     # Display footer
     st.markdown("---")
     st.markdown("""
-    <div class="footer">
-        <p>🎓 <strong>Exam Timetable Generator</strong
