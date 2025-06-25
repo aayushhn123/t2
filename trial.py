@@ -435,6 +435,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
+'''
 def add_footer_with_page_number(pdf, footer_height):
     """Add footer with signature and page number"""
     pdf.set_xy(10, pdf.h - footer_height)
@@ -481,7 +482,7 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 65)
     pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
     pdf.set_y(71)
-
+'''
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
     start = datetime.strptime(start_time, "%I:%M %p")
