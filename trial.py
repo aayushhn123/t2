@@ -384,9 +384,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    # Add exam slot timing
-    if not df.empty and 'Time Slot' in df.columns:
-        time_slot = df['Time Slot'].iloc[0] if df['Time Slot'].notna().any() else "Not Assigned"
+    # Reverted time slot logic to use header_content
+    if header_content and 'time_slot' in header_content:
+        time_slot = header_content['time_slot'] if header_content['time_slot'] else "Not Assigned"
         pdf.set_font("Arial", 'B', 12)
         pdf.set_xy(10, 59)
         pdf.cell(pdf.w - 20, 6, f"Exam Slot: {time_slot}", 0, 1, 'C')
@@ -481,9 +481,9 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    # Add exam slot timing
-    if 'Time Slot' in df.columns and not df.empty:
-        time_slot = df['Time Slot'].iloc[0] if df['Time Slot'].notna().any() else "Not Assigned"
+    # Reverted time slot logic to use header_content
+    if header_content and 'time_slot' in header_content:
+        time_slot = header_content['time_slot'] if header_content['time_slot'] else "Not Assigned"
         pdf.set_font("Arial", 'B', 12)
         pdf.set_xy(10, 59)
         pdf.cell(pdf.w - 20, 6, f"Exam Slot: {time_slot}", 0, 1, 'C')
