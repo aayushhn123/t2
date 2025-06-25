@@ -386,7 +386,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         pdf.add_page()
         # Add generation date at top right
         current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
-        pdf.set_font("Arial", size=8)
+        pdf.set_font("Arial", size=14)
         text_width = pdf.get_string_width(current_date)
         x = pdf.w - 10 - text_width
         pdf.set_xy(x, 5)
@@ -418,7 +418,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
     def add_page_footer(pdf):
         # Add COE name and signature space at bottom left
-        pdf.set_font("Arial", 'B', 10)
+        pdf.set_font("Arial", 'B', 14)
         pdf.set_xy(10, pdf.h - 25)
         pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
         pdf.line(10, pdf.h - 20, 60, pdf.h - 20)  # 50mm line
