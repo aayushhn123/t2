@@ -270,7 +270,7 @@ BRANCH_FULL_FORM = {
 }
 
 # Define logo path (adjust as needed for your environment)
-LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
+LOGO_PATH = "19th June, feedback changes/logo.png"  # Ensure this path is valid in your environment
 
 # Cache for text wrapping results
 wrap_text_cache = {}
@@ -967,6 +967,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     verification_df["Exam Date"] = ""
     verification_df["Exam Time"] = ""
+    verification_df["Is Common"] = ""
 
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
     scheduled_data["ModuleCode"] = scheduled_data["Subject"].str.extract(r'\((.*?)\)', expand=False)
@@ -989,6 +990,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
+            # Check if the subject is common (appears in multiple branches)
+            branch_count = len(scheduled_data[scheduled_data["ModuleCode"] == module_code]["Branch"].unique())
+            verification_df.at[idx, "Is Common"] = "YES" if branch_count > 1 else "NO"
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
