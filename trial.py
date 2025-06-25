@@ -386,11 +386,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot if available
-    if header_content and 'time_slot' in header_content and header_content['time_slot'].strip():
+    # Add time slot from DataFrame
+    if not df.empty and 'Time Slot' in df.columns:
+        time_slot = df['Time Slot'].iloc[0] if df['Time Slot'].notna().any() else "Not Assigned"
         pdf.set_font("Arial", 'I', 13)
         pdf.set_xy(10, 61)
-        pdf.cell(pdf.w - 20, 6, f"Time Slot: {header_content['time_slot']}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
         
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
@@ -435,7 +436,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             add_footer_with_page_number(pdf, footer_height)
             
             # Add header to new page
-            add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches)
+            add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, df)
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
@@ -462,7 +463,7 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches):
+def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, df):
     """Add header to a new page"""
     pdf.set_y(0)
     pdf.set_font("Arial", size=14)
@@ -484,11 +485,12 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot if available
-    if header_content and 'time_slot' in header_content and header_content['time_slot'].strip():
+    # Add time slot from DataFrame
+    if not df.empty and 'Time Slot' in df.columns:
+        time_slot = df['Time Slot'].iloc[0] if df['Time Slot'].notna().any() else "Not Assigned"
         pdf.set_font("Arial", 'I', 13)
         pdf.set_xy(10, 61)
-        pdf.cell(pdf.w - 20, 6, f"Time Slot: {header_content['time_slot']}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot}", 0, 1, 'C')
         
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
@@ -585,7 +587,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
                 # Get time slot for header
-                time_slot = chunk_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else ""
+                time_slot = chunk_df['Time Slot'].iloc[0] if 'Time Slot' in chunk_df.columns and not chunk_df['Time Slot'].empty else ""
                 header_content = {
                     'main_branch_full': main_branch_full, 
                     'semester_roman': semester_roman,
@@ -1585,11 +1587,4 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div class="footer">
-        <p>🎓 <strong>Exam Timetable Generator</strong></p>
-        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Streamlined scheduling • Conflict-free timetables • Multiple export formats</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
+        <p>🎓 <strong>Exam Timetable Generator</strong
