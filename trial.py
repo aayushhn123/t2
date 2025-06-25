@@ -421,7 +421,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         pdf.set_font("Arial", 'B', 14)
         pdf.set_xy(10, pdf.h - 25)
         pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
-        pdf.line(14, pdf.h - 20, 90, pdf.h - 20)  # 50mm line
+        pdf.line(10, pdf.h - 20, 90, pdf.h - 20)  # 50mm line
         pdf.set_font("Arial", size=8)
         pdf.set_xy(14, pdf.h - 14)
         pdf.cell(0, 5, "Signature", 0, 1, 'L')
