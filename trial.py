@@ -1149,6 +1149,31 @@ def create_global_module_schedule(df_all_semesters, holidays, base_date):
     
     return global_schedule
 
+def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
+    # First, create global schedule for common modules
+    # Student_Count column is now handled in read_timetable function
+    global_module_schedule = create_global_module_schedule(df, holidays, base_date)
+    
+    final_list = []
+    for sem in sorted(df["Semester"].unique()):
+        if sem == 0:
+            continue
+        df_sem = df[df["Semester"] == sem].copy()
+        if df_sem.empty:
+            continue
+        scheduled_sem = schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_difficulty, global_module_schedule)
+        final_list.append(scheduled_sem)
+    
+    if not final_list:
+        return {}
+    
+    df_combined = pd.concat(final_list, ignore_index=True)
+    sem_dict = {}
+    for sem in sorted(df_combined["Semester"].unique()):
+        sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
+    
+    return sem_dict
+
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
