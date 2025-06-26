@@ -808,7 +808,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
         assignments = []
         for E_C in sorted_common:
             found = False
- cemetery            for i in range(len(assignments)):
+            for i in range(len(assignments)):
                 day_assignments = assignments[i]
                 day_date = day_assignments[0][1].date() if isinstance(day_assignments[0][1], datetime) else \
                 day_assignments[0][1]
