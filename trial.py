@@ -342,6 +342,37 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         return
     setattr(pdf, '_row_counter', 0)
     
+    # Time slot mapping
+    time_slot_mapping = {
+        1: "10:00 AM to 1:00 PM", 5: "10:00 AM to 1:00 PM", 9: "10:00 AM to 1:00 PM",
+        3: "2:00 PM to 5:00 PM", 7: "2:00 PM to 5:00 PM", 11: "2:00 PM to 5:00 PM", 
+        2: "2:00 PM to 5:00 PM", 6: "2:00 PM to 5:00 PM", 10: "2:00 PM to 5:00 PM",
+        4: "10:00 AM to 1:00 PM", 8: "10:00 AM to 1:00 PM", 12: "10:00 AM to 1:00 PM"
+    }
+    
+    # Extract semester number and get time slot
+    current_semester = None
+    if not df.empty and 'Semester' in df.columns:
+        current_semester = df['Semester'].iloc[0]
+    elif header_content and 'semester_num' in header_content:
+        current_semester = header_content['semester_num']
+    
+    # Get time slot from mapping or DataFrame
+    time_slot_text = ""
+    if current_semester:
+        time_slot_text = time_slot_mapping.get(current_semester, "Time Not Specified")
+    elif not df.empty and 'Time Slot' in df.columns:
+        time_slot_text = df['Time Slot'].iloc[0]
+    elif header_content and 'time_slot' in header_content:
+        time_slot_value = header_content['time_slot']
+        if time_slot_value is not None:
+            time_slot_str = str(time_slot_value).strip()
+            if time_slot_str and time_slot_str.lower() not in ['none', 'null', 'nan', '']:
+                time_slot_text = time_slot_str
+    
+    if not time_slot_text:
+        time_slot_text = "Time Not Specified"
+    
     # Add footer first
     footer_height = 25
     pdf.set_xy(10, pdf.h - footer_height)
@@ -385,26 +416,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot with better error handling and debugging
-    time_slot_text = ""
-    if header_content and 'time_slot' in header_content:
-        time_slot_value = header_content['time_slot']
-        # Debug: Print the time slot value to console
-        print(f"DEBUG - Time slot value: '{time_slot_value}' (type: {type(time_slot_value)})")
-        
-        # Handle different data types and clean the value
-        if time_slot_value is not None:
-            time_slot_str = str(time_slot_value).strip()
-            if time_slot_str and time_slot_str.lower() not in ['none', 'null', 'nan', '']:
-                time_slot_text = time_slot_str
-    
-    # Always show the time slot section, even if empty
+    # Add time slot (now automatically determined)
     pdf.set_font("Arial", 'I', 13)
     pdf.set_xy(10, 61)
-    if time_slot_text:
-        pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot_text}", 0, 1, 'C')
-    else:
-        pdf.cell(pdf.w - 20, 6, "Time Slot: [Not Specified]", 0, 1, 'C')
+    pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot_text}", 0, 1, 'C')
     
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
@@ -443,7 +458,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             add_footer_with_page_number(pdf, footer_height)
             pdf.add_page()
             add_footer_with_page_number(pdf, footer_height)
-            add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches)
+            add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, df)
             pdf.set_font("Arial", size=12)
             print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
         
@@ -467,8 +482,40 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches):
+def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, df=None):
     """Add header to a new page"""
+    
+    # Time slot mapping (same as main function)
+    time_slot_mapping = {
+        1: "10:00 AM to 1:00 PM", 5: "10:00 AM to 1:00 PM", 9: "10:00 AM to 1:00 PM",
+        3: "2:00 PM to 5:00 PM", 7: "2:00 PM to 5:00 PM", 11: "2:00 PM to 5:00 PM", 
+        2: "2:00 PM to 5:00 PM", 6: "2:00 PM to 5:00 PM", 10: "2:00 PM to 5:00 PM",
+        4: "10:00 AM to 1:00 PM", 8: "10:00 AM to 1:00 PM", 12: "10:00 AM to 1:00 PM"
+    }
+    
+    # Extract semester number and get time slot (same logic as main function)
+    current_semester = None
+    if df is not None and not df.empty and 'Semester' in df.columns:
+        current_semester = df['Semester'].iloc[0]
+    elif header_content and 'semester_num' in header_content:
+        current_semester = header_content['semester_num']
+    
+    # Get time slot from mapping or DataFrame
+    time_slot_text = ""
+    if current_semester:
+        time_slot_text = time_slot_mapping.get(current_semester, "Time Not Specified")
+    elif df is not None and not df.empty and 'Time Slot' in df.columns:
+        time_slot_text = df['Time Slot'].iloc[0]
+    elif header_content and 'time_slot' in header_content:
+        time_slot_value = header_content['time_slot']
+        if time_slot_value is not None:
+            time_slot_str = str(time_slot_value).strip()
+            if time_slot_str and time_slot_str.lower() not in ['none', 'null', 'nan', '']:
+                time_slot_text = time_slot_str
+    
+    if not time_slot_text:
+        time_slot_text = "Time Not Specified"
+    
     pdf.set_y(0)
     pdf.set_font("Arial", size=14)
     text_width = pdf.get_string_width(current_date)
@@ -489,21 +536,10 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot with better error handling (same logic as main function)
-    time_slot_text = ""
-    if header_content and 'time_slot' in header_content:
-        time_slot_value = header_content['time_slot']
-        if time_slot_value is not None:
-            time_slot_str = str(time_slot_value).strip()
-            if time_slot_str and time_slot_str.lower() not in ['none', 'null', 'nan', '']:
-                time_slot_text = time_slot_str
-    
+    # Add time slot (now automatically determined)
     pdf.set_font("Arial", 'I', 13)
     pdf.set_xy(10, 61)
-    if time_slot_text:
-        pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot_text}", 0, 1, 'C')
-    else:
-        pdf.cell(pdf.w - 20, 6, "Time Slot: [Not Specified]", 0, 1, 'C')
+    pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot_text}", 0, 1, 'C')
     
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
@@ -512,7 +548,7 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 73)
     pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches) if branches else 'None'}", 0, 1, 'C')
     pdf.set_y(79)
-
+    
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
     start = datetime.strptime(start_time, "%I:%M %p")
