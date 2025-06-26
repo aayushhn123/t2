@@ -385,17 +385,33 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot if available
-    if 'time_slot' in header_content and header_content['time_slot'].strip():
-        pdf.set_font("Arial", 'I', 13)
-        pdf.set_xy(10, 61)
-        pdf.cell(pdf.w - 20, 6, f"Time Slot: {header_content['time_slot']}", 0, 1, 'C')
+    # Add time slot with better error handling and debugging
+    time_slot_text = ""
+    if header_content and 'time_slot' in header_content:
+        time_slot_value = header_content['time_slot']
+        # Debug: Print the time slot value to console
+        print(f"DEBUG - Time slot value: '{time_slot_value}' (type: {type(time_slot_value)})")
+        
+        # Handle different data types and clean the value
+        if time_slot_value is not None:
+            time_slot_str = str(time_slot_value).strip()
+            if time_slot_str and time_slot_str.lower() not in ['none', 'null', 'nan', '']:
+                time_slot_text = time_slot_str
+    
+    # Always show the time slot section, even if empty
+    pdf.set_font("Arial", 'I', 13)
+    pdf.set_xy(10, 61)
+    if time_slot_text:
+        pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot_text}", 0, 1, 'C')
+    else:
+        pdf.cell(pdf.w - 20, 6, "Time Slot: [Not Specified]", 0, 1, 'C')
+    
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
     pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
     pdf.set_font("Arial", '', 12)
     pdf.set_xy(10, 73)
-    pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+    pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches) if branches else 'None'}", 0, 1, 'C')
     pdf.set_y(79)
     
     # Calculate available space
@@ -473,17 +489,28 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot if available
-    if 'time_slot' in header_content and header_content['time_slot'].strip():
-        pdf.set_font("Arial", 'I', 13)
-        pdf.set_xy(10, 61)
-        pdf.cell(pdf.w - 20, 6, f"Time Slot: {header_content['time_slot']}", 0, 1, 'C')
+    # Add time slot with better error handling (same logic as main function)
+    time_slot_text = ""
+    if header_content and 'time_slot' in header_content:
+        time_slot_value = header_content['time_slot']
+        if time_slot_value is not None:
+            time_slot_str = str(time_slot_value).strip()
+            if time_slot_str and time_slot_str.lower() not in ['none', 'null', 'nan', '']:
+                time_slot_text = time_slot_str
+    
+    pdf.set_font("Arial", 'I', 13)
+    pdf.set_xy(10, 61)
+    if time_slot_text:
+        pdf.cell(pdf.w - 20, 6, f"Time Slot: {time_slot_text}", 0, 1, 'C')
+    else:
+        pdf.cell(pdf.w - 20, 6, "Time Slot: [Not Specified]", 0, 1, 'C')
+    
     pdf.set_font("Arial", 'I', 10)
     pdf.set_xy(10, 67)
     pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
     pdf.set_font("Arial", '', 12)
     pdf.set_xy(10, 73)
-    pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+    pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches) if branches else 'None'}", 0, 1, 'C')
     pdf.set_y(79)
 
 def calculate_end_time(start_time, duration_hours):
