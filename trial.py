@@ -295,6 +295,10 @@ def wrap_text(pdf, text, col_width):
     wrap_text_cache[cache_key] = lines
     return lines
 
+import re
+from datetime import datetime
+import pandas as pd
+
 def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     cell_padding = 2
     header_bg_color = (149, 33, 28)
@@ -337,9 +341,45 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None, is_open_elective=False):
     if df.empty:
         return
+    
+    # Process data for open electives if needed
+    df_to_use = df.copy()
+    columns_to_use = columns.copy()
+    col_widths_to_use = col_widths.copy()
+    
+    if is_open_elective:
+        # Add OE Type column and process the dataframe
+        df_to_use['OE_Type'] = ''
+        
+        # Extract OE type from subject names and clean them
+        for idx, row in df_to_use.iterrows():
+            for col in df_to_use.columns:
+                if col != 'OE_Type' and pd.notna(row[col]):
+                    cell_value = str(row[col])
+                    # Look for [OE1] or [OE2] patterns
+                    oe_match = re.search(r'\[OE([12])\]', cell_value)
+                    if oe_match:
+                        oe_type = f"OE{oe_match.group(1)}"
+                        # Remove the [OE1] or [OE2] from the subject name
+                        cleaned_name = re.sub(r'\s*\[OE[12]\]\s*', '', cell_value).strip()
+                        df_to_use.at[idx, 'OE_Type'] = oe_type
+                        df_to_use.at[idx, col] = cleaned_name
+        
+        # Add OE_Type as the first column
+        columns_to_use = ['OE_Type'] + [col for col in columns if col in df_to_use.columns]
+        
+        # Recalculate column widths - reserve 25 units for OE Type column
+        available_width = sum(col_widths) - 25
+        remaining_cols = len(columns_to_use) - 1
+        if remaining_cols > 0:
+            other_col_width = available_width / remaining_cols
+            col_widths_to_use = [25] + [other_col_width] * remaining_cols
+        else:
+            col_widths_to_use = [25]
+    
     setattr(pdf, '_row_counter', 0)
     
     # Add footer first
@@ -410,12 +450,20 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     available_height = pdf.h - pdf.t_margin - footer_height - header_height
     pdf.set_font("Arial", size=12)
     
+    # Create header labels
+    header_labels = []
+    for col in columns_to_use:
+        if col == 'OE_Type':
+            header_labels.append('OE Type')
+        else:
+            header_labels.append(col.replace('_', ' ').title())
+    
     # Print header row
-    print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
+    print_row_custom(pdf, header_labels, col_widths_to_use, line_height=line_height, header=True)
     
     # Print data rows, checking space
-    for idx in range(len(df)):
-        row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
+    for idx in range(len(df_to_use)):
+        row = [str(df_to_use.iloc[idx][c]) if pd.notna(df_to_use.iloc[idx][c]) else "" for c in columns_to_use]
         if not any(cell.strip() for cell in row):
             continue
             
@@ -424,7 +472,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         max_lines = 0
         for i, cell_text in enumerate(row):
             text = str(cell_text) if cell_text is not None else ""
-            avail_w = col_widths[i] - 2 * 2
+            avail_w = col_widths_to_use[i] - 2 * 2
             lines = wrap_text(pdf, text, avail_w)
             wrapped_cells.append(lines)
             max_lines = max(max_lines, len(lines))
@@ -445,9 +493,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
-            print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
+            print_row_custom(pdf, header_labels, col_widths_to_use, line_height=line_height, header=True)
         
-        print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
+        print_row_custom(pdf, row, col_widths_to_use, line_height=line_height, header=False)
 
 
 def add_footer_with_page_number(pdf, footer_height):
@@ -511,6 +559,11 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
         pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(71)
 
+# Usage: When calling for Open Electives, simply add is_open_elective=True
+# Example:
+# print_table_custom(pdf, oe_dataframe, columns, col_widths, 
+#                    header_content=header_content, branches=branches, 
+#                    time_slot=time_slot, is_open_elective=True)
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
     start = datetime.strptime(start_time, "%I:%M %p")
