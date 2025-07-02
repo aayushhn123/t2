@@ -298,6 +298,9 @@ def wrap_text(pdf, text, col_width):
 import re
 from datetime import datetime
 import pandas as pd
+import re
+from datetime import datetime
+import pandas as pd
 
 def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     cell_padding = 2
@@ -347,38 +350,47 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     
     # Process data for open electives if needed
     df_to_use = df.copy()
-    columns_to_use = columns.copy()
-    col_widths_to_use = col_widths.copy()
+    columns_to_use = list(columns)  # Convert to list to avoid issues
+    col_widths_to_use = list(col_widths)  # Convert to list to avoid issues
     
     if is_open_elective:
         # Add OE Type column and process the dataframe
         df_to_use['OE_Type'] = ''
         
         # Extract OE type from subject names and clean them
-        for idx, row in df_to_use.iterrows():
-            for col in df_to_use.columns:
-                if col != 'OE_Type' and pd.notna(row[col]):
-                    cell_value = str(row[col])
+        for idx in df_to_use.index:
+            oe_found = False
+            for col in columns:  # Only check original columns
+                if col in df_to_use.columns and pd.notna(df_to_use.at[idx, col]):
+                    cell_value = str(df_to_use.at[idx, col])
                     # Look for [OE1] or [OE2] patterns
-                    oe_match = re.search(r'\[OE([12])\]', cell_value)
-                    if oe_match:
-                        oe_type = f"OE{oe_match.group(1)}"
+                    if '[OE1]' in cell_value or '[OE2]' in cell_value:
+                        if '[OE1]' in cell_value:
+                            oe_type = 'OE1'
+                        else:
+                            oe_type = 'OE2'
+                        
                         # Remove the [OE1] or [OE2] from the subject name
-                        cleaned_name = re.sub(r'\s*\[OE[12]\]\s*', '', cell_value).strip()
+                        cleaned_name = cell_value.replace('[OE1]', '').replace('[OE2]', '').strip()
                         df_to_use.at[idx, 'OE_Type'] = oe_type
                         df_to_use.at[idx, col] = cleaned_name
+                        oe_found = True
+                        break  # Stop after finding first OE tag
         
         # Add OE_Type as the first column
-        columns_to_use = ['OE_Type'] + [col for col in columns if col in df_to_use.columns]
+        columns_to_use = ['OE_Type'] + columns_to_use
         
-        # Recalculate column widths - reserve 25 units for OE Type column
-        available_width = sum(col_widths) - 25
-        remaining_cols = len(columns_to_use) - 1
+        # Recalculate column widths - reserve 30 units for OE Type column
+        total_width = sum(col_widths_to_use)
+        oe_col_width = 30
+        remaining_width = total_width - oe_col_width
+        remaining_cols = len(columns)
+        
         if remaining_cols > 0:
-            other_col_width = available_width / remaining_cols
-            col_widths_to_use = [25] + [other_col_width] * remaining_cols
+            other_col_width = remaining_width / remaining_cols
+            col_widths_to_use = [oe_col_width] + [other_col_width] * remaining_cols
         else:
-            col_widths_to_use = [25]
+            col_widths_to_use = [oe_col_width]
     
     setattr(pdf, '_row_counter', 0)
     
