@@ -126,7 +126,7 @@ st.markdown("""
             background: #f8f9fa;
             padding: 2rem;
             border-radius: 10px;
-            border: 2px dashed #951C1C;
+            border oughborder: 2px dashed #951C1C;
             margin: 1rem 0;
         }
 
@@ -295,13 +295,6 @@ def wrap_text(pdf, text, col_width):
     wrap_text_cache[cache_key] = lines
     return lines
 
-import re
-from datetime import datetime
-import pandas as pd
-import re
-from datetime import datetime
-import pandas as pd
-
 def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     cell_padding = 2
     header_bg_color = (149, 33, 28)
@@ -344,54 +337,9 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None, is_open_elective=False):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None):
     if df.empty:
         return
-    
-    # Process data for open electives if needed
-    df_to_use = df.copy()
-    columns_to_use = list(columns)  # Convert to list to avoid issues
-    col_widths_to_use = list(col_widths)  # Convert to list to avoid issues
-    
-    if is_open_elective:
-        # Add OE Type column and process the dataframe
-        df_to_use['OE_Type'] = ''
-        
-        # Extract OE type from subject names and clean them
-        for idx in df_to_use.index:
-            oe_found = False
-            for col in columns:  # Only check original columns
-                if col in df_to_use.columns and pd.notna(df_to_use.at[idx, col]):
-                    cell_value = str(df_to_use.at[idx, col])
-                    # Look for [OE1] or [OE2] patterns
-                    if '[OE1]' in cell_value or '[OE2]' in cell_value:
-                        if '[OE1]' in cell_value:
-                            oe_type = 'OE1'
-                        else:
-                            oe_type = 'OE2'
-                        
-                        # Remove the [OE1] or [OE2] from the subject name
-                        cleaned_name = cell_value.replace('[OE1]', '').replace('[OE2]', '').strip()
-                        df_to_use.at[idx, 'OE_Type'] = oe_type
-                        df_to_use.at[idx, col] = cleaned_name
-                        oe_found = True
-                        break  # Stop after finding first OE tag
-        
-        # Add OE_Type as the first column
-        columns_to_use = ['OE_Type'] + columns_to_use
-        
-        # Recalculate column widths - reserve 30 units for OE Type column
-        total_width = sum(col_widths_to_use)
-        oe_col_width = 30
-        remaining_width = total_width - oe_col_width
-        remaining_cols = len(columns)
-        
-        if remaining_cols > 0:
-            other_col_width = remaining_width / remaining_cols
-            col_widths_to_use = [oe_col_width] + [other_col_width] * remaining_cols
-        else:
-            col_widths_to_use = [oe_col_width]
-    
     setattr(pdf, '_row_counter', 0)
     
     # Add footer first
@@ -462,20 +410,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     available_height = pdf.h - pdf.t_margin - footer_height - header_height
     pdf.set_font("Arial", size=12)
     
-    # Create header labels
-    header_labels = []
-    for col in columns_to_use:
-        if col == 'OE_Type':
-            header_labels.append('OE Type')
-        else:
-            header_labels.append(col.replace('_', ' ').title())
-    
     # Print header row
-    print_row_custom(pdf, header_labels, col_widths_to_use, line_height=line_height, header=True)
+    print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     
     # Print data rows, checking space
-    for idx in range(len(df_to_use)):
-        row = [str(df_to_use.iloc[idx][c]) if pd.notna(df_to_use.iloc[idx][c]) else "" for c in columns_to_use]
+    for idx in range(len(df)):
+        row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
         if not any(cell.strip() for cell in row):
             continue
             
@@ -484,7 +424,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         max_lines = 0
         for i, cell_text in enumerate(row):
             text = str(cell_text) if cell_text is not None else ""
-            avail_w = col_widths_to_use[i] - 2 * 2
+            avail_w = col_widths[i] - 2 * 2
             lines = wrap_text(pdf, text, avail_w)
             wrapped_cells.append(lines)
             max_lines = max(max_lines, len(lines))
@@ -505,9 +445,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
-            print_row_custom(pdf, header_labels, col_widths_to_use, line_height=line_height, header=True)
+            print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
         
-        print_row_custom(pdf, row, col_widths_to_use, line_height=line_height, header=False)
+        print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
 
 def add_footer_with_page_number(pdf, footer_height):
@@ -571,11 +511,6 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
         pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(71)
 
-# Usage: When calling for Open Electives, simply add is_open_elective=True
-# Example:
-# print_table_custom(pdf, oe_dataframe, columns, col_widths, 
-#                    header_content=header_content, branches=branches, 
-#                    time_slot=time_slot, is_open_elective=True)
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
     start = datetime.strptime(start_time, "%I:%M %p")
@@ -683,23 +618,34 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
                                  header_content=header_content, branches=chunk, time_slot=time_slot)
 
-        # Handle electives
+        # Handle electives with updated table structure
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
             
-            elective_data = pivot_df.groupby('OE').agg({
-                'Exam Date': 'first',
+            # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
+            elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
                 'SubjectDisplay': lambda x: ", ".join(x)
             }).reset_index()
 
             # Convert Exam Date to desired format
             elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
+            # Clean 'SubjectDisplay' to remove [OE] from each subject
+            elective_data['SubjectDisplay'] = elective_data.apply(
+                lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in row['SubjectDisplay'].split(", ")]),
+                axis=1
+            )
+
+            # Rename columns for clarity in the PDF
+            elective_data = elective_data.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
+
+            # Set column widths for three columns
             exam_date_width = 60
-            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width
-            col_widths = [exam_date_width, subject_width]
-            cols_to_print = ['Exam Date', 'SubjectDisplay']
+            oe_width = 30
+            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
+            col_widths = [exam_date_width, oe_width, subject_width]
+            cols_to_print = ['Exam Date', 'OE Type', 'Subjects']
             
             # Add page before printing the electives table
             pdf.add_page()
