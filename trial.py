@@ -1627,6 +1627,9 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Days Span</p></div>',
                         unsafe_allow_html=True)
 
+        # Ensure all_data is defined from the processed timetable data
+        all_data = pd.concat(st.session_state.timetable_data.values(), ignore_index=True) if st.session_state.timetable_data else pd.DataFrame()
+
         st.markdown("""
         <div class="metric-card">
             <h3>📆 Exam Dates Overview</h3>
@@ -1638,17 +1641,22 @@ def main():
                 </tr>
                 <tr>
                     <td style="padding: 8px;">Non-Elective</td>
-                    <td style="padding: 8px;">{st.session_state.non_elective_range}</td>
-                    <td style="padding: 8px;">{len(pd.to_datetime(all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == '')]['Exam Date'], format='%d-%m-%Y', errors='coerce').dropna().dt.date.unique())}</td>
+                    <td style="padding: 8px;">{non_elective_range}</td>
+                    <td style="padding: 8px;">{non_elective_days}</td>
                 </tr>
                 <tr>
                     <td style="padding: 8px;">Elective</td>
-                    <td style="padding: 8px;">{st.session_state.elective_dates_str}</td>
-                    <td style="padding: 8px;">{len(pd.to_datetime(all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != '')]['Exam Date'], format='%d-%m-%Y', errors='coerce').dropna().dt.date.unique())}</td>
+                    <td style="padding: 8px;">{elective_dates_str}</td>
+                    <td style="padding: 8px;">{elective_days}</td>
                 </tr>
             </table>
         </div>
-        """.format(st.session_state=st.session_state, all_data=all_data), unsafe_allow_html=True)
+        """.format(
+            non_elective_range=st.session_state.non_elective_range,
+            non_elective_days=len(pd.to_datetime(all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == '')]['Exam Date'], format='%d-%m-%Y', errors='coerce').dropna().dt.date.unique()),
+            elective_dates_str=st.session_state.elective_dates_str,
+            elective_days=len(pd.to_datetime(all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != '')]['Exam Date'], format='%d-%m-%Y', errors='coerce').dropna().dt.date.unique())
+        ), unsafe_allow_html=True)
 
         # Stream Counts Overview
         st.markdown("""
@@ -1674,7 +1682,7 @@ def main():
         # Footer
         st.markdown("""
         <div class="footer">
-            <p>Generated on: Wednesday, July 02, 2025, 10:21 PM IST | © 2025 Mukesh Patel School of Technology Management & Engineering</p>
+            <p>Generated on: Wednesday, July 02, 2025, 10:24 PM IST | © 2025 Mukesh Patel School of Technology Management & Engineering</p>
         </div>
         """, unsafe_allow_html=True)
 
