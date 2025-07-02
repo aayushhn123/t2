@@ -295,6 +295,47 @@ def wrap_text(pdf, text, col_width):
     wrap_text_cache[cache_key] = lines
     return lines
 
+import re
+from datetime import datetime
+import pandas as pd
+
+def extract_oe_type(subject_name):
+    """Extract OE1/OE2 from subject name and return both the type and cleaned name"""
+    if not subject_name:
+        return "", ""
+    
+    # Look for [OE1] or [OE2] patterns
+    oe_match = re.search(r'\[OE([12])\]', str(subject_name))
+    if oe_match:
+        oe_type = f"OE{oe_match.group(1)}"
+        # Remove the [OE1] or [OE2] from the subject name
+        cleaned_name = re.sub(r'\s*\[OE[12]\]\s*', '', str(subject_name)).strip()
+        return oe_type, cleaned_name
+    
+    return "", str(subject_name)
+
+def prepare_oe_dataframe(df):
+    """Prepare DataFrame for open electives with OE type column"""
+    if df.empty:
+        return df, []
+    
+    # Create a copy to avoid modifying original
+    df_copy = df.copy()
+    
+    # Add OE Type column
+    df_copy['OE_Type'] = ''
+    
+    # Process subject names to extract OE type and clean the names
+    for idx, row in df_copy.iterrows():
+        for col in df_copy.columns:
+            if 'subject' in col.lower() or 'course' in col.lower():  # Adjust based on your column names
+                oe_type, cleaned_name = extract_oe_type(row[col])
+                if oe_type:
+                    df_copy.at[idx, 'OE_Type'] = oe_type
+                    df_copy.at[idx, col] = cleaned_name
+    
+    return df_copy, ['OE_Type']  # Return the new column name
+
 def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     cell_padding = 2
     header_bg_color = (149, 33, 28)
@@ -337,9 +378,40 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None):
+def get_oe_column_widths(pdf_width, num_columns):
+    """Calculate column widths for OE table with dedicated OE Type column"""
+    available_width = pdf_width - 20  # Account for margins
+    
+    if num_columns <= 1:
+        return [available_width]
+    
+    # Reserve smaller width for OE Type column
+    oe_type_width = 25  # Width for OE1/OE2 column
+    remaining_width = available_width - oe_type_width
+    other_col_width = remaining_width / (num_columns - 1)
+    
+    # Return widths with OE Type column first
+    widths = [oe_type_width]
+    widths.extend([other_col_width] * (num_columns - 1))
+    
+    return widths
+
+def print_table_custom_oe(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None):
+    """Modified table printing function specifically for Open Electives"""
     if df.empty:
         return
+    
+    # Prepare DataFrame with OE type extraction
+    df_processed, new_columns = prepare_oe_dataframe(df)
+    
+    # Update columns to include OE_Type at the beginning
+    if new_columns:
+        updated_columns = new_columns + [col for col in columns if col in df_processed.columns]
+        # Recalculate column widths to accommodate the new OE Type column
+        col_widths = get_oe_column_widths(pdf.w, len(updated_columns))
+    else:
+        updated_columns = columns
+    
     setattr(pdf, '_row_counter', 0)
     
     # Add footer first
@@ -356,12 +428,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_font("Arial", size=14)
     pdf.set_text_color(0, 0, 0)
     page_text = f"{pdf.page_no()} of {{nb}}"
-    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))  # Estimate width
+    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
     
     # Add header
-    header_height = 85  # Increased height to accommodate time slot
+    header_height = 85
     pdf.set_y(0)
     current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
     pdf.set_font("Arial", size=14)
@@ -410,12 +482,21 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     available_height = pdf.h - pdf.t_margin - footer_height - header_height
     pdf.set_font("Arial", size=12)
     
+    # Create header labels for the table
+    header_labels = []
+    for col in updated_columns:
+        if col == 'OE_Type':
+            header_labels.append('OE Type')
+        else:
+            # Use original column name or create a friendly name
+            header_labels.append(col.replace('_', ' ').title())
+    
     # Print header row
-    print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
+    print_row_custom(pdf, header_labels, col_widths, line_height=line_height, header=True)
     
     # Print data rows, checking space
-    for idx in range(len(df)):
-        row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
+    for idx in range(len(df_processed)):
+        row = [str(df_processed.iloc[idx][c]) if pd.notna(df_processed.iloc[idx][c]) else "" for c in updated_columns]
         if not any(cell.strip() for cell in row):
             continue
             
@@ -445,10 +526,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
-            print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
+            print_row_custom(pdf, header_labels, col_widths, line_height=line_height, header=True)
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
-
 
 def add_footer_with_page_number(pdf, footer_height):
     """Add footer with signature and page number"""
@@ -464,7 +544,7 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.set_font("Arial", size=14)
     pdf.set_text_color(0, 0, 0)
     page_text = f"{pdf.page_no()} of {{nb}}"
-    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))  # Estimate width
+    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
@@ -511,6 +591,313 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
         pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(71)
 
+# Usage example:
+# For Open Elective sections, use print_table_custom_oe instead of print_table_custom
+# 
+# Example:
+# print_table_custom_oe(pdf, oe_dataframe, columns, col_widths, 
+#                       header_content=header_content, branches=branches, time_slot=time_slot)import re
+from datetime import datetime
+import pandas as pd
+
+def extract_oe_type(subject_name):
+    """Extract OE1/OE2 from subject name and return both the type and cleaned name"""
+    if not subject_name:
+        return "", ""
+    
+    # Look for [OE1] or [OE2] patterns
+    oe_match = re.search(r'\[OE([12])\]', str(subject_name))
+    if oe_match:
+        oe_type = f"OE{oe_match.group(1)}"
+        # Remove the [OE1] or [OE2] from the subject name
+        cleaned_name = re.sub(r'\s*\[OE[12]\]\s*', '', str(subject_name)).strip()
+        return oe_type, cleaned_name
+    
+    return "", str(subject_name)
+
+def prepare_oe_dataframe(df):
+    """Prepare DataFrame for open electives with OE type column"""
+    if df.empty:
+        return df, []
+    
+    # Create a copy to avoid modifying original
+    df_copy = df.copy()
+    
+    # Add OE Type column
+    df_copy['OE_Type'] = ''
+    
+    # Process subject names to extract OE type and clean the names
+    for idx, row in df_copy.iterrows():
+        for col in df_copy.columns:
+            if 'subject' in col.lower() or 'course' in col.lower():  # Adjust based on your column names
+                oe_type, cleaned_name = extract_oe_type(row[col])
+                if oe_type:
+                    df_copy.at[idx, 'OE_Type'] = oe_type
+                    df_copy.at[idx, col] = cleaned_name
+    
+    return df_copy, ['OE_Type']  # Return the new column name
+
+def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
+    cell_padding = 2
+    header_bg_color = (149, 33, 28)
+    header_text_color = (255, 255, 255)
+    alt_row_color = (240, 240, 240)
+
+    row_number = getattr(pdf, '_row_counter', 0)
+    if header:
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_text_color(*header_text_color)
+        pdf.set_fill_color(*header_bg_color)
+    else:
+        pdf.set_font("Arial", size=10)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_fill_color(*alt_row_color if row_number % 2 == 1 else (255, 255, 255))
+
+    wrapped_cells = []
+    max_lines = 0
+    for i, cell_text in enumerate(row_data):
+        text = str(cell_text) if cell_text is not None else ""
+        avail_w = col_widths[i] - 2 * cell_padding
+        lines = wrap_text(pdf, text, avail_w)
+        wrapped_cells.append(lines)
+        max_lines = max(max_lines, len(lines))
+
+    row_h = line_height * max_lines
+    x0, y0 = pdf.get_x(), pdf.get_y()
+    if header or row_number % 2 == 1:
+        pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
+
+    for i, lines in enumerate(wrapped_cells):
+        cx = pdf.get_x()
+        pad_v = (row_h - len(lines) * line_height) / 2 if len(lines) < max_lines else 0
+        for j, ln in enumerate(lines):
+            pdf.set_xy(cx + cell_padding, y0 + j * line_height + pad_v)
+            pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln, border=0, align='C')
+        pdf.rect(cx, y0, col_widths[i], row_h)
+        pdf.set_xy(cx + col_widths[i], y0)
+
+    setattr(pdf, '_row_counter', row_number + 1)
+    pdf.set_xy(x0, y0 + row_h)
+
+def get_oe_column_widths(pdf_width, num_columns):
+    """Calculate column widths for OE table with dedicated OE Type column"""
+    available_width = pdf_width - 20  # Account for margins
+    
+    if num_columns <= 1:
+        return [available_width]
+    
+    # Reserve smaller width for OE Type column
+    oe_type_width = 25  # Width for OE1/OE2 column
+    remaining_width = available_width - oe_type_width
+    other_col_width = remaining_width / (num_columns - 1)
+    
+    # Return widths with OE Type column first
+    widths = [oe_type_width]
+    widths.extend([other_col_width] * (num_columns - 1))
+    
+    return widths
+
+def print_table_custom_oe(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None):
+    """Modified table printing function specifically for Open Electives"""
+    if df.empty:
+        return
+    
+    # Prepare DataFrame with OE type extraction
+    df_processed, new_columns = prepare_oe_dataframe(df)
+    
+    # Update columns to include OE_Type at the beginning
+    if new_columns:
+        updated_columns = new_columns + [col for col in columns if col in df_processed.columns]
+        # Recalculate column widths to accommodate the new OE Type column
+        col_widths = get_oe_column_widths(pdf.w, len(updated_columns))
+    else:
+        updated_columns = columns
+    
+    setattr(pdf, '_row_counter', 0)
+    
+    # Add footer first
+    footer_height = 25
+    pdf.set_xy(10, pdf.h - footer_height)
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+    pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+    pdf.set_font("Arial", size=13)
+    pdf.set_xy(10, pdf.h - footer_height + 7)
+    pdf.cell(0, 5, "Signature", 0, 1, 'L')
+    
+    # Add page numbers in bottom right
+    pdf.set_font("Arial", size=14)
+    pdf.set_text_color(0, 0, 0)
+    page_text = f"{pdf.page_no()} of {{nb}}"
+    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
+    pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
+    pdf.cell(text_width, 5, page_text, 0, 0, 'R')
+    
+    # Add header
+    header_height = 85
+    pdf.set_y(0)
+    current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
+    pdf.set_font("Arial", size=14)
+    text_width = pdf.get_string_width(current_date)
+    x = pdf.w - 10 - text_width
+    pdf.set_xy(x, 5)
+    pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+    logo_width = 45
+    logo_x = (pdf.w - logo_width) / 2
+    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+    pdf.set_fill_color(149, 33, 28)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", 'B', 16)
+    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
+    pdf.set_xy(10, 30)
+    pdf.cell(pdf.w - 20, 14,
+             "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
+             0, 1, 'C')
+    pdf.set_font("Arial", 'B', 15)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(10, 51)
+    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
+    
+    # Add time slot if provided
+    if time_slot:
+        pdf.set_font("Arial", 'B', 14)
+        pdf.set_xy(10, 59)
+        pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
+        pdf.set_font("Arial", 'I', 10)
+        pdf.set_xy(10, 65)
+        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+        pdf.set_font("Arial", '', 12)
+        pdf.set_xy(10, 71)
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.set_y(85)
+    else:
+        pdf.set_font("Arial", 'I', 10)
+        pdf.set_xy(10, 59)
+        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+        pdf.set_font("Arial", '', 12)
+        pdf.set_xy(10, 65)
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.set_y(71)
+    
+    # Calculate available space
+    available_height = pdf.h - pdf.t_margin - footer_height - header_height
+    pdf.set_font("Arial", size=12)
+    
+    # Create header labels for the table
+    header_labels = []
+    for col in updated_columns:
+        if col == 'OE_Type':
+            header_labels.append('OE Type')
+        else:
+            # Use original column name or create a friendly name
+            header_labels.append(col.replace('_', ' ').title())
+    
+    # Print header row
+    print_row_custom(pdf, header_labels, col_widths, line_height=line_height, header=True)
+    
+    # Print data rows, checking space
+    for idx in range(len(df_processed)):
+        row = [str(df_processed.iloc[idx][c]) if pd.notna(df_processed.iloc[idx][c]) else "" for c in updated_columns]
+        if not any(cell.strip() for cell in row):
+            continue
+            
+        # Estimate row height
+        wrapped_cells = []
+        max_lines = 0
+        for i, cell_text in enumerate(row):
+            text = str(cell_text) if cell_text is not None else ""
+            avail_w = col_widths[i] - 2 * 2
+            lines = wrap_text(pdf, text, avail_w)
+            wrapped_cells.append(lines)
+            max_lines = max(max_lines, len(lines))
+        row_h = line_height * max_lines
+        
+        # Check if row fits
+        if pdf.get_y() + row_h > pdf.h - footer_height:
+            # Add footer to current page
+            add_footer_with_page_number(pdf, footer_height)
+            
+            # Start new page
+            pdf.add_page()
+            # Add footer to new page
+            add_footer_with_page_number(pdf, footer_height)
+            
+            # Add header to new page
+            add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot)
+            
+            # Reprint header row
+            pdf.set_font("Arial", size=12)
+            print_row_custom(pdf, header_labels, col_widths, line_height=line_height, header=True)
+        
+        print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
+
+def add_footer_with_page_number(pdf, footer_height):
+    """Add footer with signature and page number"""
+    pdf.set_xy(10, pdf.h - footer_height)
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+    pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+    pdf.set_font("Arial", size=13)
+    pdf.set_xy(10, pdf.h - footer_height + 7)
+    pdf.cell(0, 5, "Signature", 0, 1, 'L')
+    
+    # Add page numbers in bottom right
+    pdf.set_font("Arial", size=14)
+    pdf.set_text_color(0, 0, 0)
+    page_text = f"{pdf.page_no()} of {{nb}}"
+    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
+    pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
+    pdf.cell(text_width, 5, page_text, 0, 0, 'R')
+
+def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot=None):
+    """Add header to a new page"""
+    pdf.set_y(0)
+    pdf.set_font("Arial", size=14)
+    text_width = pdf.get_string_width(current_date)
+    x = pdf.w - 10 - text_width
+    pdf.set_xy(x, 5)
+    pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+    pdf.set_fill_color(149, 33, 28)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", 'B', 16)
+    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
+    pdf.set_xy(10, 30)
+    pdf.cell(pdf.w - 20, 14,
+             "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
+             0, 1, 'C')
+    pdf.set_font("Arial", 'B', 15)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(10, 51)
+    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
+    
+    # Add time slot if provided
+    if time_slot:
+        pdf.set_font("Arial", 'B', 14)
+        pdf.set_xy(10, 59)
+        pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
+        pdf.set_font("Arial", 'I', 10)
+        pdf.set_xy(10, 65)
+        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+        pdf.set_font("Arial", '', 12)
+        pdf.set_xy(10, 71)
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.set_y(85)
+    else:
+        pdf.set_font("Arial", 'I', 10)
+        pdf.set_xy(10, 59)
+        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+        pdf.set_font("Arial", '', 12)
+        pdf.set_xy(10, 65)
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.set_y(71)
+
+# Usage example:
+# For Open Elective sections, use print_table_custom_oe instead of print_table_custom
+# 
+# Example:
+# print_table_custom_oe(pdf, oe_dataframe, columns, col_widths, 
+#                       header_content=header_content, branches=branches, time_slot=time_slot)
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
     start = datetime.strptime(start_time, "%I:%M %p")
