@@ -126,7 +126,7 @@ st.markdown("""
             background: #f8f9fa;
             padding: 2rem;
             border-radius: 10px;
-            border oughborder: 2px dashed #951C1C;
+            border: 2px dashed #951C1C;
             margin: 1rem 0;
         }
 
@@ -865,10 +865,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
         subject_info = subject_info.sort_values(['branch_count', 'SubjectCode'], 
                                                ascending=[False, True])
 
-    # Schedule subjects efficiently
+    # Schedule subjects efficiently within 20 days
     current_date = find_next_valid_day(base_date)
-    max_days = 20  # Target maximum span
-    
+    end_date = current_date + timedelta(days=20)  # Set end date to 20 days from start
+
     for _, subject_row in subject_info.iterrows():
         subject_code = subject_row['SubjectCode']
         branches = subject_row['Branch']
@@ -876,72 +876,48 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
         
         scheduled = False
         
-        # Try to schedule within the target date range
-        for day_offset in range(max_days):
-            candidate_date = current_date + timedelta(days=day_offset)
+        # Try to schedule within the 20-day range
+        candidate_date = current_date
+        while candidate_date < end_date:
             candidate_date = find_next_valid_day(candidate_date)
+            if candidate_date >= end_date:
+                break
             
-            # Try both time slots for this date
             for time_slot in time_slots:
                 if can_schedule_subject(subject_code, branches, candidate_date, time_slot):
-                    # Schedule this subject
                     schedule_subject(subject_code, branches, candidate_date, time_slot)
-                    
-                    # Update dataframe
                     mask = (df_sem['SubjectCode'] == subject_code) & df_sem['Branch'].isin(branches)
                     df_sem.loc[mask, 'Exam Date'] = candidate_date.strftime("%d-%m-%Y")
                     df_sem.loc[mask, 'Time Slot'] = time_slot
-                    
                     scheduled = True
                     break
-            
             if scheduled:
                 break
+            candidate_date += timedelta(days=1)
         
         if not scheduled:
-            # If we couldn't schedule within target range, extend the range
-            extend_date = current_date + timedelta(days=max_days)
-            extend_date = find_next_valid_day(extend_date)
-            
-            # Use default time slot for the semester
-            semester = df_sem["Semester"].iloc[0]
-            default_time_slot = get_subject_time_slot(semester)
-            
-            # Find next available slot
-            while not can_schedule_subject(subject_code, branches, extend_date, default_time_slot):
-                extend_date = find_next_valid_day(extend_date + timedelta(days=1))
-            
-            schedule_subject(subject_code, branches, extend_date, default_time_slot)
-            mask = (df_sem['SubjectCode'] == subject_code) & df_sem['Branch'].isin(branches)
-            df_sem.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
-            df_sem.loc[mask, 'Time Slot'] = default_time_slot
-
-    # Calculate and warn about span
-    all_exam_dates = df_sem['Exam Date'].dropna()
-    if not all_exam_dates.empty:
-        exam_dates = [datetime.strptime(date_str, "%d-%m-%Y") for date_str in all_exam_dates if date_str != '']
-        if exam_dates:
-            first_exam = min(exam_dates)
-            last_exam = max(exam_dates)
-            span_days = (last_exam - first_exam).days + 1
-            
-            # Count working days in span
-            working_days = 0
-            current = first_exam
-            while current <= last_exam:
-                if current.weekday() != 6 and current.date() not in holidays_dates:
-                    working_days += 1
-                current += timedelta(days=1)
-            
-            if working_days > 16:
-                st.warning(f"⚠️ The timetable spans {working_days} working days, exceeding the recommended limit of 16 days.")
+            st.warning(f"Could not schedule subject {subject_name} within 20 days. Extending schedule.")
+            # Extend scheduling beyond 20 days if necessary
+            extend_date = end_date
+            while not scheduled:
+                extend_date = find_next_valid_day(extend_date)
+                for time_slot in time_slots:
+                    if can_schedule_subject(subject_code, branches, extend_date, time_slot):
+                        schedule_subject(subject_code, branches, extend_date, time_slot)
+                        mask = (df_sem['SubjectCode'] == subject_code) & df_sem['Branch'].isin(branches)
+                        df_sem.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
+                        df_sem.loc[mask, 'Time Slot'] = time_slot
+                        scheduled = True
+                        break
+                if not scheduled:
+                    extend_date += timedelta(days=1)
 
     return df_sem
 
 
 def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_days=20, global_module_schedule=None):
     """
-    Optimized elective scheduling with time slot utilization
+    Optimized elective scheduling with strict 20-day limit enforcement
     """
     df_elec['SubjectCode'] = df_elec['Subject'].str.extract(r'\((.*?)\)', expand=False)
     
@@ -1014,57 +990,51 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
                 subbranch_schedule[sb][target_date_key] = {}
             subbranch_schedule[sb][target_date_key][target_time_slot] = oe_code
     
-    # Get default time slot
-    semester = df_elec["Semester"].iloc[0]
-    if semester % 2 != 0:  # Odd semesters
-        odd_sem_position = (semester + 1) // 2
-        default_time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    else:  # Even semesters
-        even_sem_position = semester // 2
-        default_time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    
-    # Schedule OEs efficiently
+    # Schedule OEs efficiently within 20 days
     current_date = find_next_valid_day(elective_base_date)
-    
+    end_date = current_date + timedelta(days=20)
+
     for _, oe_row in oe_info.iterrows():
         oe_code = oe_row['OE']
         subbranches = oe_row['SubBranch']
         
         scheduled = False
         
-        # Try to schedule within max_days range
-        for day_offset in range(max_days):
-            candidate_date = current_date + timedelta(days=day_offset)
+        # Try to schedule within the 20-day range
+        candidate_date = current_date
+        while candidate_date < end_date:
             candidate_date = find_next_valid_day(candidate_date)
+            if candidate_date >= end_date:
+                break
             
-            # Try both time slots
             for time_slot in time_slots:
                 if can_schedule_oe(subbranches, candidate_date, time_slot):
                     schedule_oe(oe_code, subbranches, candidate_date, time_slot)
-                    
-                    # Update dataframe
                     mask = df_elec['OE'] == oe_code
                     df_elec.loc[mask, 'Exam Date'] = candidate_date.strftime("%d-%m-%Y")
                     df_elec.loc[mask, 'Time Slot'] = time_slot
-                    
                     scheduled = True
                     break
-            
             if scheduled:
                 break
+            candidate_date += timedelta(days=1)
         
         if not scheduled:
-            # Extend beyond max_days if necessary
-            extend_date = current_date + timedelta(days=max_days)
-            extend_date = find_next_valid_day(extend_date)
-            
-            while not can_schedule_oe(subbranches, extend_date, default_time_slot):
-                extend_date = find_next_valid_day(extend_date + timedelta(days=1))
-            
-            schedule_oe(oe_code, subbranches, extend_date, default_time_slot)
-            mask = df_elec['OE'] == oe_code
-            df_elec.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
-            df_elec.loc[mask, 'Time Slot'] = default_time_slot
+            st.warning(f"Could not schedule OE {oe_code} within 20 days. Extending schedule.")
+            # Extend scheduling beyond 20 days if necessary
+            extend_date = end_date
+            while not scheduled:
+                extend_date = find_next_valid_day(extend_date)
+                for time_slot in time_slots:
+                    if can_schedule_oe(subbranches, extend_date, time_slot):
+                        schedule_oe(oe_code, subbranches, extend_date, time_slot)
+                        mask = df_elec['OE'] == oe_code
+                        df_elec.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
+                        df_elec.loc[mask, 'Time Slot'] = time_slot
+                        scheduled = True
+                        break
+                if not scheduled:
+                    extend_date += timedelta(days=1)
     
     return df_elec
 
@@ -1575,8 +1545,8 @@ def main():
         st.markdown("---")
 
         # Warn if exam days exceed limit
-        if st.session_state.unique_exam_days > 16:
-            st.warning(f"⚠️ The timetable spans {st.session_state.unique_exam_days} exam days, exceeding the limit of 16 days.")
+        if st.session_state.unique_exam_days > 20:
+            st.warning(f"⚠️ The timetable spans {st.session_state.unique_exam_days} exam days, exceeding the limit of 20 days.")
 
         # Download options
         st.markdown("---")
@@ -1636,7 +1606,7 @@ def main():
                 st.session_state.stream_counts = pd.DataFrame()
                 st.rerun()
 
-        # Statistics Overview
+# Statistics Overview
         st.markdown("""
         <div class="stats-section">
             <h2>📈 Statistics Overview</h2>
@@ -1660,103 +1630,53 @@ def main():
         st.markdown("""
         <div class="metric-card">
             <h3>📆 Exam Dates Overview</h3>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
-                <tr style="background: rgba(255, 255, 255, 0.1);">
-                    <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Type</th>
-                    <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Dates</th>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr style="background-color: #951C1C; color: white;">
+                    <th style="padding: 8px; text-align: left;">Category</th>
+                    <th style="padding: 8px; text-align: left;">Date Range</th>
+                    <th style="padding: 8px; text-align: left;">Unique Days</th>
                 </tr>
                 <tr>
-                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">Non-Elective Range</td>
-                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{non_elective_range}</td>
+                    <td style="padding: 8px;">Non-Elective</td>
+                    <td style="padding: 8px;">{st.session_state.non_elective_range}</td>
+                    <td style="padding: 8px;">{len(pd.to_datetime(all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == '')]['Exam Date'], format='%d-%m-%Y', errors='coerce').dropna().dt.date.unique())}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 0.5rem;">Elective Dates</td>
-                    <td style="padding: 0.5rem;">{elective_dates_str}</td>
+                    <td style="padding: 8px;">Elective</td>
+                    <td style="padding: 8px;">{st.session_state.elective_dates_str}</td>
+                    <td style="padding: 8px;">{len(pd.to_datetime(all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != '')]['Exam Date'], format='%d-%m-%Y', errors='coerce').dropna().dt.date.unique())}</td>
                 </tr>
             </table>
         </div>
-        """.format(non_elective_range=st.session_state.non_elective_range, elective_dates_str=st.session_state.elective_dates_str),
-                    unsafe_allow_html=True)
+        """.format(st.session_state=st.session_state, all_data=all_data), unsafe_allow_html=True)
 
-        st.markdown("#### Subjects Per Stream")
-        if not st.session_state.stream_counts.empty:
-            st.dataframe(st.session_state.stream_counts, hide_index=True, use_container_width=True)
-        else:
-            st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
-
-        # Timetable Results
-        st.markdown("---")
+        # Stream Counts Overview
         st.markdown("""
-        <div class="results-section">
-            <h2>📊 Timetable Results</h2>
+        <div class="stats-section">
+            <h2>📊 Stream Counts</h2>
         </div>
         """, unsafe_allow_html=True)
 
+        st.dataframe(st.session_state.stream_counts, use_container_width=True)
+
+        # Detailed Timetable Display
+        st.markdown("---")
+        st.markdown("### 📋 Detailed Timetable")
         for sem, df_sem in st.session_state.timetable_data.items():
-            st.markdown(f"### 📚 Semester {sem}")
+            st.markdown(f"#### Semester {int_to_roman(sem)}")
+            for branch in df_sem['MainBranch'].unique():
+                st.markdown(f"**Branch: {branch}**")
+                branch_df = df_sem[df_sem['MainBranch'] == branch].copy()
+                branch_df = branch_df[['Exam Date', 'Time Slot', 'Subject', 'OE', 'SubBranch']]
+                branch_df['Exam Date'] = pd.to_datetime(branch_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B %Y")
+                st.dataframe(branch_df, use_container_width=True)
 
-            for main_branch in df_sem["MainBranch"].unique():
-                main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
-                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-
-                # Separate non-electives and electives for display
-                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
-
-                # Display non-electives
-                if not df_non_elec.empty:
-                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    time_range_suffix = df_non_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-                        if row['Exam Duration'] != 3 else '', axis=1
-                    )
-                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + time_range_suffix + difficulty_suffix
-                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                    df_non_elec = df_non_elec.drop_duplicates(subset=["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"])
-                    pivot_df = df_non_elec.pivot_table(
-                        index=["Exam Date", "Time Slot"],
-                        columns="SubBranch",
-                        values="SubjectDisplay",
-                        aggfunc=lambda x: ", ".join(x)
-                    ).fillna("---")
-                    if not pivot_df.empty:
-                        st.markdown(f"#### {main_branch_full} - Core Subjects")
-                        formatted_pivot = pivot_df.copy()
-                        if len(formatted_pivot.index.levels) > 0:
-                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
-                                               formatted_pivot.index.levels[0]]
-                            formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
-                        st.dataframe(formatted_pivot, use_container_width=True)
-
-                # Display electives
-                if not df_elec.empty:
-                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    time_range_suffix = df_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-                        if row['Exam Duration'] != 3 else '', axis=1
-                    )
-                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
-                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                    df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-                        lambda x: ", ".join(x)
-                    ).reset_index()
-                    if not elec_pivot.empty:
-                        st.markdown(f"#### {main_branch_full} - Open Electives")
-                        st.dataframe(elec_pivot, use_container_width=True)
-
-    # Display footer
-    st.markdown("---")
-    st.markdown("""
-    <div class="footer">
-        <p>🎓 <strong>Exam Timetable Generator</strong></p>
-        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Streamlined scheduling • Conflict-free timetables • Multiple export formats</p>
-    </div>
-    """, unsafe_allow_html=True)
+        # Footer
+        st.markdown("""
+        <div class="footer">
+            <p>Generated on: Wednesday, July 02, 2025, 10:21 PM IST | © 2025 Mukesh Patel School of Technology Management & Engineering</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
