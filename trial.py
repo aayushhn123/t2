@@ -1606,7 +1606,7 @@ def main():
                 st.session_state.stream_counts = pd.DataFrame()
                 st.rerun()
 
-# Statistics Overview
+        # Statistics Overview
         st.markdown("""
         <div class="stats-section">
             <h2>📈 Statistics Overview</h2>
@@ -1627,64 +1627,29 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Days Span</p></div>',
                         unsafe_allow_html=True)
 
-        # Ensure all_data is defined from the processed timetable data
-        all_data = pd.concat(st.session_state.timetable_data.values(), ignore_index=True) if st.session_state.timetable_data else pd.DataFrame()
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.unique_exam_days}</h3><p>Unique Exam Days</p></div>',
+                        unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.non_elective_range}</h3><p>Non-Elective Range</p></div>',
+                        unsafe_allow_html=True)
 
-        st.markdown("""
-        <div class="metric-card">
-            <h3>📆 Exam Dates Overview</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr style="background-color: #951C1C; color: white;">
-                    <th style="padding: 8px; text-align: left;">Category</th>
-                    <th style="padding: 8px; text-align: left;">Date Range</th>
-                    <th style="padding: 8px; text-align: left;">Unique Days</th>
-                </tr>
-                <tr>
-                    <td style="padding: 8px;">Non-Elective</td>
-                    <td style="padding: 8px;">{non_elective_range}</td>
-                    <td style="padding: 8px;">{non_elective_days}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 8px;">Elective</td>
-                    <td style="padding: 8px;">{elective_dates_str}</td>
-                    <td style="padding: 8px;">{elective_days}</td>
-                </tr>
-            </table>
-        </div>
-        """.format(
-            non_elective_range=st.session_state.non_elective_range,
-            non_elective_days=len(pd.to_datetime(all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == '')]['Exam Date'], format='%d-%m-%Y', errors='coerce').dropna().dt.date.unique()),
-            elective_dates_str=st.session_state.elective_dates_str,
-            elective_days=len(pd.to_datetime(all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != '')]['Exam Date'], format='%d-%m-%Y', errors='coerce').dropna().dt.date.unique())
-        ), unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.elective_dates_str}</h3><p>Elective Dates</p></div>',
+                        unsafe_allow_html=True)
+        with col2:
+            st.markdown('<div class="metric-card"><h3>📊 0</h3><p>Conflicts Resolved</p></div>',
+                        unsafe_allow_html=True)
 
-        # Stream Counts Overview
-        st.markdown("""
-        <div class="stats-section">
-            <h2>📊 Stream Counts</h2>
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown("---")
+        st.markdown("### 📊 Stream-wise Subject Distribution")
         st.dataframe(st.session_state.stream_counts, use_container_width=True)
 
-        # Detailed Timetable Display
         st.markdown("---")
-        st.markdown("### 📋 Detailed Timetable")
-        for sem, df_sem in st.session_state.timetable_data.items():
-            st.markdown(f"#### Semester {int_to_roman(sem)}")
-            for branch in df_sem['MainBranch'].unique():
-                st.markdown(f"**Branch: {branch}**")
-                branch_df = df_sem[df_sem['MainBranch'] == branch].copy()
-                branch_df = branch_df[['Exam Date', 'Time Slot', 'Subject', 'OE', 'SubBranch']]
-                branch_df['Exam Date'] = pd.to_datetime(branch_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B %Y")
-                st.dataframe(branch_df, use_container_width=True)
-
-        # Footer
-        st.markdown("""
-        <div class="footer">
-            <p>Generated on: Wednesday, July 02, 2025, 10:24 PM IST | © 2025 Mukesh Patel School of Technology Management & Engineering</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('<div class="footer">Generated on Thursday, July 03, 2025, 10:26 AM IST</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
