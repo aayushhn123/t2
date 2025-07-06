@@ -126,7 +126,7 @@ st.markdown("""
             background: #f8f9fa;
             padding: 2rem;
             border-radius: 10px;
-            border: 2px dashed #951C1C;
+            border oughborder: 2px dashed #951C1C;
             margin: 1rem 0;
         }
 
@@ -767,8 +767,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
     holidays_dates = {h.date() for h in holidays}
     all_branches = df_sem['Branch'].unique()
     
-    # Track exam schedules per branch per day (only one exam per day per branch)
-    exam_schedule = {branch: {} for branch in all_branches}  # {branch: {date: subject_code}}
+    # Track exam schedules per branch per day per time slot
+    exam_schedule = {branch: {} for branch in all_branches}  # {branch: {date: {time_slot: subject_code}}}
     
     # Available time slots
     time_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
@@ -781,21 +781,24 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 return day
             day = day + timedelta(days=1)
 
-    def can_schedule_subject(subject_code, branches, target_date):
-        """Check if a subject can be scheduled on a specific date (only one exam per day per branch)"""
+    def can_schedule_subject(subject_code, branches, target_date, target_time_slot):
+        """Check if a subject can be scheduled on a specific date and time slot"""
         target_date_key = target_date.strftime("%Y-%m-%d")
         
         for branch in branches:
             if target_date_key in exam_schedule[branch]:
-                return False  # Day already occupied for this branch
+                if target_time_slot in exam_schedule[branch][target_date_key]:
+                    return False  # Time slot already occupied for this branch
         return True
 
     def schedule_subject(subject_code, branches, target_date, target_time_slot):
-        """Schedule a subject for given branches on specific date"""
+        """Schedule a subject for given branches on specific date and time slot"""
         target_date_key = target_date.strftime("%Y-%m-%d")
         
         for branch in branches:
-            exam_schedule[branch][target_date_key] = subject_code
+            if target_date_key not in exam_schedule[branch]:
+                exam_schedule[branch][target_date_key] = {}
+            exam_schedule[branch][target_date_key][target_time_slot] = subject_code
 
     def get_subject_time_slot(semester):
         """Get default time slot for a semester"""
@@ -862,60 +865,83 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
         subject_info = subject_info.sort_values(['branch_count', 'SubjectCode'], 
                                                ascending=[False, True])
 
-    # Schedule subjects efficiently within 20 days
+    # Schedule subjects efficiently
     current_date = find_next_valid_day(base_date)
-    end_date = current_date + timedelta(days=20)  # Set end date to 20 days from start
-
+    max_days = 20  # Target maximum span
+    
     for _, subject_row in subject_info.iterrows():
         subject_code = subject_row['SubjectCode']
         branches = subject_row['Branch']
         subject_name = subject_row['Subject']
         
-        # Get semester-specific time slot
-        semester = df_sem["Semester"].iloc[0]
-        time_slot = get_subject_time_slot(semester)
-        
         scheduled = False
         
-        # Try to schedule within the 20-day range
-        candidate_date = current_date
-        while candidate_date < end_date:
+        # Try to schedule within the target date range
+        for day_offset in range(max_days):
+            candidate_date = current_date + timedelta(days=day_offset)
             candidate_date = find_next_valid_day(candidate_date)
-            if candidate_date >= end_date:
-                break
             
-            # Check if we can schedule on this date (only one exam per day per branch)
-            if can_schedule_subject(subject_code, branches, candidate_date):
-                schedule_subject(subject_code, branches, candidate_date, time_slot)
-                mask = (df_sem['SubjectCode'] == subject_code) & df_sem['Branch'].isin(branches)
-                df_sem.loc[mask, 'Exam Date'] = candidate_date.strftime("%d-%m-%Y")
-                df_sem.loc[mask, 'Time Slot'] = time_slot
-                scheduled = True
-                break
-            
-            candidate_date += timedelta(days=1)
-        
-        if not scheduled:
-            st.warning(f"Could not schedule subject {subject_name} within 20 days. Extending schedule.")
-            # Extend scheduling beyond 20 days if necessary
-            extend_date = end_date
-            while not scheduled:
-                extend_date = find_next_valid_day(extend_date)
-                if can_schedule_subject(subject_code, branches, extend_date):
-                    schedule_subject(subject_code, branches, extend_date, time_slot)
+            # Try both time slots for this date
+            for time_slot in time_slots:
+                if can_schedule_subject(subject_code, branches, candidate_date, time_slot):
+                    # Schedule this subject
+                    schedule_subject(subject_code, branches, candidate_date, time_slot)
+                    
+                    # Update dataframe
                     mask = (df_sem['SubjectCode'] == subject_code) & df_sem['Branch'].isin(branches)
-                    df_sem.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
+                    df_sem.loc[mask, 'Exam Date'] = candidate_date.strftime("%d-%m-%Y")
                     df_sem.loc[mask, 'Time Slot'] = time_slot
+                    
                     scheduled = True
                     break
-                extend_date += timedelta(days=1)
+            
+            if scheduled:
+                break
+        
+        if not scheduled:
+            # If we couldn't schedule within target range, extend the range
+            extend_date = current_date + timedelta(days=max_days)
+            extend_date = find_next_valid_day(extend_date)
+            
+            # Use default time slot for the semester
+            semester = df_sem["Semester"].iloc[0]
+            default_time_slot = get_subject_time_slot(semester)
+            
+            # Find next available slot
+            while not can_schedule_subject(subject_code, branches, extend_date, default_time_slot):
+                extend_date = find_next_valid_day(extend_date + timedelta(days=1))
+            
+            schedule_subject(subject_code, branches, extend_date, default_time_slot)
+            mask = (df_sem['SubjectCode'] == subject_code) & df_sem['Branch'].isin(branches)
+            df_sem.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
+            df_sem.loc[mask, 'Time Slot'] = default_time_slot
+
+    # Calculate and warn about span
+    all_exam_dates = df_sem['Exam Date'].dropna()
+    if not all_exam_dates.empty:
+        exam_dates = [datetime.strptime(date_str, "%d-%m-%Y") for date_str in all_exam_dates if date_str != '']
+        if exam_dates:
+            first_exam = min(exam_dates)
+            last_exam = max(exam_dates)
+            span_days = (last_exam - first_exam).days + 1
+            
+            # Count working days in span
+            working_days = 0
+            current = first_exam
+            while current <= last_exam:
+                if current.weekday() != 6 and current.date() not in holidays_dates:
+                    working_days += 1
+                current += timedelta(days=1)
+            
+            if working_days > 16:
+                st.warning(f"⚠️ The timetable spans {working_days} working days, exceeding the recommended limit of 16 days.")
 
     return df_sem
 
 
 def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_days=20, global_module_schedule=None):
     """
-    Optimized elective scheduling with strict 20-day limit enforcement
+    Optimized elective scheduling with time slot utilization
     """
     df_elec['SubjectCode'] = df_elec['Subject'].str.extract(r'\((.*?)\)', expand=False)
     
@@ -954,7 +980,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
     oe_info['subbranch_count'] = oe_info['SubBranch'].apply(len)
     oe_info = oe_info.sort_values('subbranch_count', ascending=False)
     
-    # Track scheduling per sub-branch per day (only one exam per day per sub-branch)
+    # Track scheduling per sub-branch per day per time slot
     subbranch_schedule = {}
     for sb in df_elec['SubBranch'].unique():
         subbranch_schedule[sb] = {}
@@ -973,66 +999,72 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
                 return day
             day = day + timedelta(days=1)
     
-    def can_schedule_oe(subbranches, target_date):
-        """Check if OE can be scheduled on a specific date (only one exam per day per sub-branch)"""
+    def can_schedule_oe(subbranches, target_date, target_time_slot):
         target_date_key = target_date.strftime("%Y-%m-%d")
         for sb in subbranches:
             if target_date_key in subbranch_schedule[sb]:
-                return False
+                if target_time_slot in subbranch_schedule[sb][target_date_key]:
+                    return False
         return True
     
-    def schedule_oe(oe_code, subbranches, target_date):
-        """Schedule OE for given sub-branches on specific date"""
+    def schedule_oe(oe_code, subbranches, target_date, target_time_slot):
         target_date_key = target_date.strftime("%Y-%m-%d")
         for sb in subbranches:
-            subbranch_schedule[sb][target_date_key] = oe_code
+            if target_date_key not in subbranch_schedule[sb]:
+                subbranch_schedule[sb][target_date_key] = {}
+            subbranch_schedule[sb][target_date_key][target_time_slot] = oe_code
     
-    # Schedule OEs efficiently within 20 days
+    # Get default time slot
+    semester = df_elec["Semester"].iloc[0]
+    if semester % 2 != 0:  # Odd semesters
+        odd_sem_position = (semester + 1) // 2
+        default_time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+    else:  # Even semesters
+        even_sem_position = semester // 2
+        default_time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+    
+    # Schedule OEs efficiently
     current_date = find_next_valid_day(elective_base_date)
-    end_date = current_date + timedelta(days=20)
-
+    
     for _, oe_row in oe_info.iterrows():
         oe_code = oe_row['OE']
         subbranches = oe_row['SubBranch']
         
-        # Get semester-specific time slot for electives
-        semester = df_elec["Semester"].iloc[0] if not df_elec.empty else 1
-        time_slot = "10:00 AM - 1:00 PM" if semester % 2 != 0 else "2:00 PM - 5:00 PM"
-        
         scheduled = False
         
-        # Try to schedule within the 20-day range
-        candidate_date = current_date
-        while candidate_date < end_date:
+        # Try to schedule within max_days range
+        for day_offset in range(max_days):
+            candidate_date = current_date + timedelta(days=day_offset)
             candidate_date = find_next_valid_day(candidate_date)
-            if candidate_date >= end_date:
-                break
             
-            # Check if we can schedule on this date (only one exam per day per sub-branch)
-            if can_schedule_oe(subbranches, candidate_date):
-                schedule_oe(oe_code, subbranches, candidate_date)
-                mask = df_elec['OE'] == oe_code
-                df_elec.loc[mask, 'Exam Date'] = candidate_date.strftime("%d-%m-%Y")
-                df_elec.loc[mask, 'Time Slot'] = time_slot
-                scheduled = True
-                break
-            
-            candidate_date += timedelta(days=1)
-        
-        if not scheduled:
-            st.warning(f"Could not schedule OE {oe_code} within 20 days. Extending schedule.")
-            # Extend scheduling beyond 20 days if necessary
-            extend_date = end_date
-            while not scheduled:
-                extend_date = find_next_valid_day(extend_date)
-                if can_schedule_oe(subbranches, extend_date):
-                    schedule_oe(oe_code, subbranches, extend_date)
+            # Try both time slots
+            for time_slot in time_slots:
+                if can_schedule_oe(subbranches, candidate_date, time_slot):
+                    schedule_oe(oe_code, subbranches, candidate_date, time_slot)
+                    
+                    # Update dataframe
                     mask = df_elec['OE'] == oe_code
-                    df_elec.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
+                    df_elec.loc[mask, 'Exam Date'] = candidate_date.strftime("%d-%m-%Y")
                     df_elec.loc[mask, 'Time Slot'] = time_slot
+                    
                     scheduled = True
                     break
-                extend_date += timedelta(days=1)
+            
+            if scheduled:
+                break
+        
+        if not scheduled:
+            # Extend beyond max_days if necessary
+            extend_date = current_date + timedelta(days=max_days)
+            extend_date = find_next_valid_day(extend_date)
+            
+            while not can_schedule_oe(subbranches, extend_date, default_time_slot):
+                extend_date = find_next_valid_day(extend_date + timedelta(days=1))
+            
+            schedule_oe(oe_code, subbranches, extend_date, default_time_slot)
+            mask = df_elec['OE'] == oe_code
+            df_elec.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
+            df_elec.loc[mask, 'Time Slot'] = default_time_slot
     
     return df_elec
 
@@ -1716,6 +1748,7 @@ def main():
                         st.markdown(f"#### {main_branch_full} - Open Electives")
                         st.dataframe(elec_pivot, use_container_width=True)
 
+
     # Display footer
     st.markdown("---")
     st.markdown("""
@@ -1728,4 +1761,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
