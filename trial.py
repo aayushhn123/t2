@@ -126,7 +126,7 @@ st.markdown("""
             background: #f8f9fa;
             padding: 2rem;
             border-radius: 10px;
-            border oughborder: 2px dashed #951C1C;
+            border: 2px dashed #951C1C;
             margin: 1rem 0;
         }
 
@@ -618,34 +618,23 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
                                  header_content=header_content, branches=chunk, time_slot=time_slot)
 
-        # Handle electives with updated table structure
+        # Handle electives
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
             
-            # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
-            elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
+            elective_data = pivot_df.groupby('OE').agg({
+                'Exam Date': 'first',
                 'SubjectDisplay': lambda x: ", ".join(x)
             }).reset_index()
 
             # Convert Exam Date to desired format
             elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-            # Clean 'SubjectDisplay' to remove [OE] from each subject
-            elective_data['SubjectDisplay'] = elective_data.apply(
-                lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in row['SubjectDisplay'].split(", ")]),
-                axis=1
-            )
-
-            # Rename columns for clarity in the PDF
-            elective_data = elective_data.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
-
-            # Set column widths for three columns
             exam_date_width = 60
-            oe_width = 30
-            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
-            col_widths = [exam_date_width, oe_width, subject_width]
-            cols_to_print = ['Exam Date', 'OE Type', 'Subjects']
+            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width
+            col_widths = [exam_date_width, subject_width]
+            cols_to_print = ['Exam Date', 'SubjectDisplay']
             
             # Add page before printing the electives table
             pdf.add_page()
@@ -1747,7 +1736,6 @@ def main():
                     if not elec_pivot.empty:
                         st.markdown(f"#### {main_branch_full} - Open Electives")
                         st.dataframe(elec_pivot, use_container_width=True)
-
 
     # Display footer
     st.markdown("---")
