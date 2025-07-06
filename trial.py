@@ -981,7 +981,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
                 return False
         return True
     
-    def schedule_oe(oe_code, subbranches, target_date, target_time_slot):
+    def schedule_oe(oe_code, subbranches, target_date):
         """Schedule OE for given sub-branches on specific date"""
         target_date_key = target_date.strftime("%Y-%m-%d")
         for sb in subbranches:
@@ -1010,7 +1010,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
             
             # Check if we can schedule on this date (only one exam per day per sub-branch)
             if can_schedule_oe(subbranches, candidate_date):
-                schedule_oe(oe_code, subbranches, candidate_date, time_slot)
+                schedule_oe(oe_code, subbranches, candidate_date)
                 mask = df_elec['OE'] == oe_code
                 df_elec.loc[mask, 'Exam Date'] = candidate_date.strftime("%d-%m-%Y")
                 df_elec.loc[mask, 'Time Slot'] = time_slot
@@ -1026,7 +1026,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
             while not scheduled:
                 extend_date = find_next_valid_day(extend_date)
                 if can_schedule_oe(subbranches, extend_date):
-                    schedule_oe(oe_code, subbranches, extend_date, time_slot)
+                    schedule_oe(oe_code, subbranches, extend_date)
                     mask = df_elec['OE'] == oe_code
                     df_elec.loc[mask, 'Exam Date'] = extend_date.strftime("%d-%m-%Y")
                     df_elec.loc[mask, 'Time Slot'] = time_slot
