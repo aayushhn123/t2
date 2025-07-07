@@ -284,7 +284,7 @@ def wrap_text(pdf, text, col_width):
     lines = []
     current_line = ""
     for word in words:
-        test_line = word if not current_line else current_line + " " + word
+        test_line = word if not current_line else current_line +#xaiArtifact artifact_id="1db8046e-ae6c-422f-89f8-123d0a529934" title="exam_scheduler.py" contentType="text/python" time_slot="10:00 AM - 1:00 PM"
         if pdf.get_string_width(test_line) <= col_width:
             current_line = test_line
         else:
@@ -547,7 +547,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             return 3.0
 
-    for sheet_name, pivot_df in df_dict.items():
+    for sheet_name, pivot_df in  df_dict.items():
         if pivot_df.empty:
             continue
         parts = sheet_name.split('_Sem_')
@@ -770,8 +770,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
     # Track exam schedules per branch per day per time slot
     exam_schedule = {branch: {} for branch in all_branches}  # {branch: {date: {time_slot: subject_code}}}
     
-    # Available time slots
-    time_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
+    # Available time slots - changed to single slot
+    time_slots = ["10:00 AM - 1:00 PM"]
 
     def find_next_valid_day(start_day):
         day = start_day
@@ -965,7 +965,8 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
         elective_base_date = datetime.combine(elective_base_date, datetime.min.time())
     
     holidays_dates = {h.date() for h in holidays}
-    time_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
+    # Available time slots - changed to single slot
+    time_slots = ["10:00 AM - 1:00 PM"]
     
     def find_next_valid_day(start_day):
         day = start_day
@@ -1078,7 +1079,8 @@ def create_global_module_schedule(df_all_semesters, holidays, base_date):
     
     holidays_dates = {h.date() for h in holidays}
     used_time_slots = {}  # {date: [time_slots_used]}
-    time_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
+    # Available time slots - changed to single slot
+    time_slots = ["10:00 AM - 1:00 PM"]
     
     def get_next_available_slot(start_date):
         date_to_check = start_date
@@ -1124,8 +1126,8 @@ def create_global_module_schedule(df_all_semesters, holidays, base_date):
             'all_combinations': combinations
         }
         
-        # Only advance current_date if both time slots are used for the current date
-        if len(used_time_slots[date_str]) >= 2:
+        # Only advance current_date if the time slot is used for the current date
+        if len(used_time_slots[date_str]) >= 1:  # Since only one slot is available
             current_date = exam_date + timedelta(days=1)
     
     return global_schedule
@@ -1640,7 +1642,8 @@ def main():
                     <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{non_elective_range}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 0.5rem;">Elective Dates</td>
+                    <td style="padding: 0.5rem;">Elective Dates</td
+
                     <td style="padding: 0.5rem;">{elective_dates_str}</td>
                 </tr>
             </table>
@@ -1730,4 +1733,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
