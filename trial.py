@@ -1669,3 +1669,6 @@ def main():
             <p>&copy; 2025 Mukesh Patel School of Technology Management & Engineering. All rights reserved.</p>
         </div>
         """, unsafe_allow_html=True)
+        
+if __name__ == "__main__":
+    main()
