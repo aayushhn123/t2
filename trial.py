@@ -768,7 +768,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
 
     holidays_dates = {h.date() for h in holidays}
     all_branches = df_sem['Branch'].unique()
-    exam_days = {branch: set() for branch in all_branches}
+    exam_days = {branch: set() for branch in all_branches}  # Ensure this is a dict of sets
 
     def find_next_valid_day(start_day, for_branches):
         day = start_day
@@ -970,7 +970,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
     df_sem['Time Slot'] = slot_str
-    return df_sem, exam_days
+    return df_sem, exam_days  # Ensure exam_days is returned as a dict
 
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     final_list = []
@@ -983,7 +983,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             continue
         scheduled_sem, exam_days = schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_difficulty)
         final_list.append(scheduled_sem)
-        exam_days_all.update(exam_days)
+        exam_days_all.update(exam_days)  # Merge exam_days dictionaries
     if not final_list:
         return {}
     df_combined = pd.concat(final_list, ignore_index=True)
@@ -1044,7 +1044,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
             df_elec.at[idx, "Exam Date"] = "Not Scheduled"
             df_elec.at[idx, "Time Slot"] = "N/A"
     return df_elec
-
+    
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
