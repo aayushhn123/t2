@@ -1174,9 +1174,12 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_date = match.iloc[0]["Exam Date"]
             time_slot = match.iloc[0]["Time Slot"]
             duration = row["Exam Duration"]
-            start_time = time_slot.split(" - ")[0]
-            end_time = calculate_end_time(start_time, duration)
-            exam_time = f"{start_time} to {end_time}"
+            if pd.isna(time_slot) or time_slot == "N/A":
+                exam_time = "N/A"
+            else:
+                start_time = time_slot.split(" - ")[0]
+                end_time = calculate_end_time(start_time, duration)
+                exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
             # Check if the subject is common (appears in multiple branches)
