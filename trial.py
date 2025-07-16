@@ -1001,13 +1001,18 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
     common_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) == len(sub_branches)]
     individual_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) < len(sub_branches)]
 
-    # Find the last exam day across all semesters
-    all_exam_dates = pd.to_datetime(df_elec['Exam Date'], format='%d-%m-%Y', errors='coerce')
-    last_exam_date = all_exam_dates.max()
-    if pd.isna(last_exam_date):
-        last_exam_date = elective_base_date
+    # Find the last exam date for non-elective subjects
+    df_non_elec = df_elec[df_elec['OE'].isna()].copy()
+    if not df_non_elec.empty:
+        last_non_elec_date = pd.to_datetime(df_non_elec['Exam Date'].max(), format='%d-%m-%Y')
     else:
-        last_exam_date = last_exam_date + timedelta(days=1)  # Start OE scheduling the next day
+        last_non_elec_date = elective_base_date
+    last_non_elec_date = datetime.combine(last_non_elec_date, datetime.min.time())
+
+    # Set elective_base_date to the day after the last non-elective exam
+    elective_base_date = last_non_elec_date + timedelta(days=1)
+    if isinstance(elective_base_date, date) and not isinstance(elective_base_date, datetime):
+        elective_base_date = datetime.combine(elective_base_date, datetime.min.time())
 
     holidays_dates = {h.date() for h in holidays}
 
@@ -1020,30 +1025,44 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
             return d
 
     # Schedule OE1 and OE2 on the same day, back-to-back
-    oe_day = advance_to_next_valid(last_exam_date)
-    time_slot_oe1 = "10:00 AM - 1:00 PM"
-    time_slot_oe2 = "2:00 PM - 5:00 PM"
+    oe_day = advance_to_next_valid(elective_base_date)
+    schedule_oe_date = {}
+    if 'OE1' in oe_to_subjects:
+        schedule_oe_date['OE1'] = oe_day
+    if 'OE2' in oe_to_subjects:
+        schedule_oe_date['OE2'] = oe_day  # Same day as OE1
 
+    # Schedule individual OEs on subsequent valid days
+    day = oe_day + timedelta(days=1)
+    for oe in individual_oe:
+        day = advance_to_next_valid(day)
+        schedule_oe_date[oe] = day
+        day = day + timedelta(days=1)
+
+    # Assign time slots: OE1 at 10:00 AM - 1:00 PM, OE2 at 2:00 PM - 5:00 PM on the same day
     for idx, row in df_elec.iterrows():
         oe = row["OE"]
-        if oe in ["OE1", "OE2"]:
-            df_elec.at[idx, "Exam Date"] = oe_day.strftime("%d-%m-%Y")
-            df_elec.at[idx, "Time Slot"] = time_slot_oe1 if oe == "OE1" else time_slot_oe2
+        exam_day = schedule_oe_date.get(oe)
+        if exam_day:
+            df_elec.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
+            if oe == 'OE1':
+                df_elec.at[idx, "Time Slot"] = "10:00 AM - 1:00 PM"
+            elif oe == 'OE2':
+                df_elec.at[idx, "Time Slot"] = "2:00 PM - 5:00 PM"
+            else:
+                sem = row["Semester"]
+                if sem % 2 != 0:  # Odd semesters
+                    odd_sem_position = (sem + 1) // 2
+                    time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+                else:  # Even semesters
+                    even_sem_position = sem // 2
+                    time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+                df_elec.at[idx, "Time Slot"] = time_slot
         else:
-            day = advance_to_next_valid(oe_day + timedelta(days=1))
-            df_elec.at[idx, "Exam Date"] = day.strftime("%d-%m-%Y")
-            sem = row["Semester"]
-            if sem % 2 != 0:  # Odd semesters
-                odd_sem_position = (sem + 1) // 2
-                time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-            else:  # Even semesters
-                even_sem_position = sem // 2
-                time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-            df_elec.at[idx, "Time Slot"] = time_slot
-            oe_day = day
-
+            df_elec.at[idx, "Exam Date"] = "Not Scheduled"
+            df_elec.at[idx, "Time Slot"] = "N/A"
     return df_elec
-
+    
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
