@@ -760,6 +760,12 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
 
+from datetime import date, datetime, timedelta
+from collections import defaultdict
+import pandas as pd
+import random
+import streamlit as st
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_difficulty=False):
     df_sem['SubjectCode'] = df_sem['Subject'].str.extract(r'\((.*?)\)', expand=False)
 
@@ -768,7 +774,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
 
     holidays_dates = {h.date() for h in holidays}
     all_branches = df_sem['Branch'].unique()
-    exam_days = {branch: set() for branch in all_branches}  # Ensure this is a dict of sets
+    exam_days = {branch: set() for branch in all_branches}
 
     def find_next_valid_day(start_day, for_branches):
         day = start_day
@@ -916,6 +922,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             total_span = count_working_days(first_exam, last_exam_date, holidays_dates)
             if total_span > 16:
                 st.warning(f"⚠️ The timetable spans {total_span} exam days, exceeding the limit of 16 days.")
+
     else:
         subject_branch_count = df_sem.groupby('SubjectCode')['Branch'].nunique()
         common_subject_codes = subject_branch_count[subject_branch_count > 1].index.tolist()
@@ -970,39 +977,144 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
     df_sem['Time Slot'] = slot_str
-    return df_sem, exam_days  # Ensure exam_days is returned as a dict
+    return df_sem
 
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     final_list = []
-    exam_days_all = {}
     for sem in sorted(df["Semester"].unique()):
         if sem == 0:
             continue
         df_sem = df[df["Semester"] == sem].copy()
         if df_sem.empty:
             continue
-        scheduled_sem, exam_days = schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_difficulty)
+        scheduled_sem = schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_difficulty)
         final_list.append(scheduled_sem)
-        exam_days_all.update(exam_days)  # Merge exam_days dictionaries
     if not final_list:
         return {}
     df_combined = pd.concat(final_list, ignore_index=True)
     sem_dict = {}
     for sem in sorted(df_combined["Semester"].unique()):
         sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
-    # Find the last non-elective exam day across all semesters
-    last_non_elective_day = max((max(days) for days in exam_days_all.values()) or [base_date])
-    return sem_dict, last_non_elective_day
+    return sem_dict
+
+def find_last_non_elective_exam_date(sem_dict, holidays):
+    """Find the last exam date across all semesters for non-elective subjects"""
+    holidays_dates = {h.date() for h in holidays}
+    latest_date = None
+    
+    for sem, df_sem in sem_dict.items():
+        if df_sem.empty:
+            continue
+        # Get all exam dates for this semester
+        exam_dates = df_sem[df_sem['Exam Date'] != '']['Exam Date'].unique()
+        for date_str in exam_dates:
+            try:
+                exam_date = datetime.strptime(date_str, "%d-%m-%Y").date()
+                if latest_date is None or exam_date > latest_date:
+                    latest_date = exam_date
+            except:
+                continue
+    
+    return latest_date
+
+def schedule_unified_electives(all_electives_dict, holidays, sem_dict):
+    """Schedule all OE subjects across all semesters uniformly"""
+    if not all_electives_dict:
+        return {}
+    
+    # Find the last exam date from non-elective subjects
+    last_non_elective_date = find_last_non_elective_exam_date(sem_dict, holidays)
+    
+    if last_non_elective_date is None:
+        # Fallback if no non-elective exams found
+        base_date = datetime.now().date()
+    else:
+        base_date = last_non_elective_date + timedelta(days=1)
+    
+    # Convert to datetime
+    if isinstance(base_date, date) and not isinstance(base_date, datetime):
+        base_date = datetime.combine(base_date, datetime.min.time())
+    
+    holidays_dates = {h.date() for h in holidays}
+    
+    def advance_to_next_valid(d):
+        while True:
+            d_date = d.date() if isinstance(d, datetime) else d
+            if d.weekday() == 6 or d_date in holidays_dates:
+                d = d + timedelta(days=1)
+                continue
+            return d
+    
+    # Collect all OE types across all semesters
+    all_oe_types = set()
+    for sem, df_elec in all_electives_dict.items():
+        if df_elec is not None and not df_elec.empty:
+            all_oe_types.update(df_elec['OE'].unique())
+    
+    # Sort OE types to ensure consistent ordering (OE1, OE2, OE5)
+    sorted_oe_types = sorted(all_oe_types)
+    
+    # Schedule unified dates for each OE type
+    unified_oe_schedule = {}
+    current_date = advance_to_next_valid(base_date)
+    
+    for oe_type in sorted_oe_types:
+        unified_oe_schedule[oe_type] = current_date
+        current_date = advance_to_next_valid(current_date + timedelta(days=1))
+    
+    # Apply the unified schedule to all semesters
+    scheduled_electives = {}
+    
+    for sem, df_elec in all_electives_dict.items():
+        if df_elec is None or df_elec.empty:
+            scheduled_electives[sem] = df_elec
+            continue
+        
+        df_elec_copy = df_elec.copy()
+        
+        # Determine time slot based on semester
+        if sem % 2 != 0:  # Odd semesters
+            odd_sem_position = (sem + 1) // 2
+            time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        else:  # Even semesters
+            even_sem_position = sem // 2
+            time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        
+        # Apply unified schedule
+        for idx, row in df_elec_copy.iterrows():
+            oe_type = row["OE"]
+            if oe_type in unified_oe_schedule:
+                exam_date = unified_oe_schedule[oe_type]
+                df_elec_copy.at[idx, "Exam Date"] = exam_date.strftime("%d-%m-%Y")
+                df_elec_copy.at[idx, "Time Slot"] = time_slot
+            else:
+                df_elec_copy.at[idx, "Exam Date"] = "Not Scheduled"
+                df_elec_copy.at[idx, "Time Slot"] = "N/A"
+        
+        scheduled_electives[sem] = df_elec_copy
+    
+    return scheduled_electives
 
 def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_days=90):
+    """Modified to work with the new unified scheduling system"""
+    # This function is now primarily for backward compatibility
+    # The main scheduling logic has been moved to schedule_unified_electives
+    
     sub_branches = df_elec["SubBranch"].unique().tolist()
     oe_to_subjects = df_elec.groupby("OE")["Subject"].apply(list).to_dict()
     oe_to_subbranches = {
         oe: set(df_elec.loc[df_elec["OE"] == oe, "SubBranch"].unique())
         for oe in oe_to_subjects
     }
+    
     common_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) == len(sub_branches)]
     individual_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) < len(sub_branches)]
+    
+    schedule_oe_date = {}
+    day = elective_base_date
+
+    if isinstance(day, date) and not isinstance(day, datetime):
+        day = datetime.combine(day, datetime.min.time())
 
     holidays_dates = {h.date() for h in holidays}
 
@@ -1014,17 +1126,15 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
                 continue
             return d
 
-    # Schedule OE1 and OE2 back-to-back after the last non-elective day
-    day = advance_to_next_valid(elective_base_date)
-    schedule_oe_date = {}
-    schedule_oe_date['OE1'] = day  # OE1 on the first day after non-electives
-    schedule_oe_date['OE2'] = day + timedelta(days=1)  # OE2 on the next valid day
+    for oe in common_oe:
+        day = advance_to_next_valid(day)
+        schedule_oe_date[oe] = day
+        day = day + timedelta(days=1)
 
-    # Schedule OE5 separately for semesters that have it, on the same date and time
-    oe5_semesters = df_elec[df_elec['OE'] == 'OE5']['Semester'].unique()
-    if 'OE5' in oe_to_subbranches:
-        oe5_day = advance_to_next_valid(day + timedelta(days=2))  # After OE1 and OE2
-        schedule_oe_date['OE5'] = oe5_day
+    for oe in individual_oe:
+        day = advance_to_next_valid(day)
+        schedule_oe_date[oe] = day
+        day = day + timedelta(days=1)
 
     sem = df_elec["Semester"].iloc[0]
     if sem % 2 != 0:  # Odd semesters
@@ -1037,14 +1147,40 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
     for idx, row in df_elec.iterrows():
         oe = row["OE"]
         exam_day = schedule_oe_date.get(oe)
-        if exam_day and (oe != 'OE5' or row['Semester'] in oe5_semesters):
+        if exam_day:
             df_elec.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
             df_elec.at[idx, "Time Slot"] = time_slot
         else:
             df_elec.at[idx, "Exam Date"] = "Not Scheduled"
             df_elec.at[idx, "Time Slot"] = "N/A"
     return df_elec
+
+# Example usage function to demonstrate the new unified scheduling
+def schedule_all_exams(df_non_electives, all_electives_dict, holidays, base_date, schedule_by_difficulty=False):
+    """
+    Complete scheduling function that handles both non-electives and unified electives
     
+    Args:
+        df_non_electives: DataFrame with non-elective subjects
+        all_electives_dict: Dictionary with semester as key and elective DataFrame as value
+        holidays: List of holiday dates
+        base_date: Starting date for scheduling
+        schedule_by_difficulty: Whether to schedule by difficulty
+    
+    Returns:
+        Dictionary with scheduled data for both non-electives and electives
+    """
+    # Schedule non-electives first
+    sem_dict = process_constraints(df_non_electives, holidays, base_date, schedule_by_difficulty)
+    
+    # Schedule electives uniformly across all semesters
+    scheduled_electives = schedule_unified_electives(all_electives_dict, holidays, sem_dict)
+    
+    return {
+        'non_electives': sem_dict,
+        'electives': scheduled_electives
+    }
+
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
