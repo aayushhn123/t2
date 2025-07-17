@@ -915,7 +915,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             last_exam_date = assignments[-1][0][1]
             total_span = count_working_days(first_exam, last_exam_date, holidays_dates)
             if total_span > 16:
-                st.warning(f"⚠️ The timetable spans {total_span} exam days, exceeding the limit of 16 days.")
+                print(f"Warning: The timetable spans {total_span} exam days, exceeding the limit of 16 days.")
 
     else:
         subject_branch_count = df_sem.groupby('SubjectCode')['Branch'].nunique()
@@ -991,60 +991,52 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
     return sem_dict
 
-def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_days=90):
-    sub_branches = df_elec["SubBranch"].unique().tolist()
-    oe_to_subjects = df_elec.groupby("OE")["Subject"].apply(list).to_dict()
-    oe_to_subbranches = {
-        oe: set(df_elec.loc[df_elec["OE"] == oe, "SubBranch"].unique())
-        for oe in oe_to_subjects
-    }
-    common_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) == len(sub_branches)]
-    individual_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) < len(sub_branches)]
-    schedule_oe_date = {}
-    day = elective_base_date
+def find_next_valid_global_day(start_day, holidays_dates):
+    day = start_day
+    while True:
+        day_date = day.date()
+        if day.weekday() != 6 and day_date not in holidays_dates:
+            return day
+        day = day + timedelta(days=1)
 
-    if isinstance(day, date) and not isinstance(day, datetime):
-        day = datetime.combine(day, datetime.min.time())
+def main(df_non_elec, df_elec, holidays, base_date, schedule_by_difficulty=False):
+    # Schedule non-electives
+    non_elec_sched = process_constraints(df_non_elec, holidays, base_date, schedule_by_difficulty)
+    
+    # Find the last non-elective exam date
+    all_non_elec_dates = []
+    for sem in non_elec_sched:
+        df = non_elec_sched[sem]
+        non_elec = df[df['Category'] != 'INTD']
+        if not non_elec.empty:
+            dates = pd.to_datetime(non_elec['Exam Date'], format="%d-%m-%Y")
+            if not dates.empty:
+                all_non_elec_dates.append(dates.max())
+    last_non_elec_date = max(all_non_elec_dates) if all_non_elec_dates else base_date
 
+    # Schedule open electives globally
     holidays_dates = {h.date() for h in holidays}
+    day_D = find_next_valid_global_day(last_non_elec_date + timedelta(days=1), holidays_dates)
+    oe_dates = {}
+    current_day = day_D
+    for oe_cat in ['OE1', 'OE2', 'OE5']:
+        oe_dates[oe_cat] = current_day
+        current_day = find_next_valid_global_day(current_day + timedelta(days=1), holidays_dates)
 
-    def advance_to_next_valid(d):
-        while True:
-            d_date = d.date() if isinstance(d, datetime) else d
-            if d.weekday() == 6 or d_date in holidays_dates:
-                d = d + timedelta(days=1)
-                continue
-            return d
+    # Update elective schedules
+    for sem in non_elec_sched:
+        df = non_elec_sched[sem]
+        elec_mask = df['Category'] == 'INTD'
+        if elec_mask.any():
+            for idx in df[elec_mask].index:
+                oe_cat = df.at[idx, 'OE']
+                if oe_cat in oe_dates:
+                    df.at[idx, 'Exam Date'] = oe_dates[oe_cat].strftime("%d-%m-%Y")
+                    df.at[idx, 'Time Slot'] = "10:00 AM - 1:00 PM"
 
-    for oe in common_oe:
-        day = advance_to_next_valid(day)
-        schedule_oe_date[oe] = day
-        day = day + timedelta(days=1)
-
-    for oe in individual_oe:
-        day = advance_to_next_valid(day)
-        schedule_oe_date[oe] = day
-        day = day + timedelta(days=1)
-
-    sem = df_elec["Semester"].iloc[0]
-    if sem % 2 != 0:  # Odd semesters
-        odd_sem_position = (sem + 1) // 2
-        time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    else:  # Even semesters
-        even_sem_position = sem // 2
-        time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-
-    for idx, row in df_elec.iterrows():
-        oe = row["OE"]
-        exam_day = schedule_oe_date.get(oe)
-        if exam_day:
-            df_elec.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
-            df_elec.at[idx, "Time Slot"] = time_slot
-        else:
-            df_elec.at[idx, "Exam Date"] = "Not Scheduled"
-            df_elec.at[idx, "Time Slot"] = "N/A"
-    return df_elec
-
+    # Combine results
+    final_df = pd.concat([non_elec_sched[sem] for sem in non_elec_sched], ignore_index=True)
+    return final_df
 
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
@@ -1323,31 +1315,11 @@ def main():
                     df_non_elec, df_elec, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None and df_elec is not None:
-                        non_elec_sched = process_constraints(df_non_elec, holidays_set, base_date,
-                                                             schedule_by_difficulty)
+                        # Use the updated main scheduling function
+                        final_df = main(df_non_elec, df_elec, holidays_set, base_date, schedule_by_difficulty)
 
-                        final = []
-                        for sem in sorted(non_elec_sched.keys()):
-                            dfn = non_elec_sched[sem]
-                            for mb in dfn["MainBranch"].unique():
-                                non_df = dfn[dfn["MainBranch"] == mb].copy()
-                                non_df["Exam Date Parsed"] = pd.to_datetime(non_df["Exam Date"], format="%d-%m-%Y",
-                                                                            errors='coerce')
-                                maxd = non_df["Exam Date Parsed"].max()
-                                base = maxd + timedelta(days=1) if pd.notna(maxd) else base_date
-                                ele_subset = df_elec[
-                                    (df_elec["Semester"] == sem) & (df_elec["MainBranch"] == mb)].copy()
-                                if not ele_subset.empty:
-                                    sched_e = schedule_electives_mainbranch(ele_subset, base, holidays_set)
-                                    comb = pd.concat([non_df, sched_e], ignore_index=True)
-                                else:
-                                    comb = non_df
-                                final.append(comb)
-
-                        if final:
-                            final_df = pd.concat(final, ignore_index=True)
-                            final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y",
-                                                                   errors='coerce')
+                        if not final_df.empty:
+                            final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", errors='coerce')
                             final_df = final_df.sort_values(["Exam Date", "Semester", "MainBranch"], ascending=True,
                                                             na_position='last')
                             sem_dict = {s: final_df[final_df["Semester"] == s].copy() for s in
@@ -1358,16 +1330,15 @@ def main():
                             st.session_state.processing_complete = True
 
                             # Compute statistics and store in session state
-                            total_exams = sum(len(df) for df in sem_dict.values())
+                            total_exams = len(final_df)
                             total_semesters = len(sem_dict)
                             total_branches = len(set(branch for df in sem_dict.values() for branch in df['MainBranch'].unique()))
 
-                            all_data = pd.concat(sem_dict.values(), ignore_index=True)
-                            all_dates = pd.to_datetime(all_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                            all_dates = pd.to_datetime(final_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             overall_date_range = (max(all_dates) - min(all_dates)).days if all_dates.size > 0 else 0
 
                             unique_exam_days = len(all_dates.dt.date.unique())
-                            non_elective_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
+                            non_elective_data = final_df[final_df['OE'].isna() | (final_df['OE'].str.strip() == "")]
                             non_elective_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             non_elective_range = "N/A"
                             if non_elective_dates.size > 0:
@@ -1375,12 +1346,12 @@ def main():
                                 non_elective_end = max(non_elective_dates).strftime("%d %b %Y")
                                 non_elective_range = f"{non_elective_start} to {non_elective_end}"
 
-                            elective_data = all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != "")]
+                            elective_data = final_df[final_df['OE'].notna() & (final_df['OE'].str.strip() != "")]
                             elective_dates = pd.to_datetime(elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             elective_dates_list = sorted(set(elective_dates.dt.strftime("%d %b %Y")))
                             elective_dates_str = ", ".join(elective_dates_list) if elective_dates_list else "N/A"
 
-                            non_oe_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
+                            non_oe_data = final_df[final_df['OE'].isna() | (final_df['OE'].str.strip() == "")]
                             stream_counts = non_oe_data.groupby(['MainBranch', 'SubBranch'])['Subject'].count().reset_index()
                             stream_counts['Stream'] = stream_counts['MainBranch'] + " " + stream_counts['SubBranch']
                             stream_counts = stream_counts[['Stream', 'Subject']].rename(columns={'Subject': 'Subject Count'}).sort_values(
