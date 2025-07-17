@@ -848,7 +848,7 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
     if not df_elec.empty:
         df_elec = df_elec.copy()
         df_elec['Exam Date'] = df_elec['OE'].map(oe_dates).apply(lambda x: x.strftime("%d-%m-%Y") if x else '')
-        df_elec['Time Slot'] = "10:00 AM - 1:00 PM"  # Fixed time slot for electives
+        df_elec['Time Slot'] = "10:00 AM - 1:00 PM"  # Fixed time slot for electives, ensured as string
         # Create SubjectDisplay column for electives
         df_elec['SubjectDisplay'] = df_elec.apply(
             lambda row: f"{row['Subject']} [{row['OE']}]" +
@@ -869,7 +869,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     # Enable automatic page numbering with alias
     pdf.alias_nb_pages()
     
-    df_dict = pd.read_excel(excel_path, sheet_name=None)
+    df_dict = pd.read_excel(excel_path, sheet_name=None, dtype={'Time Slot': str})  # Force Time Slot to string
 
     def int_to_roman(num):
         roman_values = [
@@ -892,9 +892,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             return 3.0
 
     def safe_split(time_str):
-        if pd.isna(time_str) or not isinstance(time_str, str):
+        if pd.isna(time_str) or not isinstance(time_str, str) or time_str.strip() == "":
             return ["10:00 AM", "1:00 PM"]  # Default fallback
-        return time_str.split(" - ")
+        return str(time_str).split(" - ")
 
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
@@ -927,6 +927,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 # Get the time slot for this chunk with safe handling
                 time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else "10:00 AM - 1:00 PM"
                 start_time, end_time = safe_split(time_slot)
+                print(f"Debug: Time Slot value = {time_slot}, Type = {type(time_slot)}, Start = {start_time}, End = {end_time}")  # Debug print
 
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
@@ -971,6 +972,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else "10:00 AM - 1:00 PM"
             start_time, end_time = safe_split(time_slot)
+            print(f"Debug: Elective Time Slot value = {time_slot}, Type = {type(time_slot)}, Start = {start_time}, End = {end_time}")  # Debug print
 
             # Group by 'OE' and 'Exam Date' to handle global elective scheduling
             elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
@@ -1117,7 +1119,8 @@ def save_to_excel(semester_wise_timetable):
                     elective_data = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
                         lambda x: ", ".join(sorted(set(x)))
                     ).reset_index()
-                    # Ensure Exam Date is in the correct string format
+                    # Ensure Time Slot and Exam Date are strings
+                    elective_data['Time Slot'] = elective_data['Time Slot'].astype(str)
                     elective_data['Exam Date'] = pd.to_datetime(
                         elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce'
                     ).dt.strftime("%d-%m-%Y")
@@ -1175,7 +1178,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_date = match.iloc[0]["Exam Date"]
             time_slot = match.iloc[0]["Time Slot"]
             duration = row["Exam Duration"]
-            start_time, end_time = safe_split(time_slot)
+            start_time, end_time = safe_split(str(time_slot))  # Force string conversion
             end_time = calculate_end_time(start_time, duration) if duration else end_time
             exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
