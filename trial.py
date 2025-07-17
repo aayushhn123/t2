@@ -620,24 +620,37 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
                                  header_content=header_content, branches=chunk, time_slot=time_slot)
 
-        # Handle electives with updated table structure
+        # Handle electives globally (OE1, OE2, OE5 on the same day across all branches)
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
-            
-            # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
+            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else "10:00 AM - 1:00 PM"
+
+            # Group by 'OE' and 'Exam Date' to handle global elective scheduling
             elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
-                'SubjectDisplay': lambda x: ", ".join(x)
+                'SubjectDisplay': lambda x: ", ".join(sorted(set(x)))
             }).reset_index()
 
             # Convert Exam Date to desired format
             elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-            # Clean 'SubjectDisplay' to remove [OE] from each subject
+            # Clean 'SubjectDisplay' to remove [OE] from each subject and handle duration
             elective_data['SubjectDisplay'] = elective_data.apply(
-                lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in row['SubjectDisplay'].split(", ")]),
+                lambda row: ", ".join([re.sub(r' \[' + row['OE'] + r'\]', '', s) for s in row['SubjectDisplay'].split(", ")]),
                 axis=1
             )
+            for idx in elective_data.index:
+                subjects = elective_data.at[idx, 'SubjectDisplay'].split(", ")
+                modified_subjects = []
+                for subject in subjects:
+                    duration = extract_duration(subject)
+                    base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
+                    if duration != 3 and time_slot:
+                        start_time = time_slot.split(" - ")[0]
+                        end_time = calculate_end_time(start_time, duration)
+                        modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
+                    else:
+                        modified_subjects.append(base_subject)
+                elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
 
             # Rename columns for clarity in the PDF
             elective_data = elective_data.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
@@ -698,6 +711,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             st.warning("Warning: All pages were filtered out - keeping original PDF")
     except Exception as e:
         st.error(f"Error during PDF post-processing: {str(e)}")
+
 
 def read_timetable(uploaded_file):
     try:
@@ -1092,31 +1106,26 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = sheet_name[:31]
                     pivot_df.to_excel(writer, sheet_name=sheet_name)
 
-                # Process electives in a separate sheet
+                # Process electives globally in a separate sheet
                 if not df_elec.empty:
-                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]"
-                    duration_suffix = df_elec.apply(
-                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
-                    df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
-                    # Group by OE to merge subjects, ensuring no duplicates in SubjectDisplay
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                    # Aggregate all elective data across branches for this semester
+                    elective_data = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
                         lambda x: ", ".join(sorted(set(x)))
                     ).reset_index()
-                    # Ensure Exam Date is in the correct string format (dd-mm-yyyy)
-                    elec_pivot['Exam Date'] = pd.to_datetime(
-                        elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
+                    # Ensure Exam Date is in the correct string format
+                    elective_data['Exam Date'] = pd.to_datetime(
+                        elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce'
                     ).dt.strftime("%d-%m-%Y")
-                    elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
+                    elective_data = elective_data.sort_values(by="Exam Date", ascending=True)
                     roman_sem = int_to_roman(sem)
                     sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
-                    elec_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
+                    elective_data.to_excel(writer, sheet_name=sheet_name, index=False)
 
     output.seek(0)
     return output
+
 
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
@@ -1137,14 +1146,25 @@ def save_verification_excel(original_df, semester_wise_timetable):
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
     scheduled_data["ModuleCode"] = scheduled_data["Subject"].str.extract(r'\((.*?)\)', expand=False)
 
+    # Handle both non-electives and electives with global OE scheduling
     for idx, row in verification_df.iterrows():
         module_code = row["ModuleCode"]
         semester = row["Semester"]
+        oe_category = row["OE"] if pd.notna(row["OE"]) else None
 
-        match = scheduled_data[
-            (scheduled_data["ModuleCode"] == module_code) &
-            (scheduled_data["Semester"] == semester)
-        ]
+        # Match non-electives or electives based on category
+        if pd.isna(oe_category) or oe_category.strip() == "":
+            match = scheduled_data[
+                (scheduled_data["ModuleCode"] == module_code) &
+                (scheduled_data["Semester"] == semester) &
+                (scheduled_data["OE"].isna() | (scheduled_data["OE"].str.strip() == ""))
+            ]
+        else:
+            match = scheduled_data[
+                (scheduled_data["ModuleCode"] == module_code) &
+                (scheduled_data["Semester"] == semester) &
+                (scheduled_data["OE"] == oe_category)
+            ]
 
         if not match.empty:
             exam_date = match.iloc[0]["Exam Date"]
@@ -1165,7 +1185,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     output.seek(0)
     return output
-
 def main():
     st.markdown("""
     <div class="main-header">
