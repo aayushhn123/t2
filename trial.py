@@ -852,7 +852,7 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
         # Create SubjectDisplay column for electives
         df_elec['SubjectDisplay'] = df_elec.apply(
             lambda row: f"{row['Subject']} [{row['OE']}]" +
-                        (f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else ''),
+                        (f" [Duration: {row['Exam Duration']} hrs]" if pd.notna(row['Exam Duration']) and row['Exam Duration'] != 3 else ''),
             axis=1
         )
         # Merge elective data with non-elective schedule
@@ -891,6 +891,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             return 3.0
 
+    def safe_split(time_str):
+        if pd.isna(time_str) or not isinstance(time_str, str):
+            return ["10:00 AM", "1:00 PM"]  # Default fallback
+        return time_str.split(" - ")
+
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
             continue
@@ -919,8 +924,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 if chunk_df.empty:
                     continue
 
-                # Get the time slot for this chunk
-                time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
+                # Get the time slot for this chunk with safe handling
+                time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else "10:00 AM - 1:00 PM"
+                start_time, end_time = safe_split(time_slot)
 
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
@@ -936,10 +942,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         for subject in subjects:
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            if duration != 3 and time_slot:
-                                start_time = time_slot.split(" - ")[0]
-                                end_time = calculate_end_time(start_time, duration)
-                                modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
+                            if duration != 3:
+                                modified_subjects.append(f"{base_subject} ({start_time} to {calculate_end_time(start_time, duration)})")
                             else:
                                 modified_subjects.append(base_subject)
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
@@ -960,12 +964,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 add_footer_with_page_number(pdf, footer_height)
                 
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, time_slot=time_slot)
+                                 header_content=header_content, branches=chunk, time_slot=f"{start_time} - {end_time}")
 
         # Handle electives globally (OE1, OE2, OE5 on the same day across all branches)
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else "10:00 AM - 1:00 PM"
+            start_time, end_time = safe_split(time_slot)
 
             # Group by 'OE' and 'Exam Date' to handle global elective scheduling
             elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
@@ -986,10 +991,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 for subject in subjects:
                     duration = extract_duration(subject)
                     base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                    if duration != 3 and time_slot:
-                        start_time = time_slot.split(" - ")[0]
-                        end_time = calculate_end_time(start_time, duration)
-                        modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
+                    if duration != 3:
+                        modified_subjects.append(f"{base_subject} ({start_time} to {calculate_end_time(start_time, duration)})")
                     else:
                         modified_subjects.append(base_subject)
                 elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
@@ -1011,7 +1014,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             add_footer_with_page_number(pdf, footer_height)
             
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                             header_content=header_content, branches=['All Streams'], time_slot=time_slot)
+                             header_content=header_content, branches=['All Streams'], time_slot=f"{start_time} - {end_time}")
 
     pdf.output(pdf_path)
 
@@ -1087,7 +1090,7 @@ def save_to_excel(semester_wise_timetable):
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                     df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
                     duration_suffix = df_non_elec.apply(
-                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
+                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if pd.notna(row['Exam Duration']) and row['Exam Duration'] != 3 else '', axis=1)
                     df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
                     df_non_elec["Exam Date"] = pd.to_datetime(
                         df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce'
@@ -1172,8 +1175,8 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_date = match.iloc[0]["Exam Date"]
             time_slot = match.iloc[0]["Time Slot"]
             duration = row["Exam Duration"]
-            start_time = time_slot.split(" - ")[0]
-            end_time = calculate_end_time(start_time, duration)
+            start_time, end_time = safe_split(time_slot)
+            end_time = calculate_end_time(start_time, duration) if duration else end_time
             exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
