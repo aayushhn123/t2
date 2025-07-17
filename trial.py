@@ -891,10 +891,42 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             return 3.0
 
+    def get_time_slot_safely(df):
+        """Safely extract time slot from dataframe"""
+        if 'Time Slot' not in df.columns or df['Time Slot'].empty:
+            return "10:00 AM - 1:00 PM"
+        
+        time_slot = df['Time Slot'].iloc[0]
+        
+        # Handle various data types
+        if pd.isna(time_slot):
+            return "10:00 AM - 1:00 PM"
+        
+        # Convert to string and check
+        time_slot_str = str(time_slot).strip()
+        if time_slot_str == "" or time_slot_str == "nan":
+            return "10:00 AM - 1:00 PM"
+        
+        return time_slot_str
+
     def safe_split(time_str):
-        if pd.isna(time_str) or not isinstance(time_str, str) or time_str.strip() == "":
+        # Handle None, NaN, or empty values
+        if pd.isna(time_str) or time_str is None:
             return ["10:00 AM", "1:00 PM"]  # Default fallback
-        return str(time_str).split(" - ")
+        
+        # Convert to string and strip whitespace
+        time_str = str(time_str).strip()
+        
+        # Check if empty string after conversion
+        if time_str == "" or time_str == "nan":
+            return ["10:00 AM", "1:00 PM"]  # Default fallback
+        
+        # Split the time string
+        if " - " in time_str:
+            return time_str.split(" - ")
+        else:
+            # If no delimiter found, return default
+            return ["10:00 AM", "1:00 PM"]
 
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
@@ -925,7 +957,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     continue
 
                 # Get the time slot for this chunk with safe handling
-                time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else "10:00 AM - 1:00 PM"
+                time_slot = get_time_slot_safely(pivot_df)
                 start_time, end_time = safe_split(time_slot)
                 print(f"Debug: Time Slot value = {time_slot}, Type = {type(time_slot)}, Start = {start_time}, End = {end_time}")  # Debug print
 
@@ -970,7 +1002,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         # Handle electives globally (OE1, OE2, OE5 on the same day across all branches)
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else "10:00 AM - 1:00 PM"
+            time_slot = get_time_slot_safely(pivot_df)
             start_time, end_time = safe_split(time_slot)
             print(f"Debug: Elective Time Slot value = {time_slot}, Type = {type(time_slot)}, Start = {start_time}, End = {end_time}")  # Debug print
 
