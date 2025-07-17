@@ -999,7 +999,7 @@ def find_next_valid_global_day(start_day, holidays_dates):
             return day
         day = day + timedelta(days=1)
 
-def main(df_non_elec, df_elec, holidays, base_date, schedule_by_difficulty=False):
+def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_difficulty=False):
     # Schedule non-electives
     non_elec_sched = process_constraints(df_non_elec, holidays, base_date, schedule_by_difficulty)
     
@@ -1037,6 +1037,7 @@ def main(df_non_elec, df_elec, holidays, base_date, schedule_by_difficulty=False
     # Combine results
     final_df = pd.concat([non_elec_sched[sem] for sem in non_elec_sched], ignore_index=True)
     return final_df
+
 
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
@@ -1315,8 +1316,8 @@ def main():
                     df_non_elec, df_elec, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None and df_elec is not None:
-                        # Use the updated main scheduling function
-                        final_df = main(df_non_elec, df_elec, holidays_set, base_date, schedule_by_difficulty)
+                        # Call the renamed scheduling function
+                        final_df = generate_timetable(df_non_elec, df_elec, holidays_set, base_date, schedule_by_difficulty)
 
                         if not final_df.empty:
                             final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", errors='coerce')
