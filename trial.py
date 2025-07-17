@@ -849,6 +849,12 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
         df_elec = df_elec.copy()
         df_elec['Exam Date'] = df_elec['OE'].map(oe_dates).apply(lambda x: x.strftime("%d-%m-%Y") if x else '')
         df_elec['Time Slot'] = "10:00 AM - 1:00 PM"  # Fixed time slot for electives
+        # Create SubjectDisplay column for electives
+        df_elec['SubjectDisplay'] = df_elec.apply(
+            lambda row: f"{row['Subject']} [{row['OE']}]" +
+                        (f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else ''),
+            axis=1
+        )
         # Merge elective data with non-elective schedule
         final_df = pd.concat([pd.concat(non_elec_sched.values(), ignore_index=True), df_elec], ignore_index=True)
     else:
@@ -863,7 +869,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     # Enable automatic page numbering with alias
     pdf.alias_nb_pages()
     
-    df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
+    df_dict = pd.read_excel(excel_path, sheet_name=None)
 
     def int_to_roman(num):
         roman_values = [
@@ -1181,7 +1187,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     output.seek(0)
     return output
-
+    
 def main():
     st.markdown("""
     <div class="main-header">
