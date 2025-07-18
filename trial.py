@@ -520,7 +520,8 @@ def calculate_end_time(start_time, duration_hours):
 def read_timetable(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file, engine='openpyxl')
-        # Ensure required columns exist, provide defaults if missing
+        
+        # Define required and optional columns with defaults
         required_cols = {
             "Program": "Program",
             "Stream": "Stream",
@@ -530,15 +531,29 @@ def read_timetable(uploaded_file):
             "Campus Name": "Campus",
             "Difficulty Score": "Difficulty",
             "Exam Duration": "Exam Duration",
-            "Student count": "StudentCount"
+            "Student count": "StudentCount",
+            "Category": "Category",  # Ensure Category is included
+            "OE": "OE"  # Ensure OE is included
         }
-        df = df.rename(columns={old: new for old, new in required_cols.items() if old in df.columns})
+        
+        # Rename only existing columns
+        existing_cols = {old: new for old, new in required_cols.items() if old in df.columns}
+        df = df.rename(columns=existing_cols)
 
         # Add missing columns with default values
-        for col, default in [("ModuleCode", ""), ("Difficulty", None), ("Exam Duration", 3.0), ("StudentCount", 0)]:
+        for col, default in [
+            ("ModuleCode", ""),  # Default to empty string if not found
+            ("SubjectName", ""),  # Default for SubjectName
+            ("Difficulty", None),
+            ("Exam Duration", 3.0),
+            ("StudentCount", 0),
+            ("Category", "COMP"),  # Default category
+            ("OE", None)  # Default OE
+        ]:
             if col not in df.columns:
                 df[col] = default
 
+        # Convert Semester to numeric
         def convert_sem(sem):
             if pd.isna(sem):
                 return 0
@@ -550,17 +565,24 @@ def read_timetable(uploaded_file):
             return m.get(sem.strip(), 0)
 
         df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
+        
+        # Ensure Branch is created
         df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
+        
+        # Ensure Subject is created using ModuleCode
         df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
 
+        # Handle Difficulty for COMP category
         comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
         df["Difficulty"] = df["Difficulty"].where(comp_mask, None)
 
+        # Initialize empty columns
         df["Exam Date"] = ""
         df["Time Slot"] = ""
         df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)
         df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
 
+        # Split into non-elective and elective DataFrames
         df_non = df[df["Category"] != "INTD"].copy()
         df_ele = df[df["Category"] == "INTD"].copy()
 
@@ -571,8 +593,15 @@ def read_timetable(uploaded_file):
         for d in (df_non, df_ele):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
 
+        # Select relevant columns
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty", "Exam Duration", "StudentCount"]
+                "Difficulty", "Exam Duration", "StudentCount", "ModuleCode"]  # Explicitly include ModuleCode
+
+        # Ensure all selected columns exist in the DataFrames
+        for d in (df_non, df_ele):
+            for col in cols:
+                if col not in d.columns:
+                    d[col] = "" if col in ["Exam Date", "Time Slot", "ModuleCode"] else None
 
         return df_non[cols], df_ele[cols], df
 
