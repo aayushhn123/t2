@@ -520,7 +520,8 @@ def calculate_end_time(start_time, duration_hours):
 def read_timetable(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file, engine='openpyxl')
-        df = df.rename(columns={
+        # Ensure required columns exist, provide defaults if missing
+        required_cols = {
             "Program": "Program",
             "Stream": "Stream",
             "Current Session": "Semester",
@@ -530,8 +531,14 @@ def read_timetable(uploaded_file):
             "Difficulty Score": "Difficulty",
             "Exam Duration": "Exam Duration",
             "Student count": "StudentCount"
-        })
-        
+        }
+        df = df.rename(columns={old: new for old, new in required_cols.items() if old in df.columns})
+
+        # Add missing columns with default values
+        for col, default in [("ModuleCode", ""), ("Difficulty", None), ("Exam Duration", 3.0), ("StudentCount", 0)]:
+            if col not in df.columns:
+                df[col] = default
+
         def convert_sem(sem):
             if pd.isna(sem):
                 return 0
@@ -541,36 +548,34 @@ def read_timetable(uploaded_file):
                 "Sem IX": 9, "Sem X": 10, "Sem XI": 11
             }
             return m.get(sem.strip(), 0)
-        
+
         df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
         df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
         df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
-        
+
         comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
-        df["Difficulty"] = None
-        df.loc[comp_mask, "Difficulty"] = df.loc[comp_mask, "Difficulty"]
-        
+        df["Difficulty"] = df["Difficulty"].where(comp_mask, None)
+
         df["Exam Date"] = ""
         df["Time Slot"] = ""
         df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)
-        
         df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
-        
+
         df_non = df[df["Category"] != "INTD"].copy()
         df_ele = df[df["Category"] == "INTD"].copy()
-        
+
         def split_br(b):
             p = b.split("-", 1)
             return pd.Series([p[0].strip(), p[1].strip() if len(p) > 1 else ""])
-        
+
         for d in (df_non, df_ele):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
-        
+
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
                 "Difficulty", "Exam Duration", "StudentCount"]
-        
+
         return df_non[cols], df_ele[cols], df
-        
+
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
