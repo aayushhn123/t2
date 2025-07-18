@@ -893,23 +893,23 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
     def get_time_slot_safely(df):
     """Safely extract time slot from dataframe"""
-    if 'Time Slot' not in df.columns or df['Time Slot'].empty:
-        return "10:00 AM - 1:00 PM"
+        if 'Time Slot' not in df.columns or df['Time Slot'].empty:
+            return "10:00 AM - 1:00 PM"
     
-    time_slot = df['Time Slot'].iloc[0]
+        time_slot = df['Time Slot'].iloc[0]
     
     # Handle various data types including numpy types
-    if pd.isna(time_slot):
-        return "10:00 AM - 1:00 PM"
+        if pd.isna(time_slot):
+            return "10:00 AM - 1:00 PM"
     
     # Convert to string and check - handle numpy types properly
-    try:
-        time_slot_str = str(time_slot).strip()
-    except:
-        return "10:00 AM - 1:00 PM"
+        try:
+            time_slot_str = str(time_slot).strip()
+        except:
+            return "10:00 AM - 1:00 PM"
     
-    if time_slot_str == "" or time_slot_str == "nan":
-        return "10:00 AM - 1:00 PM"
+        if time_slot_str == "" or time_slot_str == "nan":
+            return "10:00 AM - 1:00 PM"
     
     return time_slot_str
 
