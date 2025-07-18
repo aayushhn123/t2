@@ -791,7 +791,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
     else:  # Even semesters
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    df_sem['Time Slot'] = slot_str
+    df_sem['Time Slot'] = str(slot_str)
     return df_sem
 
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
@@ -848,7 +848,7 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
     if not df_elec.empty:
         df_elec = df_elec.copy()
         df_elec['Exam Date'] = df_elec['OE'].map(oe_dates).apply(lambda x: x.strftime("%d-%m-%Y") if x else '')
-        df_elec['Time Slot'] = "10:00 AM - 1:00 PM"  # Fixed time slot for electives, ensured as string
+        df_elec['Time Slot'] = str("10:00 AM - 1:00 PM")  # Fixed time slot for electives, ensured as string
         # Create SubjectDisplay column for electives
         df_elec['SubjectDisplay'] = df_elec.apply(
             lambda row: f"{row['Subject']} [{row['OE']}]" +
@@ -892,41 +892,50 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             return 3.0
 
     def get_time_slot_safely(df):
-        """Safely extract time slot from dataframe"""
-        if 'Time Slot' not in df.columns or df['Time Slot'].empty:
-            return "10:00 AM - 1:00 PM"
-        
-        time_slot = df['Time Slot'].iloc[0]
-        
-        # Handle various data types
-        if pd.isna(time_slot):
-            return "10:00 AM - 1:00 PM"
-        
-        # Convert to string and check
+    """Safely extract time slot from dataframe"""
+    if 'Time Slot' not in df.columns or df['Time Slot'].empty:
+        return "10:00 AM - 1:00 PM"
+    
+    time_slot = df['Time Slot'].iloc[0]
+    
+    # Handle various data types including numpy types
+    if pd.isna(time_slot):
+        return "10:00 AM - 1:00 PM"
+    
+    # Convert to string and check - handle numpy types properly
+    try:
         time_slot_str = str(time_slot).strip()
-        if time_slot_str == "" or time_slot_str == "nan":
-            return "10:00 AM - 1:00 PM"
-        
-        return time_slot_str
+    except:
+        return "10:00 AM - 1:00 PM"
+    
+    if time_slot_str == "" or time_slot_str == "nan":
+        return "10:00 AM - 1:00 PM"
+    
+    return time_slot_str
+
 
     def safe_split(time_str):
-        # Handle None, NaN, or empty values
-        if pd.isna(time_str) or time_str is None:
-            return ["10:00 AM", "1:00 PM"]  # Default fallback
-        
-        # Convert to string and strip whitespace
+    # Handle None, NaN, or empty values
+    if pd.isna(time_str) or time_str is None:
+        return ["10:00 AM", "1:00 PM"]  # Default fallback
+    
+    # Convert to string and strip whitespace - handle numpy types
+    try:
         time_str = str(time_str).strip()
-        
-        # Check if empty string after conversion
-        if time_str == "" or time_str == "nan":
-            return ["10:00 AM", "1:00 PM"]  # Default fallback
-        
-        # Split the time string
-        if " - " in time_str:
-            return time_str.split(" - ")
-        else:
-            # If no delimiter found, return default
-            return ["10:00 AM", "1:00 PM"]
+    except:
+        return ["10:00 AM", "1:00 PM"]  # Fallback for any conversion issues
+    
+    # Check if empty string after conversion
+    if time_str == "" or time_str == "nan":
+        return ["10:00 AM", "1:00 PM"]  # Default fallback
+    
+    # Split the time string
+    if " - " in time_str:
+        return time_str.split(" - ")
+    else:
+        # If no delimiter found, return default
+        return ["10:00 AM", "1:00 PM"]
+
 
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
@@ -1206,18 +1215,31 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 (scheduled_data["OE"] == oe_category)
             ]
 
-        if not match.empty:
-            exam_date = match.iloc[0]["Exam Date"]
-            time_slot = match.iloc[0]["Time Slot"]
-            duration = row["Exam Duration"]
-            start_time, end_time = safe_split(str(time_slot))  # Force string conversion
-            end_time = calculate_end_time(start_time, duration) if duration else end_time
-            exam_time = f"{start_time} to {end_time}"
-            verification_df.at[idx, "Exam Date"] = exam_date
-            verification_df.at[idx, "Exam Time"] = exam_time
-            # Check if the subject is common (appears in multiple branches)
-            branch_count = len(scheduled_data[scheduled_data["ModuleCode"] == module_code]["Branch"].unique())
-            verification_df.at[idx, "Is Common"] = "YES" if branch_count > 1 else "NO"
+        # Replace the existing match processing section with this:
+if not match.empty:
+    exam_date = match.iloc[0]["Exam Date"]
+    time_slot = match.iloc[0]["Time Slot"]
+    duration = row["Exam Duration"]
+    
+    # Ensure time_slot is a string and handle numpy types
+    time_slot_str = str(time_slot) if pd.notna(time_slot) else "10:00 AM - 1:00 PM"
+    start_time, end_time = safe_split(time_slot_str)
+    
+    # Handle duration - ensure it's a number
+    if pd.isna(duration):
+        duration = 3.0
+    else:
+        duration = float(duration)
+    
+    end_time = calculate_end_time(start_time, duration) if duration != 3 else end_time
+    exam_time = f"{start_time} to {end_time}"
+    verification_df.at[idx, "Exam Date"] = exam_date
+    verification_df.at[idx, "Exam Time"] = exam_time
+    
+    # Check if the subject is common (appears in multiple branches)
+    branch_count = len(scheduled_data[scheduled_data["ModuleCode"] == module_code]["Branch"].unique())
+    verification_df.at[idx, "Is Common"] = "YES" if branch_count > 1 else "NO"
+
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -1600,10 +1622,12 @@ def main():
                 if not df_non_elec.empty:
                     difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    # In the display section, replace time range calculation with this:
                     time_range_suffix = df_non_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-                        if row['Exam Duration'] != 3 else '', axis=1
+                    lambda row: f" ({str(row['Time Slot']).split(' - ')[0]} to {calculate_end_time(str(row['Time Slot']).split(' - ')[0], row['Exam Duration'])})"
+                    if row['Exam Duration'] != 3 else '', axis=1
                     )
+
                     df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + time_range_suffix + difficulty_suffix
                     df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
@@ -1628,9 +1652,10 @@ def main():
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                     time_range_suffix = df_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-                        if row['Exam Duration'] != 3 else '', axis=1
+                    lambda row: f" ({str(row['Time Slot']).split(' - ')[0]} to {calculate_end_time(str(row['Time Slot']).split(' - ')[0], row['Exam Duration'])})"
+                    if row['Exam Duration'] != 3 else '', axis=1
                     )
+
                     df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
                     df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                     df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
