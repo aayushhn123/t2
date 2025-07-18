@@ -1547,27 +1547,40 @@ def main():
                         values="SubjectDisplay",
                         aggfunc=lambda x: ", ".join(x)
                     ).fillna("---")
-pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
-formatted_dates = [d.strftime("%A, %d %B %Y") for d in pivot_df.index.levels[0]]
-pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
-st.write(f"#### Non-Elective Timetable - {main_branch_full}")
-st.dataframe(pivot_df, hide_index=True, use_container_width=True)
+                    if not pivot_df.empty:
+                        st.markdown(f"#### {main_branch_full} - Core Subjects")
+                        formatted_pivot = pivot_df.copy()
+                        if len(formatted_pivot.index.levels) > 0:
+                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
+                                               formatted_pivot.index.levels[0]]
+                            formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
+                        st.dataframe(formatted_pivot, use_container_width=True)
 
-if not df_elec.empty:
-    elective_data = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-        lambda x: ", ".join(sorted(set(x)))
-    ).reset_index()
-    elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce')
-    elective_data = elective_data.sort_values(by="Exam Date", ascending=True)
-    elective_data["Exam Date"] = elective_data["Exam Date"].dt.strftime("%A, %d %B %Y")
-    st.write(f"#### Elective Timetable - {main_branch_full}")
-    st.dataframe(elective_data, hide_index=True, use_container_width=True)
+                if not df_elec.empty:
+                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    time_range_suffix = df_elec.apply(
+                        lambda row: f" ({str(row['Time Slot']).split(' - ')[0]} to {calculate_end_time(str(row['Time Slot']).split(' - ')[0], row['Exam Duration'])})"
+                        if row['Exam Duration'] != 3 else '', axis=1
+                    )
+                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
+                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                    df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                        lambda x: ", ".join(x)
+                    ).reset_index()
+                    if not elec_pivot.empty:
+                        st.markdown(f"#### {main_branch_full} - Open Electives")
+                        st.dataframe(elec_pivot, use_container_width=True)
 
-st.markdown("""
-<div class="footer">
-    <p>© 2025 Mukesh Patel School of Technology Management & Engineering. All rights reserved.</p>
-</div>
-""", unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("""
+    <div class="footer">
+        <p>🎓 <strong>Exam Timetable Generator</strong></p>
+        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
+        <p style="font-size: 0.9em;">Streamlined scheduling • Conflict-free timetables • Multiple export formats</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
