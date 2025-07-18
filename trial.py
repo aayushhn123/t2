@@ -272,11 +272,9 @@ BRANCH_FULL_FORM = {
 # Define logo path (adjust as needed for your environment)
 LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 
-
 # Cache for text wrapping results
 wrap_text_cache = {}
 
-# PDF generation utilities
 # PDF generation utilities
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
@@ -451,7 +449,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
-
 def add_footer_with_page_number(pdf, footer_height):
     """Add footer with signature and page number"""
     pdf.set_xy(10, pdf.h - footer_height)
@@ -532,7 +529,7 @@ def read_timetable(uploaded_file):
             "Campus Name": "Campus",
             "Difficulty Score": "Difficulty",
             "Exam Duration": "Exam Duration",
-            "Student count": "StudentCount"  # Added this line
+            "Student count": "StudentCount"
         })
         
         def convert_sem(sem):
@@ -548,7 +545,6 @@ def read_timetable(uploaded_file):
         df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
         df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
         df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
-        #df = df[df["Campus"].str.strip() == "Mumbai"] # Campus filter
         
         comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
         df["Difficulty"] = None
@@ -556,9 +552,8 @@ def read_timetable(uploaded_file):
         
         df["Exam Date"] = ""
         df["Time Slot"] = ""
-        df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)  # Default to 3 hours if NaN
+        df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)
         
-        # Handle StudentCount - fill NaN with 0 and convert to int
         df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
         
         df_non = df[df["Category"] != "INTD"].copy()
@@ -571,7 +566,6 @@ def read_timetable(uploaded_file):
         for d in (df_non, df_ele):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
         
-        # Updated columns list to include StudentCount
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
                 "Difficulty", "Exam Duration", "StudentCount"]
         
@@ -848,14 +842,12 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
     if not df_elec.empty:
         df_elec = df_elec.copy()
         df_elec['Exam Date'] = df_elec['OE'].map(oe_dates).apply(lambda x: x.strftime("%d-%m-%Y") if x else '')
-        df_elec['Time Slot'] = "10:00 AM - 1:00 PM"  # Fixed time slot for electives, ensured as string
-        # Create SubjectDisplay column for electives
+        df_elec['Time Slot'] = "10:00 AM - 1:00 PM"
         df_elec['SubjectDisplay'] = df_elec.apply(
             lambda row: f"{row['Subject']} [{row['OE']}]" +
                         (f" [Duration: {row['Exam Duration']} hrs]" if pd.notna(row['Exam Duration']) and row['Exam Duration'] != 3 else ''),
             axis=1
         )
-        # Merge elective data with non-elective schedule
         final_df = pd.concat([pd.concat(non_elec_sched.values(), ignore_index=True), df_elec], ignore_index=True)
     else:
         final_df = pd.concat([pd.concat(non_elec_sched.values(), ignore_index=True)], ignore_index=True)
@@ -866,10 +858,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
     
-    # Enable automatic page numbering with alias
     pdf.alias_nb_pages()
     
-    df_dict = pd.read_excel(excel_path, sheet_name=None, dtype={'Time Slot': str})  # Force Time Slot to string
+    df_dict = pd.read_excel(excel_path, sheet_name=None, dtype={'Time Slot': str})
 
     def int_to_roman(num):
         roman_values = [
@@ -898,11 +889,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         
         time_slot = df['Time Slot'].iloc[0]
         
-        # Handle various data types
         if pd.isna(time_slot):
             return "10:00 AM - 1:00 PM"
         
-        # Convert to string and check
         time_slot_str = str(time_slot).strip()
         if time_slot_str == "" or time_slot_str == "nan":
             return "10:00 AM - 1:00 PM"
@@ -910,22 +899,17 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         return time_slot_str
 
     def safe_split(time_str):
-        # Handle None, NaN, or empty values
         if pd.isna(time_str) or time_str is None:
-            return ["10:00 AM", "1:00 PM"]  # Default fallback
+            return ["10:00 AM", "1:00 PM"]
         
-        # Convert to string and strip whitespace
         time_str = str(time_str).strip()
         
-        # Check if empty string after conversion
         if time_str == "" or time_str == "nan":
-            return ["10:00 AM", "1:00 PM"]  # Default fallback
+            return ["10:00 AM", "1:00 PM"]
         
-        # Split the time string
         if " - " in time_str:
             return time_str.split(" - ")
         else:
-            # If no delimiter found, return default
             return ["10:00 AM", "1:00 PM"]
 
     for sheet_name, pivot_df in df_dict.items():
@@ -938,7 +922,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
         header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
 
-        # Handle normal subjects
         if not sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             fixed_cols = ["Exam Date"]
@@ -952,19 +935,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 cols_to_print = fixed_cols + chunk
                 chunk_df = pivot_df[cols_to_print].copy()
                 mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
-                chunk_df = chunk_df[mask].reset_index(drop=True)
-                if chunk_df.empty:
+                chunky_df = chunk_df[mask].reset_index(drop=True)
+                if chunky_df.empty:
                     continue
 
-                # Get the time slot for this chunk with safe handling
                 time_slot = get_time_slot_safely(pivot_df)
                 start_time, end_time = safe_split(time_slot)
-                print(f"Debug: Time Slot value = {time_slot}, Type = {type(time_slot)}, Start = {start_time}, End = {end_time}")  # Debug print
 
-                # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-                # Modify subjects to include time range if duration != 3 hours
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
                         cell_value = chunk_df.at[idx, sub_branch]
@@ -990,31 +969,24 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     factor = page_width / total_w
                     col_widths = [w * factor for w in col_widths]
                 
-                # Add page before printing the table
                 pdf.add_page()
-                # Add footer with page number to the new page
                 footer_height = 25
                 add_footer_with_page_number(pdf, footer_height)
                 
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
                                  header_content=header_content, branches=chunk, time_slot=f"{start_time} - {end_time}")
 
-        # Handle electives globally (OE1, OE2, OE5 on the same day across all branches)
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             time_slot = get_time_slot_safely(pivot_df)
             start_time, end_time = safe_split(time_slot)
-            print(f"Debug: Elective Time Slot value = {time_slot}, Type = {type(time_slot)}, Start = {start_time}, End = {end_time}")  # Debug print
 
-            # Group by 'OE' and 'Exam Date' to handle global elective scheduling
             elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
                 'SubjectDisplay': lambda x: ", ".join(sorted(set(x)))
             }).reset_index()
 
-            # Convert Exam Date to desired format
             elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-            # Clean 'SubjectDisplay' to remove [OE] from each subject and handle duration
             elective_data['SubjectDisplay'] = elective_data.apply(
                 lambda row: ", ".join([re.sub(r' \[' + row['OE'] + r'\]', '', s) for s in row['SubjectDisplay'].split(", ")]),
                 axis=1
@@ -1031,19 +1003,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         modified_subjects.append(base_subject)
                 elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
 
-            # Rename columns for clarity in the PDF
             elective_data = elective_data.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
 
-            # Set column widths for three columns
             exam_date_width = 60
             oe_width = 30
             subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
             col_widths = [exam_date_width, oe_width, subject_width]
             cols_to_print = ['Exam Date', 'OE Type', 'Subjects']
             
-            # Add page before printing the electives table
             pdf.add_page()
-            # Add footer with page number to the new page
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
             
@@ -1051,7 +1019,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                              header_content=header_content, branches=['All Streams'], time_slot=f"{start_time} - {end_time}")
 
     pdf.output(pdf_path)
-
 
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
@@ -1091,7 +1058,6 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     except Exception as e:
         st.error(f"Error during PDF post-processing: {str(e)}")
 
-
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
@@ -1114,18 +1080,15 @@ def save_to_excel(semester_wise_timetable):
         for sem, df_sem in semester_wise_timetable.items():
             for main_branch in df_sem["MainBranch"].unique():
                 df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-                # Separate non-electives and electives
                 df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                 df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
-                # Process non-electives
                 if not df_non_elec.empty:
                     difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
                     duration_suffix = df_non_elec.apply(
                         lambda row: f" [Duration: {row['Exam Duration']} hrs]" if pd.notna(row['Exam Duration']) and row['Exam Duration'] != 3 else '', axis=1)
-                    df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + difficulty_suffix + duration_suffix
                     df_non_elec["Exam Date"] = pd.to_datetime(
                         df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce'
                     )
@@ -1145,13 +1108,10 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = sheet_name[:31]
                     pivot_df.to_excel(writer, sheet_name=sheet_name)
 
-                # Process electives globally in a separate sheet
                 if not df_elec.empty:
-                    # Aggregate all elective data across branches for this semester
                     elective_data = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
                         lambda x: ", ".join(sorted(set(x)))
                     ).reset_index()
-                    # Ensure Time Slot and Exam Date are strings
                     elective_data['Time Slot'] = elective_data['Time Slot'].astype(str)
                     elective_data['Exam Date'] = pd.to_datetime(
                         elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce'
@@ -1165,7 +1125,6 @@ def save_to_excel(semester_wise_timetable):
 
     output.seek(0)
     return output
-
 
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
@@ -1186,13 +1145,11 @@ def save_verification_excel(original_df, semester_wise_timetable):
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
     scheduled_data["ModuleCode"] = scheduled_data["Subject"].str.extract(r'\((.*?)\)', expand=False)
 
-    # Handle both non-electives and electives with global OE scheduling
     for idx, row in verification_df.iterrows():
         module_code = row["ModuleCode"]
         semester = row["Semester"]
         oe_category = row["OE"] if pd.notna(row["OE"]) else None
 
-        # Match non-electives or electives based on category
         if pd.isna(oe_category) or oe_category.strip() == "":
             match = scheduled_data[
                 (scheduled_data["ModuleCode"] == module_code) &
@@ -1210,12 +1167,11 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_date = match.iloc[0]["Exam Date"]
             time_slot = match.iloc[0]["Time Slot"]
             duration = row["Exam Duration"]
-            start_time, end_time = safe_split(str(time_slot))  # Force string conversion
+            start_time, end_time = safe_split(str(time_slot))
             end_time = calculate_end_time(start_time, duration) if duration else end_time
             exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
-            # Check if the subject is common (appears in multiple branches)
             branch_count = len(scheduled_data[scheduled_data["ModuleCode"] == module_code]["Branch"].unique())
             verification_df.at[idx, "Is Common"] = "YES" if branch_count > 1 else "NO"
 
@@ -1234,13 +1190,12 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # Initialize session state variables if not present
     if 'num_custom_holidays' not in st.session_state:
         st.session_state.num_custom_holidays = 1
     if 'custom_holidays' not in st.session_state:
         st.session_state.custom_holidays = [None]
     if 'timetable_data' not in st.session_state:
-        st.session_state.timetable_data = {}  # Initialize as empty dict to avoid undefined access
+        st.session_state.timetable_data = {}
     if 'processing_complete' not in st.session_state:
         st.session_state.processing_complete = False
     if 'excel_data' not in st.session_state:
@@ -1376,7 +1331,6 @@ def main():
                     df_non_elec, df_elec, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None and df_elec is not None:
-                        # Call the renamed scheduling function
                         final_df = generate_timetable(df_non_elec, df_elec, holidays_set, base_date, schedule_by_difficulty)
 
                         if not final_df.empty:
@@ -1390,7 +1344,6 @@ def main():
                             st.session_state.original_df = original_df
                             st.session_state.processing_complete = True
 
-                            # Compute statistics and store in session state
                             total_exams = len(final_df)
                             total_semesters = len(sem_dict)
                             total_branches = len(set(branch for df in sem_dict.values() for branch in df['MainBranch'].unique()))
@@ -1418,7 +1371,6 @@ def main():
                             stream_counts = stream_counts[['Stream', 'Subject']].rename(columns={'Subject': 'Subject Count'}).sort_values(
                                 'Stream')
 
-                            # Store statistics in session state
                             st.session_state.total_exams = total_exams
                             st.session_state.total_semesters = total_semesters
                             st.session_state.total_branches = total_branches
@@ -1428,7 +1380,6 @@ def main():
                             st.session_state.elective_dates_str = elective_dates_str
                             st.session_state.stream_counts = stream_counts
 
-                            # Generate and store downloadable files
                             excel_data = save_to_excel(sem_dict)
                             if excel_data:
                                 st.session_state.excel_data = excel_data.getvalue()
@@ -1463,15 +1414,12 @@ def main():
                     st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
                                 unsafe_allow_html=True)
 
-    # Display timetable results if processing is complete
     if st.session_state.processing_complete:
         st.markdown("---")
 
-        # Warn if exam days exceed limit
         if st.session_state.unique_exam_days > 16:
             st.warning(f"⚠️ The timetable spans {st.session_state.unique_exam_days} exam days, exceeding the limit of 16 days.")
 
-        # Download options
         st.markdown("---")
         st.markdown("### 📥 Download Options")
 
@@ -1512,7 +1460,6 @@ def main():
 
         with col4:
             if st.button("🔄 Generate New Timetable", use_container_width=True):
-                # Clear session state and rerun
                 st.session_state.processing_complete = False
                 st.session_state.timetable_data = {}
                 st.session_state.original_df = None
@@ -1529,7 +1476,6 @@ def main():
                 st.session_state.stream_counts = pd.DataFrame()
                 st.rerun()
 
-        # Statistics Overview
         st.markdown("""
         <div class="stats-section">
             <h2>📈 Statistics Overview</h2>
@@ -1577,7 +1523,6 @@ def main():
         else:
             st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
 
-        # Timetable Results
         st.markdown("---")
         st.markdown("""
         <div class="results-section">
@@ -1592,16 +1537,14 @@ def main():
                 main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
                 df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
 
-                # Separate non-electives and electives for display
                 df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                 df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
-                # Display non-electives
                 if not df_non_elec.empty:
                     difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                     time_range_suffix = df_non_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
+                        lambda row: f" ({str(row['Time Slot']).split(' - ')[0]} to {calculate_end_time(str(row['Time Slot']).split(' - ')[0], row['Exam Duration'])})"
                         if row['Exam Duration'] != 3 else '', axis=1
                     )
                     df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + time_range_suffix + difficulty_suffix
@@ -1623,12 +1566,11 @@ def main():
                             formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
                         st.dataframe(formatted_pivot, use_container_width=True)
 
-                # Display electives
                 if not df_elec.empty:
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                     time_range_suffix = df_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
+                        lambda row: f" ({str(row['Time Slot']).split(' - ')[0]} to {calculate_end_time(str(row['Time Slot']).split(' - ')[0], row['Exam Duration'])})"
                         if row['Exam Duration'] != 3 else '', axis=1
                     )
                     df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
@@ -1641,7 +1583,6 @@ def main():
                         st.markdown(f"#### {main_branch_full} - Open Electives")
                         st.dataframe(elec_pivot, use_container_width=True)
 
-    # Display footer
     st.markdown("---")
     st.markdown("""
     <div class="footer">
