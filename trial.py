@@ -974,7 +974,6 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, last_no
     
     # Determine the last non-elective date if not provided
     if last_non_elective_date is None:
-        # Assume non-elective data is in df_elec where Category is not 'INTD'
         df_non_elec = df_elec[df_elec['Category'] != 'INTD'].copy()
         non_elec_dates = pd.to_datetime(df_non_elec['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
         last_non_elective_date = max(non_elec_dates) if not non_elec_dates.empty else elective_base_date
@@ -995,32 +994,23 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, last_no
                 continue
             return d
 
-    # Schedule OE1 and OE2 on two consecutive valid days
+    # Schedule OE1 and OE2 on two fixed consecutive valid days (global for all)
     oe1_day = advance_to_next_valid(day)
     oe2_day = advance_to_next_valid(oe1_day + timedelta(days=1))
 
-    # Schedule OE5 subjects within the two allocated days
-    for idx, row in df_intd[df_intd['OE'] == 'OE5'].iterrows():
-        if row['Subject'] in ['Management through Movies', 'Leading Life through Skills']:
-            df_intd.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, 'Time Slot'] = "2:00 PM - 5:00 PM"
-        else:
-            df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, 'Time Slot'] = "10:00 AM - 1:00 PM"
-
-    # Assign OE1 and OE2 dates and time slots uniformly across all semesters and branches
-    # Use fixed time slots for consistency
+    # Assign OE1, OE2, and OE5 to these two fixed days
     oe1_time_slot = "10:00 AM - 1:00 PM"
     oe2_time_slot = "2:00 PM - 5:00 PM"
 
+    # Assign all elective dates uniformly
     for idx, row in df_intd.iterrows():
         oe = row["OE"]
-        if oe == 'OE1':
-            df_intd.at[idx, "Exam Date"] = oe1_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, "Time Slot"] = oe1_time_slot
-        elif oe == 'OE2':
-            df_intd.at[idx, "Exam Date"] = oe2_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, "Time Slot"] = oe2_time_slot
+        if oe == 'OE1' or (oe == 'OE5' and row['Subject'] not in ['Management through Movies', 'Leading Life through Skills']):
+            df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
+            df_intd.at[idx, 'Time Slot'] = oe1_time_slot
+        elif oe == 'OE2' or (oe == 'OE5' and row['Subject'] in ['Management through Movies', 'Leading Life through Skills']):
+            df_intd.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
+            df_intd.at[idx, 'Time Slot'] = oe2_time_slot
 
     # Merge updated 'INTD' data back into df_elec
     df_elec.loc[df_elec['Category'] == 'INTD', ['Exam Date', 'Time Slot']] = \
