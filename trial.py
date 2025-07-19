@@ -1558,17 +1558,17 @@ def main():
                 df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
                 # Display non-electives
-                if not df_non_elec.empty:
-                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    time_range_suffix = df_non_elec.apply(
-    lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})" 
-    if row['Exam Duration'] != 3 else '', axis=1)
-df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + difficulty_suffix + time_range_suffix
-df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B %Y")
-st.markdown(f"#### 📅 {main_branch_full} Non-Elective Timetable")
-st.dataframe(df_non_elec[["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"]], 
-            hide_index=True, use_container_width=True)
+if not df_non_elec.empty:
+    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+    time_range_suffix = df_non_elec.apply(
+        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})" 
+        if row['Exam Duration'] != 3 else '', axis=1)
+    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + difficulty_suffix + time_range_suffix
+    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B %Y")
+    st.markdown(f"#### 📅 {main_branch_full} Non-Elective Timetable")
+    st.dataframe(df_non_elec[["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"]], 
+                hide_index=True, use_container_width=True)
 
 # Display electives
 if not df_elec.empty:
