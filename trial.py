@@ -995,34 +995,24 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, last_no
                 continue
             return d
 
-    # Schedule OE1 on the first valid day after the last non-elective date
+    # Schedule OE1 and OE2 on two consecutive valid days
     oe1_day = advance_to_next_valid(day)
-    schedule_oe_date = {'OE1': oe1_day}
-
-    # Schedule OE2 on the next valid day after OE1
     oe2_day = advance_to_next_valid(oe1_day + timedelta(days=1))
-    schedule_oe_date['OE2'] = oe2_day
 
     # Schedule OE5 subjects within the two allocated days
     for idx, row in df_intd[df_intd['OE'] == 'OE5'].iterrows():
         if row['Subject'] in ['Management through Movies', 'Leading Life through Skills']:
             df_intd.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, 'Time Slot'] = "2:00 PM - 5:00 PM"  # Align with OE2 time slot
+            df_intd.at[idx, 'Time Slot'] = "2:00 PM - 5:00 PM"
         else:
             df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, 'Time Slot'] = "10:00 AM - 1:00 PM"  # Align with OE1 time slot
+            df_intd.at[idx, 'Time Slot'] = "10:00 AM - 1:00 PM"
 
-    # Assign OE1 and OE2 dates and time slots for all semesters and branches
-    # Use a consistent time slot based on the first semester's parity
-    sem = df_intd["Semester"].iloc[0] if not df_intd.empty else 0
-    if sem % 2 != 0:  # Odd semesters
-        oe1_time_slot = "10:00 AM - 1:00 PM"
-        oe2_time_slot = "2:00 PM - 5:00 PM"
-    else:  # Even semesters
-        oe1_time_slot = "2:00 PM - 5:00 PM"
-        oe2_time_slot = "10:00 AM - 1:00 PM"
+    # Assign OE1 and OE2 dates and time slots uniformly across all semesters and branches
+    # Use fixed time slots for consistency
+    oe1_time_slot = "10:00 AM - 1:00 PM"
+    oe2_time_slot = "2:00 PM - 5:00 PM"
 
-    # Assign dates and time slots to all OE1 and OE2 subjects
     for idx, row in df_intd.iterrows():
         oe = row["OE"]
         if oe == 'OE1':
