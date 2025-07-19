@@ -969,54 +969,113 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     return sem_dict
 
 def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, last_non_elective_date=None, max_days=90):
-    # Filter for 'INTD' category subjects
+    """
+    Schedule electives on exactly 2 common days for all semesters and branches:
+    - OE1 and OE5 (except specific subjects) on Day 1 (10:00 AM - 1:00 PM)
+    - OE2 and OE5 (Management through Movies, Leading Life through Skills) on Day 2 (2:00 PM - 5:00 PM)
+    """
+    # Filter for 'INTD' category subjects (electives)
     df_intd = df_elec[df_elec['Category'] == 'INTD'].copy()
     
-    # Determine the last non-elective date if not provided
+    # Find the last non-elective date if not provided
     if last_non_elective_date is None:
+        # Filter non-elective subjects
         df_non_elec = df_elec[df_elec['Category'] != 'INTD'].copy()
-        non_elec_dates = pd.to_datetime(df_non_elec['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-        last_non_elective_date = max(non_elec_dates) if not non_elec_dates.empty else elective_base_date
-
-    # Use the day after the last non-elective date as the base for scheduling OE1
-    day = last_non_elective_date + timedelta(days=1) if last_non_elective_date else elective_base_date
-
-    if isinstance(day, date) and not isinstance(day, datetime):
-        day = datetime.combine(day, datetime.min.time())
-
-    holidays_dates = {h.date() for h in holidays}
-
+        
+        if not df_non_elec.empty:
+            # Convert exam dates to datetime and find the maximum
+            non_elec_dates = pd.to_datetime(df_non_elec['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+            if not non_elec_dates.empty:
+                last_non_elective_date = max(non_elec_dates)
+                print(f"Last non-elective date found: {last_non_elective_date.strftime('%d-%m-%Y')}")
+            else:
+                last_non_elective_date = elective_base_date
+                print("No valid non-elective dates found, using elective_base_date")
+        else:
+            last_non_elective_date = elective_base_date
+            print("No non-elective subjects found, using elective_base_date")
+    
+    # Start scheduling from the day after the last non-elective date
+    start_day = last_non_elective_date + timedelta(days=1) if last_non_elective_date else elective_base_date
+    
+    # Ensure start_day is a datetime object
+    if isinstance(start_day, date) and not isinstance(start_day, datetime):
+        start_day = datetime.combine(start_day, datetime.min.time())
+    
+    # Convert holidays to a set of dates for faster lookup
+    holidays_dates = {h.date() if isinstance(h, datetime) else h for h in holidays}
+    
     def advance_to_next_valid(d):
+        """Skip weekends (Sunday=6) and holidays"""
         while True:
             d_date = d.date() if isinstance(d, datetime) else d
-            if d.weekday() == 6 or d_date in holidays_dates:
+            if d.weekday() == 6 or d_date in holidays_dates:  # Skip Sundays and holidays
                 d = d + timedelta(days=1)
                 continue
             return d
-
-    # Schedule OE1 and OE2 on two fixed consecutive valid days (global for all)
-    oe1_day = advance_to_next_valid(day)
-    oe2_day = advance_to_next_valid(oe1_day + timedelta(days=1))
-
-    # Assign OE1, OE2, and OE5 to these two fixed days
+    
+    # Schedule exactly 2 consecutive valid days for all electives
+    oe1_day = advance_to_next_valid(start_day)  # Day 1: OE1 and most OE5 subjects
+    oe2_day = advance_to_next_valid(oe1_day + timedelta(days=1))  # Day 2: OE2 and specific OE5 subjects
+    
+    print(f"OE1 and OE5 (general) scheduled on: {oe1_day.strftime('%d-%m-%Y')}")
+    print(f"OE2 and OE5 (Management/Leading Life) scheduled on: {oe2_day.strftime('%d-%m-%Y')}")
+    
+    # Define time slots
     oe1_time_slot = "10:00 AM - 1:00 PM"
     oe2_time_slot = "2:00 PM - 5:00 PM"
-
-    # Assign all elective dates uniformly
+    
+    # OE5 subjects that should be scheduled with OE2
+    oe5_with_oe2_subjects = ['Management through Movies', 'Leading Life through Skills']
+    
+    # Schedule all elective subjects
     for idx, row in df_intd.iterrows():
         oe = row["OE"]
-        if oe == 'OE1' or (oe == 'OE5' and row['Subject'] not in ['Management through Movies', 'Leading Life through Skills']):
+        subject = row.get('Subject', '')
+        
+        if oe == 'OE1':
+            # All OE1 subjects on Day 1
             df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
             df_intd.at[idx, 'Time Slot'] = oe1_time_slot
-        elif oe == 'OE2' or (oe == 'OE5' and row['Subject'] in ['Management through Movies', 'Leading Life through Skills']):
+            
+        elif oe == 'OE2':
+            # All OE2 subjects on Day 2
             df_intd.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
             df_intd.at[idx, 'Time Slot'] = oe2_time_slot
-
-    # Merge updated 'INTD' data back into df_elec
-    df_elec.loc[df_elec['Category'] == 'INTD', ['Exam Date', 'Time Slot']] = \
-        df_intd.loc[df_elec['Category'] == 'INTD', ['Exam Date', 'Time Slot']]
-
+            
+        elif oe == 'OE5':
+            # Check if this OE5 subject should be with OE2 or OE1
+            if subject in oe5_with_oe2_subjects:
+                # Management through Movies and Leading Life through Skills go with OE2
+                df_intd.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
+                df_intd.at[idx, 'Time Slot'] = oe2_time_slot
+            else:
+                # All other OE5 subjects go with OE1
+                df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
+                df_intd.at[idx, 'Time Slot'] = oe1_time_slot
+        
+        # Handle any other OE types (OE3, OE4, etc.) - schedule them with OE1 by default
+        else:
+            df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
+            df_intd.at[idx, 'Time Slot'] = oe1_time_slot
+    
+    # Update the original dataframe with the scheduled electives
+    df_elec.update(df_intd)
+    
+    # Alternative method to ensure all changes are reflected
+    for idx in df_intd.index:
+        if idx in df_elec.index:
+            df_elec.at[idx, 'Exam Date'] = df_intd.at[idx, 'Exam Date']
+            df_elec.at[idx, 'Time Slot'] = df_intd.at[idx, 'Time Slot']
+    
+    print(f"\nElective scheduling completed:")
+    print(f"- Day 1 ({oe1_day.strftime('%d-%m-%Y')}): OE1 + OE5 (general subjects)")
+    print(f"- Day 2 ({oe2_day.strftime('%d-%m-%Y')}): OE2 + OE5 (Management/Leading Life)")
+    print(f"- Total elective days used: 2")
+    
     return df_elec
+
+
     
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
