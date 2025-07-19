@@ -968,20 +968,14 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
     return sem_dict
 
-def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_days=90):
+
+
+   def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, last_non_elective_date, max_days=90):
     # Filter for 'INTD' category subjects
     df_intd = df_elec[df_elec['Category'] == 'INTD'].copy()
     
-    sub_branches = df_intd["SubBranch"].unique().tolist()
-    oe_to_subjects = df_intd.groupby("OE")["Subject"].apply(list).to_dict()
-    oe_to_subbranches = {
-        oe: set(df_intd.loc[df_intd["OE"] == oe, "SubBranch"].unique())
-        for oe in oe_to_subjects
-    }
-    common_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) == len(sub_branches)]
-    individual_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) < len(sub_branches)]
-    schedule_oe_date = {}
-    day = elective_base_date
+    # Use the last non-elective date as the base for scheduling OE1 and OE2
+    day = last_non_elective_date + timedelta(days=1) if last_non_elective_date else elective_base_date
 
     if isinstance(day, date) and not isinstance(day, datetime):
         day = datetime.combine(day, datetime.min.time())
@@ -996,56 +990,45 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
                 continue
             return d
 
-    # Schedule OE1 and OE5 (specific subjects) on the first valid day
-    day = advance_to_next_valid(day)
-    oe1_date = day
-    schedule_oe_date['OE1'] = oe1_date
-    schedule_oe_date['OE5'] = oe1_date  # OE5 scheduled on the same date as OE1
+    # Schedule OE1 on the first valid day after last non-elective date
+    oe1_day = advance_to_next_valid(day)
+    schedule_oe_date = {'OE1': oe1_day}
 
-    # Schedule OE2 on the next valid day
-    day = advance_to_next_valid(day + timedelta(days=1))
-    oe2_date = day
-    schedule_oe_date['OE2'] = oe2_date
+    # Schedule OE2 on the next valid day after OE1
+    oe2_day = advance_to_next_valid(oe1_day + timedelta(days=1))
+    schedule_oe_date['OE2'] = oe2_day
 
-    # Handle remaining OEs (if any) on subsequent days
-    for oe in [oe for oe in common_oe + individual_oe if oe not in ['OE1', 'OE2', 'OE5']]:
-        day = advance_to_next_valid(day + timedelta(days=1))
-        schedule_oe_date[oe] = day
-        day = day + timedelta(days=1)
+    # Schedule OE5 subjects
+    oe5_day = oe1_day  # Default to OE1 day for most OE5 subjects
+    oe5_subjects = df_intd[df_intd['OE'] == 'OE5']['Subject'].tolist()
+    specific_oe5_subjects = ['Management through Movies', 'Leading Life through Skills']
+    for idx, row in df_intd[df_intd['OE'] == 'OE5'].iterrows():
+        if row['Subject'] in specific_oe5_subjects:
+            df_intd.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
+            df_intd.at[idx, 'Time Slot'] = "2:00 PM - 5:00 PM"  # Align with OE2 time slot
+        else:
+            df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
+            df_intd.at[idx, 'Time Slot'] = "10:00 AM - 1:00 PM"  # Align with OE1 time slot
 
+    # Assign OE1 and OE2 dates and time slots
     sem = df_intd["Semester"].iloc[0]
     if sem % 2 != 0:  # Odd semesters
         odd_sem_position = (sem + 1) // 2
-        time_slot_oe1 = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        time_slot_oe2 = "2:00 PM - 5:00 PM" if odd_sem_position % 2 == 1 else "10:00 AM - 1:00 PM"
+        oe1_time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        oe2_time_slot = "2:00 PM - 5:00 PM" if odd_sem_position % 2 == 1 else "10:00 AM - 1:00 PM"
     else:  # Even semesters
         even_sem_position = sem // 2
-        time_slot_oe1 = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        time_slot_oe2 = "2:00 PM - 5:00 PM" if even_sem_position % 2 == 1 else "10:00 AM - 1:00 PM"
+        oe1_time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        oe2_time_slot = "2:00 PM - 5:00 PM" if even_sem_position % 2 == 1 else "10:00 AM - 1:00 PM"
 
     for idx, row in df_intd.iterrows():
         oe = row["OE"]
-        exam_day = schedule_oe_date.get(oe)
-        if exam_day:
-            if oe == 'OE1':
-                df_intd.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
-                df_intd.at[idx, "Time Slot"] = time_slot_oe1
-            elif oe == 'OE2':
-                df_intd.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
-                df_intd.at[idx, "Time Slot"] = time_slot_oe2
-            elif oe == 'OE5':
-                if row["Subject"] in ["Management through Movies", "Leading Life through Skills"]:
-                    df_intd.at[idx, "Exam Date"] = oe1_date.strftime("%d-%m-%Y")
-                    df_intd.at[idx, "Time Slot"] = time_slot_oe1
-                else:
-                    df_intd.at[idx, "Exam Date"] = oe1_date.strftime("%d-%m-%Y")
-                    df_intd.at[idx, "Time Slot"] = time_slot_oe2
-            else:
-                df_intd.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
-                df_intd.at[idx, "Time Slot"] = time_slot_oe1  # Default time slot for other OEs
-        else:
-            df_intd.at[idx, "Exam Date"] = "Not Scheduled"
-            df_intd.at[idx, "Time Slot"] = "N/A"
+        if oe == 'OE1':
+            df_intd.at[idx, "Exam Date"] = oe1_day.strftime("%d-%m-%Y")
+            df_intd.at[idx, "Time Slot"] = oe1_time_slot
+        elif oe == 'OE2':
+            df_intd.at[idx, "Exam Date"] = oe2_day.strftime("%d-%m-%Y")
+            df_intd.at[idx, "Time Slot"] = oe2_time_slot
 
     # Merge updated 'INTD' data back into df_elec
     df_elec.loc[df_elec['Category'] == 'INTD', ['Exam Date', 'Time Slot']] = \
