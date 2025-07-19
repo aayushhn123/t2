@@ -1168,6 +1168,18 @@ def save_verification_excel(original_df, semester_wise_timetable):
     output.seek(0)
     return output
 
+def count_working_days(start_date, end_date, holidays_dates):
+    """Calculate the number of working days (Monday to Friday) excluding holidays."""
+    start = start_date.date() if isinstance(start_date, datetime) else start_date
+    end = end_date.date() if isinstance(end_date, datetime) else end_date
+    working_days = 0
+    current_date = start
+    while current_date <= end:
+        if current_date.weekday() < 5 and current_date not in holidays_dates:  # 0-4 are Monday to Friday
+            working_days += 1
+        current_date += timedelta(days=1)
+    return working_days
+
 def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_difficulty=False):
     if isinstance(base_date, date) and not isinstance(base_date, datetime):
         base_date = datetime.combine(base_date, datetime.min.time())
@@ -1312,6 +1324,8 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
             st.warning(f"⚠️ The timetable spans {total_span} exam days, exceeding the limit of 20 days.")
     
     return final_df
+
+# [Rest of the code remains unchanged, starting from the `main()` function...]
 
 def main():
     st.markdown("""
