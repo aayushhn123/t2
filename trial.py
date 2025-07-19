@@ -996,30 +996,53 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
                 continue
             return d
 
-    for oe in common_oe:
-        day = advance_to_next_valid(day)
-        schedule_oe_date[oe] = day
-        day = day + timedelta(days=1)
+    # Schedule OE1 and OE5 (specific subjects) on the first valid day
+    day = advance_to_next_valid(day)
+    oe1_date = day
+    schedule_oe_date['OE1'] = oe1_date
+    schedule_oe_date['OE5'] = oe1_date  # OE5 scheduled on the same date as OE1
 
-    for oe in individual_oe:
-        day = advance_to_next_valid(day)
+    # Schedule OE2 on the next valid day
+    day = advance_to_next_valid(day + timedelta(days=1))
+    oe2_date = day
+    schedule_oe_date['OE2'] = oe2_date
+
+    # Handle remaining OEs (if any) on subsequent days
+    for oe in [oe for oe in common_oe + individual_oe if oe not in ['OE1', 'OE2', 'OE5']]:
+        day = advance_to_next_valid(day + timedelta(days=1))
         schedule_oe_date[oe] = day
         day = day + timedelta(days=1)
 
     sem = df_intd["Semester"].iloc[0]
     if sem % 2 != 0:  # Odd semesters
         odd_sem_position = (sem + 1) // 2
-        time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        time_slot_oe1 = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        time_slot_oe2 = "2:00 PM - 5:00 PM" if odd_sem_position % 2 == 1 else "10:00 AM - 1:00 PM"
     else:  # Even semesters
         even_sem_position = sem // 2
-        time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        time_slot_oe1 = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        time_slot_oe2 = "2:00 PM - 5:00 PM" if even_sem_position % 2 == 1 else "10:00 AM - 1:00 PM"
 
     for idx, row in df_intd.iterrows():
         oe = row["OE"]
         exam_day = schedule_oe_date.get(oe)
         if exam_day:
-            df_intd.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, "Time Slot"] = time_slot
+            if oe == 'OE1':
+                df_intd.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
+                df_intd.at[idx, "Time Slot"] = time_slot_oe1
+            elif oe == 'OE2':
+                df_intd.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
+                df_intd.at[idx, "Time Slot"] = time_slot_oe2
+            elif oe == 'OE5':
+                if row["Subject"] in ["Management through Movies", "Leading Life through Skills"]:
+                    df_intd.at[idx, "Exam Date"] = oe1_date.strftime("%d-%m-%Y")
+                    df_intd.at[idx, "Time Slot"] = time_slot_oe1
+                else:
+                    df_intd.at[idx, "Exam Date"] = oe1_date.strftime("%d-%m-%Y")
+                    df_intd.at[idx, "Time Slot"] = time_slot_oe2
+            else:
+                df_intd.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
+                df_intd.at[idx, "Time Slot"] = time_slot_oe1  # Default time slot for other OEs
         else:
             df_intd.at[idx, "Exam Date"] = "Not Scheduled"
             df_intd.at[idx, "Time Slot"] = "N/A"
