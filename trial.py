@@ -1034,7 +1034,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, last_no
     df_elec.loc[df_elec['Category'] == 'INTD', ['Exam Date', 'Time Slot']] = \
         df_intd.loc[df_elec['Category'] == 'INTD', ['Exam Date', 'Time Slot']]
 
-return df_elec
+    return df_elec
 
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
