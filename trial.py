@@ -1193,6 +1193,10 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
             return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
     
     def schedule_common_subjects(df_category, current_date, fixed_time_slot=None):
+        # Ensure ModuleCode is extracted from Subject
+        if 'ModuleCode' not in df_category.columns:
+            df_category['ModuleCode'] = df_category['Subject'].str.extract(r'\((.*?)\)', expand=False).fillna('')
+        
         subject_info = df_category.groupby('ModuleCode').agg({
             'Branch': set,
             'Semester': set,
@@ -1222,6 +1226,10 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
         return df_category, current_date
     
     def schedule_uncommon_subjects(df_category, current_date):
+        # Ensure ModuleCode is extracted from Subject
+        if 'ModuleCode' not in df_category.columns:
+            df_category['ModuleCode'] = df_category['Subject'].str.extract(r'\((.*?)\)', expand=False).fillna('')
+        
         remaining_df = df_category[df_category['Exam Date'] == ''].copy()
         if remaining_df.empty:
             return df_category, current_date
@@ -1278,6 +1286,10 @@ def generate_timetable(df_non_elec, df_elec, holidays, base_date, schedule_by_di
     
     # Combine all scheduled data
     final_df = pd.concat([df_comp, df_elec_scheduled, df_remaining, df_intd], ignore_index=True)
+    
+    # Ensure ModuleCode is present for final processing
+    if 'ModuleCode' not in final_df.columns:
+        final_df['ModuleCode'] = final_df['Subject'].str.extract(r'\((.*?)\)', expand=False).fillna('')
     
     # Update SubjectDisplay
     final_df['Default Time Slot'] = final_df['Semester'].apply(get_semester_time_slot)
