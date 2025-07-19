@@ -969,10 +969,13 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     return sem_dict
 
 def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_days=90):
-    sub_branches = df_elec["SubBranch"].unique().tolist()
-    oe_to_subjects = df_elec.groupby("OE")["Subject"].apply(list).to_dict()
+    # Filter for 'INTD' category subjects
+    df_intd = df_elec[df_elec['Category'] == 'INTD'].copy()
+    
+    sub_branches = df_intd["SubBranch"].unique().tolist()
+    oe_to_subjects = df_intd.groupby("OE")["Subject"].apply(list).to_dict()
     oe_to_subbranches = {
-        oe: set(df_elec.loc[df_elec["OE"] == oe, "SubBranch"].unique())
+        oe: set(df_intd.loc[df_intd["OE"] == oe, "SubBranch"].unique())
         for oe in oe_to_subjects
     }
     common_oe = [oe for oe, sbs in oe_to_subbranches.items() if len(sbs) == len(sub_branches)]
@@ -1003,7 +1006,7 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
         schedule_oe_date[oe] = day
         day = day + timedelta(days=1)
 
-    sem = df_elec["Semester"].iloc[0]
+    sem = df_intd["Semester"].iloc[0]
     if sem % 2 != 0:  # Odd semesters
         odd_sem_position = (sem + 1) // 2
         time_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -1011,17 +1014,21 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
         even_sem_position = sem // 2
         time_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
 
-    for idx, row in df_elec.iterrows():
+    for idx, row in df_intd.iterrows():
         oe = row["OE"]
         exam_day = schedule_oe_date.get(oe)
         if exam_day:
-            df_elec.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
-            df_elec.at[idx, "Time Slot"] = time_slot
+            df_intd.at[idx, "Exam Date"] = exam_day.strftime("%d-%m-%Y")
+            df_intd.at[idx, "Time Slot"] = time_slot
         else:
-            df_elec.at[idx, "Exam Date"] = "Not Scheduled"
-            df_elec.at[idx, "Time Slot"] = "N/A"
-    return df_elec
+            df_intd.at[idx, "Exam Date"] = "Not Scheduled"
+            df_intd.at[idx, "Time Slot"] = "N/A"
 
+    # Merge updated 'INTD' data back into df_elec
+    df_elec.loc[df_elec['Category'] == 'INTD', ['Exam Date', 'Time Slot']] = \
+        df_intd.loc[df_elec['Category'] == 'INTD', ['Exam Date', 'Time Slot']]
+
+    return df_elec
 
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
