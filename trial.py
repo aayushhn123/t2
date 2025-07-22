@@ -330,7 +330,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         pad_v = (row_h - len(lines) * line_height) / 2 if len(lines) < max_lines else 0
         for j, ln in enumerate(lines):
             pdf.set_xy(cx + cell_padding, y0 + j * line_height + pad_v)
-            pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln予測, border=0, align='C')
+            pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln, border=0, align='C')
         pdf.rect(cx, y0, col_widths[i], row_h)
         pdf.set_xy(cx + col_widths[i], y0)
 
