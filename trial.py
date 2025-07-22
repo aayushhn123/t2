@@ -277,7 +277,6 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 wrap_text_cache = {}
 
 # PDF generation utilities
-# PDF generation utilities
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
@@ -741,20 +740,20 @@ def read_timetable(uploaded_file):
         df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
         
         df_non = df[df["Category"] != "INTD"].copy()
-        df_ele = df[df["Category"] == "INTD"].copy()
+        df_elec = df[df["Category"] == "INTD"].copy()
         
         def split_br(b):
             p = b.split("-", 1)
             return pd.Series([p[0].strip(), p[1].strip() if len(p) > 1 else ""])
         
-        for d in (df_non, df_ele):
+        for d in (df_non, df_elec):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
         
         # Updated columns list to include StudentCount
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
                 "Difficulty", "Exam Duration", "StudentCount"]
         
-        return df_non[cols], df_ele[cols], df
+        return df_non[cols], df_elec[cols], df
         
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
@@ -948,6 +947,13 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
     df_sem.loc[df_sem['Category'] == 'COMP', ['Exam Date', 'Time Slot', 'SubjectCode']] = \
         df_comp.loc[df_sem['Category'] == 'COMP', ['Exam Date', 'Time Slot', 'SubjectCode']]
 
+    # Filter and schedule 'INTD' subjects
+    df_intd = df_sem[df_sem['Category'] == 'INTD'].copy()
+    if not df_intd.empty:
+        max_non_intd_date = pd.to_datetime(df_sem[df_sem['Category'] != 'INTD']['Exam Date'], format="%d-%m-%Y", errors='coerce').max()
+        base_date_intd = max_non_intd_date + timedelta(days=1) if pd.notna(max_non_intd_date) else base_date
+        df_sem.update(schedule_electives_mainbranch(df_intd, base_date_intd, holidays, max_non_intd_date))
+
     return df_sem
 
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
@@ -970,20 +976,19 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
 
 def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, last_non_elective_date=None, max_days=90):
     """
-    Schedule electives on exactly 2 common days for all semesters and branches:
-    - OE1 and OE5 (except specific subjects) on Day 1 (10:00 AM - 1:00 PM)
-    - OE2 and OE5 (Management through Movies, Leading Life through Skills) on Day 2 (2:00 PM - 5:00 PM)
+    Schedule elective subjects (Category 'ELEC') with the following logic:
+    - First schedule COMP subjects
+    - Then schedule INTD subjects
+    - Finally, schedule OE1 and OE2 on exactly two days
     """
-    # Filter for 'INTD' category subjects (electives)
-    df_intd = df_elec[df_elec['Category'] == 'INTD'].copy()
+    # Filter for 'ELEC' category subjects (assuming 'INTD' represents electives based on your code)
+    df_elec = df_elec[df_elec['Category'] == 'INTD'].copy()  # Updated to match your category naming
     
     # Find the last non-elective date if not provided
     if last_non_elective_date is None:
-        # Filter non-elective subjects
+        # Filter non-elective subjects (COMP and others)
         df_non_elec = df_elec[df_elec['Category'] != 'INTD'].copy()
-        
         if not df_non_elec.empty:
-            # Convert exam dates to datetime and find the maximum
             non_elec_dates = pd.to_datetime(df_non_elec['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
             if not non_elec_dates.empty:
                 last_non_elective_date = max(non_elec_dates)
@@ -1014,69 +1019,99 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, last_no
                 continue
             return d
     
-    # Schedule exactly 2 consecutive valid days for all electives
-    oe1_day = advance_to_next_valid(start_day)  # Day 1: OE1 and most OE5 subjects
-    oe2_day = advance_to_next_valid(oe1_day + timedelta(days=1))  # Day 2: OE2 and specific OE5 subjects
+    # Schedule COMP subjects first (assuming already handled in schedule_semester_non_electives)
+    df_comp = df_elec[df_elec['Category'] == 'COMP'].copy()
+    if not df_comp.empty:
+        # COMP subjects are scheduled in schedule_semester_non_electives, so no additional scheduling here
+        pass
     
-    print(f"OE1 and OE5 (general) scheduled on: {oe1_day.strftime('%d-%m-%Y')}")
-    print(f"OE2 and OE5 (Management/Leading Life) scheduled on: {oe2_day.strftime('%d-%m-%Y')}")
+    # Schedule INTD subjects next
+    df_intd = df_elec[df_elec['Category'] == 'INTD'].copy()
+    if not df_intd.empty:
+        # Aggregate INTD subjects by SubjectCode and Branch
+        subject_info = df_intd.groupby('Subject').agg({
+            'Branch': set,
+            'OE': 'first'
+        }).reset_index()
+        subject_to_branches = dict(zip(subject_info['Subject'], subject_info['Branch']))
+        subject_to_oe = dict(zip(subject_info['Subject'], subject_info['OE']))
+
+        assignments = []
+        for subject, branches in subject_to_branches.items():
+            found = False
+            for i in range(len(assignments)):
+                day_assignments = assignments[i]
+                day_date = day_assignments[0][1].date() if isinstance(day_assignments[0][1], datetime) else day_assignments[0][1]
+                conflicts = False
+                for _, _, assigned_branches in day_assignments:
+                    if any(branch in assigned_branches for branch in branches):
+                        conflicts = True
+                        break
+                if not conflicts:
+                    day_assignments.append((subject, day_assignments[0][1], branches))
+                    found = True
+                    break
+            if not found:
+                day = advance_to_next_valid(start_day if not assignments else assignments[-1][0][1] + timedelta(days=1))
+                assignments.append([(subject, day, branches)])
+
+        # Apply assignments to df_intd
+        for day_assignments in assignments:
+            for subject, exam_day, branches in day_assignments:
+                mask = (df_intd['Subject'] == subject) & (df_intd['Branch'].isin(branches))
+                df_intd.loc[mask, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+                exam_day_date = exam_day.date() if isinstance(exam_day, datetime) else exam_day
+                for branch in branches:
+                    df_intd.loc[mask & (df_intd['Branch'] == branch), 'Time Slot'] = "10:00 AM - 1:00 PM"  # Default slot
+
+        # Update start_day to after INTD scheduling
+        if assignments:
+            start_day = max([a[0][1] for a in assignments]) + timedelta(days=1)
     
-    # Define time slots
-    oe1_time_slot = "10:00 AM - 1:00 PM"
-    oe2_time_slot = "2:00 PM - 5:00 PM"
-    
-    # OE5 subjects that should be scheduled with OE2
-    oe5_with_oe2_subjects = ['Management through Movies', 'Leading Life through Skills']
-    
-    # Schedule all elective subjects
-    for idx, row in df_intd.iterrows():
-        oe = row["OE"]
-        subject = row.get('Subject', '')
+    # Schedule OE1 and OE2 on exactly two days
+    df_oe = df_intd[df_intd['OE'].isin(['OE1', 'OE2'])].copy()
+    if not df_oe.empty:
+        oe1_day = advance_to_next_valid(start_day)  # Day 1: OE1
+        oe2_day = advance_to_next_valid(oe1_day + timedelta(days=1))  # Day 2: OE2
         
-        if oe == 'OE1':
-            # All OE1 subjects on Day 1
-            df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, 'Time Slot'] = oe1_time_slot
-            
-        elif oe == 'OE2':
-            # All OE2 subjects on Day 2
-            df_intd.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, 'Time Slot'] = oe2_time_slot
-            
-        elif oe == 'OE5':
-            # Check if this OE5 subject should be with OE2 or OE1
-            if subject in oe5_with_oe2_subjects:
-                # Management through Movies and Leading Life through Skills go with OE2
-                df_intd.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
-                df_intd.at[idx, 'Time Slot'] = oe2_time_slot
-            else:
-                # All other OE5 subjects go with OE1
-                df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
-                df_intd.at[idx, 'Time Slot'] = oe1_time_slot
+        print(f"OE1 scheduled on: {oe1_day.strftime('%d-%m-%Y')}")
+        print(f"OE2 scheduled on: {oe2_day.strftime('%d-%m-%Y')}")
         
-        # Handle any other OE types (OE3, OE4, etc.) - schedule them with OE1 by default
-        else:
-            df_intd.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
-            df_intd.at[idx, 'Time Slot'] = oe1_time_slot
+        # Define time slots
+        oe1_time_slot = "10:00 AM - 1:00 PM"
+        oe2_time_slot = "2:00 PM - 5:00 PM"
+        
+        # Schedule OE1 and OE2
+        for idx, row in df_oe.iterrows():
+            oe = row["OE"]
+            if oe == 'OE1':
+                df_oe.at[idx, 'Exam Date'] = oe1_day.strftime("%d-%m-%Y")
+                df_oe.at[idx, 'Time Slot'] = oe1_time_slot
+            elif oe == 'OE2':
+                df_oe.at[idx, 'Exam Date'] = oe2_day.strftime("%d-%m-%Y")
+                df_oe.at[idx, 'Time Slot'] = oe2_time_slot
+        
+        # Merge OE scheduling back into df_intd
+        df_intd.update(df_oe)
     
     # Update the original dataframe with the scheduled electives
     df_elec.update(df_intd)
     
-    # Alternative method to ensure all changes are reflected
+    # Ensure all changes are reflected
     for idx in df_intd.index:
         if idx in df_elec.index:
             df_elec.at[idx, 'Exam Date'] = df_intd.at[idx, 'Exam Date']
             df_elec.at[idx, 'Time Slot'] = df_intd.at[idx, 'Time Slot']
     
     print(f"\nElective scheduling completed:")
-    print(f"- Day 1 ({oe1_day.strftime('%d-%m-%Y')}): OE1 + OE5 (general subjects)")
-    print(f"- Day 2 ({oe2_day.strftime('%d-%m-%Y')}): OE2 + OE5 (Management/Leading Life)")
-    print(f"- Total elective days used: 2")
+    print(f"- COMP subjects scheduled first")
+    print(f"- INTD subjects scheduled next")
+    print(f"- OE1 on {oe1_day.strftime('%d-%m-%Y')} ({oe1_time_slot})")
+    print(f"- OE2 on {oe2_day.strftime('%d-%m-%Y')} ({oe2_time_slot})")
+    print(f"- Total elective days used: 2 (for OE1 and OE2)")
     
     return df_elec
 
-
-    
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
@@ -1545,108 +1580,43 @@ def main():
         with col3:
             st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.total_branches}</h3><p>Branches</p></div>',
                         unsafe_allow_html=True)
-        with col4:
-            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Days Span</p></div>',
-                        unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="metric-card">
-            <h3>📆 Exam Dates Overview</h3>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
-                <tr style="background: rgba(255, 255, 255, 0.1);">
-                    <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Type</th>
-                    <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Dates</th>
-                </tr>
-                <tr>
-                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">Non-Elective Range</td>
-                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{non_elective_range}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 0.5rem;">Elective Dates</td>
-                    <td style="padding: 0.5rem;">{elective_dates_str}</td>
-                </tr>
-            </table>
-        </div>
-        """.format(non_elective_range=st.session_state.non_elective_range, elective_dates_str=st.session_state.elective_dates_str),
+        with  col4:
+        st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.unique_exam_days}</h3><p>Exam Days</p></div>',
                     unsafe_allow_html=True)
 
-        st.markdown("#### Subjects Per Stream")
-        if not st.session_state.stream_counts.empty:
-            st.dataframe(st.session_state.stream_counts, hide_index=True, use_container_width=True)
-        else:
-            st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
+    # Additional Statistics
+    st.markdown("""
+    <div class="stats-section">
+        <h3>📊 Additional Details</h3>
+    </div>
+    """, unsafe_allow_html=True)
 
-        # Timetable Results
-        st.markdown("---")
-        st.markdown("""
-        <div class="results-section">
-            <h2>📊 Timetable Results</h2>
-        </div>
-        """, unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"**Overall Date Range:** {st.session_state.overall_date_range} days")
+        st.markdown(f"**Non-Elective Range:** {st.session_state.non_elective_range}")
+    with col2:
+        st.markdown(f"**Elective Dates:** {st.session_state.elective_dates_str}")
+        st.markdown(f"**Streams by Subject Count:**")
+        st.dataframe(st.session_state.stream_counts, hide_index=True, use_container_width=True)
 
-        for sem, df_sem in st.session_state.timetable_data.items():
-            st.markdown(f"### 📚 Semester {sem}")
-
-            for main_branch in df_sem["MainBranch"].unique():
-                main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
-                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-
-                # Separate non-electives and electives for display
-                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
-
-                # Display non-electives
-                if not df_non_elec.empty:
-                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    time_range_suffix = df_non_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-                        if row['Exam Duration'] != 3 else '', axis=1
-                    )
-                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + time_range_suffix + difficulty_suffix
-                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                    df_non_elec = df_non_elec.drop_duplicates(subset=["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"])
-                    pivot_df = df_non_elec.pivot_table(
-                        index=["Exam Date", "Time Slot"],
-                        columns="SubBranch",
-                        values="SubjectDisplay",
-                        aggfunc=lambda x: ", ".join(x)
-                    ).fillna("---")
-                    if not pivot_df.empty:
-                        st.markdown(f"#### {main_branch_full} - Core Subjects")
-                        formatted_pivot = pivot_df.copy()
-                        if len(formatted_pivot.index.levels) > 0:
-                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
-                                               formatted_pivot.index.levels[0]]
-                            formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
-                        st.dataframe(formatted_pivot, use_container_width=True)
-
-                # Display electives
-                if not df_elec.empty:
-                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    time_range_suffix = df_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-                        if row['Exam Duration'] != 3 else '', axis=1
-                    )
-                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
-                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                    df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-                        lambda x: ", ".join(x)
-                    ).reset_index()
-                    if not elec_pivot.empty:
-                        st.markdown(f"#### {main_branch_full} - Open Electives")
-                        st.dataframe(elec_pivot, use_container_width=True)
-
-    # Display footer
+    # Display Timetable
     st.markdown("---")
+    st.markdown("### 📋 Generated Timetable")
+
+    for sem, df_sem in st.session_state.timetable_data.items():
+        st.markdown(f"#### Semester {int_to_roman(sem)}")
+        for main_branch in sorted(df_sem["MainBranch"].unique()):
+            df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+            st.markdown(f"**{main_branch}**")
+            df_mb["Exam Date"] = pd.to_datetime(df_mb["Exam Date"], format="%d-%m-%Y", errors='coerce')
+            df_mb = df_mb.sort_values("Exam Date")
+            df_mb["Exam Date"] = df_mb["Exam Date"].dt.strftime("%A, %d %B %Y")
+            st.dataframe(df_mb[["Exam Date", "Time Slot", "SubBranch", "Subject", "OE"]], hide_index=True, use_container_width=True)
+
     st.markdown("""
     <div class="footer">
-        <p>🎓 <strong>Exam Timetable Generator</strong></p>
-        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Streamlined scheduling • Conflict-free timetables • Multiple export formats</p>
+        <p>© 2025 Mukesh Patel School of Technology Management & Engineering | Powered by Streamlit</p>
     </div>
     """, unsafe_allow_html=True)
 
