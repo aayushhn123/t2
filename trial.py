@@ -301,8 +301,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     header_text_color = (255, 255, 255)
     alt_row_color = (240, 240, 240)
 
-    row_number = getattr(pdf, '_ ---
-row_counter', 0)
+   row_number = getattr(pdf, '_row_counter', 0)
     if header:
         pdf.set_font("Arial", 'B', 10)
         pdf.set_text_color(*header_text_color)
