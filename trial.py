@@ -1581,7 +1581,7 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.total_branches}</h3><p>Branches</p></div>',
                         unsafe_allow_html=True)
         with  col4:
-        st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.unique_exam_days}</h3><p>Exam Days</p></div>',
+            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.unique_exam_days}</h3><p>Exam Days</p></div>',
                     unsafe_allow_html=True)
 
     # Additional Statistics
