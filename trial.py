@@ -775,6 +775,36 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 return day
             day = day + timedelta(days=1)
 
+    # Group all subjects by SubjectCode across the DataFrame to determine shared scheduling
+    all_subjects = df_sem.groupby('SubjectCode').agg({'Branch': 'unique', 'Semester': 'unique'}).reset_index()
+    scheduled_dates = {}  # To store the scheduled date and time slot for each SubjectCode
+
+    # Schedule subjects with the same SubjectCode on the same day and time
+    for idx, row in all_subjects.iterrows():
+        subject_code = row['SubjectCode']
+        branches = row['Branch']
+        exam_day = scheduled_dates.get(subject_code)
+        if not exam_day:
+            exam_day = find_next_valid_day(base_date, branches)
+            # Use the first semester's time slot logic for consistency
+            first_sem = row['Semester'][0]
+            if first_sem % 2 != 0:  # Odd semesters
+                odd_sem_position = (first_sem + 1) // 2
+                slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            else:  # Even semesters
+                even_sem_position = first_sem // 2
+                slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            scheduled_dates[subject_code] = (exam_day.strftime("%d-%m-%Y"), slot_str)
+            for branch in branches:
+                exam_days[branch].add(exam_day.date())
+
+    # Apply scheduled dates and time slots to the DataFrame
+    for idx, row in df_sem.iterrows():
+        subject_code = row['SubjectCode']
+        if subject_code in scheduled_dates:
+            df_sem.loc[idx, 'Exam Date'] = scheduled_dates[subject_code][0]
+            df_sem.loc[idx, 'Time Slot'] = scheduled_dates[subject_code][1]
+
     # Filter COMP subjects
     df_comp = df_sem[df_sem['Category'] == 'COMP'].copy()
 
@@ -821,7 +851,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
         df_sem.loc[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Assign time slot based on semester
+    # Assign time slot based on semester (overridden by shared scheduling where applicable)
     sem = df_sem["Semester"].iloc[0]
     if sem % 2 != 0:  # Odd semesters
         odd_sem_position = (sem + 1) // 2
@@ -829,7 +859,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
     else:  # Even semesters
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    df_sem['Time Slot'] = slot_str
+    df_sem['Time Slot'] = df_sem.apply(
+        lambda row: scheduled_dates.get(row['SubjectCode'], (None, slot_str))[1] if row['SubjectCode'] in scheduled_dates else slot_str,
+        axis=1
+    )
 
     return df_sem
 
