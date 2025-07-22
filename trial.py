@@ -1580,43 +1580,108 @@ def main():
         with col3:
             st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.total_branches}</h3><p>Branches</p></div>',
                         unsafe_allow_html=True)
-        with  col4:
-            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.unique_exam_days}</h3><p>Exam Days</p></div>',
+        with col4:
+            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Days Span</p></div>',
+                        unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="metric-card">
+            <h3>📆 Exam Dates Overview</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
+                <tr style="background: rgba(255, 255, 255, 0.1);">
+                    <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Type</th>
+                    <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Dates</th>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">Non-Elective Range</td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{non_elective_range}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem;">Elective Dates</td>
+                    <td style="padding: 0.5rem;">{elective_dates_str}</td>
+                </tr>
+            </table>
+        </div>
+        """.format(non_elective_range=st.session_state.non_elective_range, elective_dates_str=st.session_state.elective_dates_str),
                     unsafe_allow_html=True)
 
-    # Additional Statistics
-    st.markdown("""
-    <div class="stats-section">
-        <h3>📊 Additional Details</h3>
-    </div>
-    """, unsafe_allow_html=True)
+        st.markdown("#### Subjects Per Stream")
+        if not st.session_state.stream_counts.empty:
+            st.dataframe(st.session_state.stream_counts, hide_index=True, use_container_width=True)
+        else:
+            st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f"**Overall Date Range:** {st.session_state.overall_date_range} days")
-        st.markdown(f"**Non-Elective Range:** {st.session_state.non_elective_range}")
-    with col2:
-        st.markdown(f"**Elective Dates:** {st.session_state.elective_dates_str}")
-        st.markdown(f"**Streams by Subject Count:**")
-        st.dataframe(st.session_state.stream_counts, hide_index=True, use_container_width=True)
+        # Timetable Results
+        st.markdown("---")
+        st.markdown("""
+        <div class="results-section">
+            <h2>📊 Timetable Results</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Display Timetable
+        for sem, df_sem in st.session_state.timetable_data.items():
+            st.markdown(f"### 📚 Semester {sem}")
+
+            for main_branch in df_sem["MainBranch"].unique():
+                main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+
+                # Separate non-electives and electives for display
+                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+
+                # Display non-electives
+                if not df_non_elec.empty:
+                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    time_range_suffix = df_non_elec.apply(
+                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
+                        if row['Exam Duration'] != 3 else '', axis=1
+                    )
+                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + time_range_suffix + difficulty_suffix
+                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                    df_non_elec = df_non_elec.drop_duplicates(subset=["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"])
+                    pivot_df = df_non_elec.pivot_table(
+                        index=["Exam Date", "Time Slot"],
+                        columns="SubBranch",
+                        values="SubjectDisplay",
+                        aggfunc=lambda x: ", ".join(x)
+                    ).fillna("---")
+                    if not pivot_df.empty:
+                        st.markdown(f"#### {main_branch_full} - Core Subjects")
+                        formatted_pivot = pivot_df.copy()
+                        if len(formatted_pivot.index.levels) > 0:
+                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
+                                               formatted_pivot.index.levels[0]]
+                            formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
+                        st.dataframe(formatted_pivot, use_container_width=True)
+
+                # Display electives
+                if not df_elec.empty:
+                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    time_range_suffix = df_elec.apply(
+                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
+                        if row['Exam Duration'] != 3 else '', axis=1
+                    )
+                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
+                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                    df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                        lambda x: ", ".join(x)
+                    ).reset_index()
+                    if not elec_pivot.empty:
+                        st.markdown(f"#### {main_branch_full} - Open Electives")
+                        st.dataframe(elec_pivot, use_container_width=True)
+
+    # Display footer
     st.markdown("---")
-    st.markdown("### 📋 Generated Timetable")
-
-    for sem, df_sem in st.session_state.timetable_data.items():
-        st.markdown(f"#### Semester {int_to_roman(sem)}")
-        for main_branch in sorted(df_sem["MainBranch"].unique()):
-            df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-            st.markdown(f"**{main_branch}**")
-            df_mb["Exam Date"] = pd.to_datetime(df_mb["Exam Date"], format="%d-%m-%Y", errors='coerce')
-            df_mb = df_mb.sort_values("Exam Date")
-            df_mb["Exam Date"] = df_mb["Exam Date"].dt.strftime("%A, %d %B %Y")
-            st.dataframe(df_mb[["Exam Date", "Time Slot", "SubBranch", "Subject", "OE"]], hide_index=True, use_container_width=True)
-
     st.markdown("""
     <div class="footer">
-        <p>© 2025 Mukesh Patel School of Technology Management & Engineering | Powered by Streamlit</p>
+        <p>🎓 <strong>Exam Timetable Generator</strong></p>
+        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
+        <p style="font-size: 0.9em;">Streamlined scheduling • Conflict-free timetables • Multiple export formats</p>
     </div>
     """, unsafe_allow_html=True)
 
