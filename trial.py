@@ -775,95 +775,82 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 return day
             day = day + timedelta(days=1)
 
-    # CRITICAL: First, schedule ALL subjects with the same SubjectCode on the same day and time
+    # Group all subjects by SubjectCode to identify those shared across semesters and branches
     all_subjects = df_sem.groupby('SubjectCode').agg({'Branch': 'unique', 'Semester': 'unique'}).reset_index()
-    scheduled_dates = {}  # To store the scheduled date and time slot for each SubjectCode
+    scheduled_dates = {}  # Store the scheduled date and time slot for each SubjectCode
 
     # Schedule subjects with the same SubjectCode on the same day and time
     for idx, row in all_subjects.iterrows():
         subject_code = row['SubjectCode']
         branches = row['Branch']
-        
-        # Always schedule new subject codes
-        exam_day = find_next_valid_day(base_date, branches)
-        # Use the first semester's time slot logic for consistency
-        first_sem = row['Semester'][0]
-        if first_sem % 2 != 0:  # Odd semesters
-            odd_sem_position = (first_sem + 1) // 2
-            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        else:  # Even semesters
-            even_sem_position = first_sem // 2
-            slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        
-        scheduled_dates[subject_code] = (exam_day.strftime("%d-%m-%Y"), slot_str)
-        for branch in branches:
-            exam_days[branch].add(exam_day.date())
+        if subject_code not in scheduled_dates:
+            exam_day = find_next_valid_day(base_date, branches)
+            # Use the first semester's time slot logic for consistency
+            first_sem = row['Semester'][0]
+            if first_sem % 2 != 0:  # Odd semesters
+                odd_sem_position = (first_sem + 1) // 2
+                slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            else:  # Even semesters
+                even_sem_position = first_sem // 2
+                slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            scheduled_dates[subject_code] = (exam_day.strftime("%d-%m-%Y"), slot_str)
+            for branch in branches:
+                exam_days[branch].add(exam_day.date())
 
-    # Apply scheduled dates and time slots to ALL subjects in the DataFrame
+    # Apply scheduled dates and time slots to shared subjects in the DataFrame
     for idx, row in df_sem.iterrows():
         subject_code = row['SubjectCode']
         if subject_code in scheduled_dates:
-            df_sem.loc[idx, 'Exam Date'] = scheduled_dates[subject_code][0]
-            df_sem.loc[idx, 'Time Slot'] = scheduled_dates[subject_code][1]
+            df_sem.at[idx, 'Exam Date'] = scheduled_dates[subject_code][0]
+            df_sem.at[idx, 'Time Slot'] = scheduled_dates[subject_code][1]
 
-    # The rest of the logic is kept for any edge cases, but subjects are already scheduled
-    # Filter COMP subjects - but they should already be scheduled
-    df_comp = df_sem[df_sem['Category'] == 'COMP'].copy()
+    # Filter COMP subjects that haven't been scheduled yet
+    df_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['Exam Date'].isna())].copy()
 
-    # Schedule common COMP subjects (only if somehow not already scheduled)
+    # Schedule common COMP subjects first
     common_comp = df_comp[df_comp['IsCommon'] == 'YES']
-    if not common_comp.empty:
-        common_comp_groups = common_comp.groupby('SubjectCode')
-        for module_code, group in common_comp_groups:
-            # Skip if already scheduled by module code matching (which should be all of them)
-            if module_code in scheduled_dates:
-                continue
-            branches = group['Branch'].unique()
-            exam_day = find_next_valid_day(base_date, branches)
-            df_sem.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            for branch in branches:
-                exam_days[branch].add(exam_day.date())
+    common_comp_groups = common_comp.groupby('SubjectCode')
 
-    # Schedule remaining COMP subjects (only if somehow not already scheduled)
-    remaining_comp = df_comp[df_comp['IsCommon'] == 'NO']
+    for module_code, group in common_comp_groups:
+        branches = group['Branch'].unique()
+        exam_day = find_next_valid_day(base_date, branches)
+        df_sem.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        for branch in branches:
+            exam_days[branch].add(exam_day.date())
+
+    # Schedule remaining COMP subjects
+    remaining_comp = df_comp[(df_comp['IsCommon'] == 'NO') & (df_comp['Exam Date'].isna())]
     for idx, row in remaining_comp.iterrows():
-        # Skip if already scheduled by module code matching (which should be all of them)
-        if row['SubjectCode'] in scheduled_dates:
-            continue
         branch = row['Branch']
+        subject = row['Subject']
         exam_day = find_next_valid_day(base_date, [branch])
-        df_sem.loc[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Filter ELEC subjects - but they should already be scheduled
-    df_elec = df_sem[df_sem['Category'] == 'ELEC'].copy()
+    # Filter ELEC subjects that haven't been scheduled yet
+    df_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['Exam Date'].isna())].copy()
 
-    # Schedule common ELEC subjects (only if somehow not already scheduled)
+    # Schedule common ELEC subjects
     common_elec = df_elec[df_elec['IsCommon'] == 'YES']
-    if not common_elec.empty:
-        common_elec_groups = common_elec.groupby('SubjectCode')
-        for module_code, group in common_elec_groups:
-            # Skip if already scheduled by module code matching (which should be all of them)
-            if module_code in scheduled_dates:
-                continue
-            branches = group['Branch'].unique()
-            exam_day = find_next_valid_day(base_date, branches)
-            df_sem.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            for branch in branches:
-                exam_days[branch].add(exam_day.date())
+    common_elec_groups = common_elec.groupby('SubjectCode')
 
-    # Schedule remaining ELEC subjects (only if somehow not already scheduled)
-    remaining_elec = df_elec[df_elec['IsCommon'] == 'NO']
+    for module_code, group in common_elec_groups:
+        branches = group['Branch'].unique()
+        exam_day = find_next_valid_day(base_date, branches)
+        df_sem.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        for branch in branches:
+            exam_days[branch].add(exam_day.date())
+
+    # Schedule remaining ELEC subjects
+    remaining_elec = df_elec[(df_elec['IsCommon'] == 'NO') & (df_elec['Exam Date'].isna())]
     for idx, row in remaining_elec.iterrows():
-        # Skip if already scheduled by module code matching (which should be all of them)
-        if row['SubjectCode'] in scheduled_dates:
-            continue
         branch = row['Branch']
+        subject = row['Subject']
         exam_day = find_next_valid_day(base_date, [branch])
-        df_sem.loc[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Time slots are already assigned above, but keep this for any edge cases
+    # Assign time slot based on semester (overridden by shared scheduling where applicable)
     sem = df_sem["Semester"].iloc[0]
     if sem % 2 != 0:  # Odd semesters
         odd_sem_position = (sem + 1) // 2
@@ -871,11 +858,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
     else:  # Even semesters
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    
-    # Apply time slots only where not already set
-    for idx, row in df_sem.iterrows():
-        if pd.isna(row['Time Slot']) or row['Time Slot'] == '':
-            df_sem.loc[idx, 'Time Slot'] = slot_str
+    df_sem['Time Slot'] = df_sem.apply(
+        lambda row: scheduled_dates.get(row['SubjectCode'], (None, slot_str))[1] if row['SubjectCode'] in scheduled_dates else slot_str,
+        axis=1
+    )
 
     return df_sem
     
