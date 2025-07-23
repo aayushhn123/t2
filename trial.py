@@ -782,41 +782,37 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 return day
             day = day + timedelta(days=1)
 
-    # Step 1: Group all subjects by SubjectCode to ensure consistent scheduling
+    # Step 1: Globally schedule all subjects with the same SubjectCode on the same day and time
     all_subjects = df_sem.groupby('SubjectCode').agg({'Branch': 'unique', 'Semester': 'unique'}).reset_index()
     scheduled_dates = {}  # Store scheduled date and time slot for each SubjectCode
 
-    # Step 2: Schedule all subjects with the same SubjectCode on the same day and time
     for idx, row in all_subjects.iterrows():
         subject_code = row['SubjectCode']
         branches = row['Branch']
         semesters = row['Semester']
         
-        # Find a valid exam day for all branches involved
-        exam_day = find_next_valid_day(base_date, branches)
-        
-        # Determine time slot based on the first semester for consistency
-        first_sem = min(semesters)  # Use the earliest semester for slot logic
-        if first_sem % 2 != 0:  # Odd semesters
-            odd_sem_position = (first_sem + 1) // 2
-            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        else:  # Even semesters
-            even_sem_position = first_sem // 2
-            slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        
-        # Store the scheduled date and time
-        scheduled_dates[subject_code] = (exam_day.strftime("%d-%m-%Y"), slot_str)
-        
-        # Update exam_days for all affected branches
-        for branch in branches:
-            exam_days[branch].add(exam_day.date())
+        # Find a single valid exam day for all branches
+        if subject_code not in scheduled_dates:
+            exam_day = find_next_valid_day(base_date, branches)
+            # Use the earliest semester's time slot logic for consistency
+            first_sem = min(semesters)  # Use the earliest semester
+            if first_sem % 2 != 0:  # Odd semesters
+                odd_sem_position = (first_sem + 1) // 2
+                slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            else:  # Even semesters
+                even_sem_position = first_sem // 2
+                slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            
+            scheduled_dates[subject_code] = (exam_day.strftime("%d-%m-%Y"), slot_str)
+            for branch in branches:
+                exam_days[branch].add(exam_day.date())
 
-    # Step 3: Apply scheduled dates and time slots to all subjects in the DataFrame
+    # Step 2: Apply the globally scheduled dates and times to the current semester's DataFrame
     df_sem['Exam Date'] = df_sem['SubjectCode'].map(lambda x: scheduled_dates.get(x, [None, None])[0])
     df_sem['Time Slot'] = df_sem['SubjectCode'].map(lambda x: scheduled_dates.get(x, [None, None])[1])
 
-    # Step 4: Handle any unscheduled subjects (should be rare due to Step 2)
-    unscheduled = df_sem[df_sem['Exam Date'].isna()]
+    # Step 3: Handle any unscheduled subjects (should be minimal due to global scheduling)
+    unscheduled = df_sem[df_sem['Exam Date'].isna()].copy()
     if not unscheduled.empty:
         for idx, row in unscheduled.iterrows():
             branch = row['Branch']
@@ -834,7 +830,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             exam_days[branch].add(exam_day.date())
 
     return df_sem
-    
+
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     final_list = []
     for sem in sorted(df["Semester"].unique()):
