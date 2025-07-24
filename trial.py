@@ -1141,63 +1141,63 @@ def main():
         """, unsafe_allow_html=True)
 
     if uploaded_file is not None:
-    if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
-        with st.spinner("Processing your timetable... Please wait..."):
-            try:
-                holidays_set = set(holiday_dates)
-                df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
+        if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
+            with st.spinner("Processing your timetable... Please wait..."):
+                try:
+                    holidays_set = set(holiday_dates)
+                    df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
 
-                if df_non_elec is not None and df_ele is not None:
-                    non_elec_sched = process_constraints(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
+                    if df_non_elec is not None and df_ele is not None:
+                        non_elec_sched = process_constraints(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
 
-                    # Find the maximum date from non-elective exams
-                    non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True)
-                    non_elec_dates = pd.to_datetime(non_elec_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                    max_non_elec_date = max(non_elec_dates).date() if not non_elec_dates.empty else base_date.date()
+                        # Find the maximum date from non-elective exams
+                        non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True)
+                        non_elec_dates = pd.to_datetime(non_elec_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                        max_non_elec_date = max(non_elec_dates).date() if not non_elec_dates.empty else base_date.date()
 
-                    # Define function to find next valid day for electives
-                    def find_next_valid_day(start_day):
-                        day = start_day
-                        while True:
-                            day_date = day.date()
-                            if day.weekday() == 6 or day_date in holidays_set:
-                                day += timedelta(days=1)
-                                continue
-                            return day
+                        # Define function to find next valid day for electives
+                        def find_next_valid_day(start_day):
+                            day = start_day
+                            while True:
+                                day_date = day.date()
+                                if day.weekday() == 6 or day_date in holidays_set:
+                                    day += timedelta(days=1)
+                                    continue
+                                return day
 
-                    # Schedule electives globally only if df_ele is not None
-                    if df_ele is not None and not df_ele.empty:
-                        elective_day1 = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1))
-                        elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1))
+                        # Schedule electives globally only if df_ele is not None
+                        if df_ele is not None and not df_ele.empty:
+                            elective_day1 = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1))
+                            elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1))
 
-                        df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1.strftime("%d-%m-%Y")
-                        df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
-                        df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2.strftime("%d-%m-%Y")
-                        df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"
+                            df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1.strftime("%d-%m-%Y")
+                            df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
+                            df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2.strftime("%d-%m-%Y")
+                            df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"
 
-                        # Combine non-electives and electives
-                        final_df = pd.concat([non_elec_df, df_ele], ignore_index=True)
+                            # Combine non-electives and electives
+                            final_df = pd.concat([non_elec_df, df_ele], ignore_index=True)
+                        else:
+                            final_df = non_elec_df  # Use only non-electives if no electives
+
+                        final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                        final_df = final_df.sort_values(["Exam Date", "Semester", "MainBranch"], ascending=True, na_position='last')
+                        sem_dict = {s: final_df[final_df["Semester"] == s].copy() for s in sorted(final_df["Semester"].unique())}
+
+                        st.session_state.timetable_data = sem_dict
+                        st.session_state.original_df = original_df
+                        st.session_state.processing_complete = True
+
+                        # ... (rest of the statistics and file generation logic remains unchanged)
+
                     else:
-                        final_df = non_elec_df  # Use only non-electives if no electives
-
-                    final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                    final_df = final_df.sort_values(["Exam Date", "Semester", "MainBranch"], ascending=True, na_position='last')
-                    sem_dict = {s: final_df[final_df["Semester"] == s].copy() for s in sorted(final_df["Semester"].full())}
-
-                    st.session_state.timetable_data = sem_dict
-                    st.session_state.original_df = original_df
-                    st.session_state.processing_complete = True
-
-                    # ... (rest of the statistics and file generation logic remains unchanged)
-
-                else:
-                    st.markdown(
-                        '<div class="status-error">❌ Failed to read the Excel file. Please check the format.</div>',
-                        unsafe_allow_html=True)
-
-            except Exception as e:
-                st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
+                        st.markdown(
+                            '<div class="status-error">❌ Failed to read the Excel file. Please check the format.</div>',
                             unsafe_allow_html=True)
+
+                except Exception as e:
+                    st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
+                                unsafe_allow_html=True)
 
     # Display timetable results if processing is complete
     if st.session_state.processing_complete:
@@ -1364,7 +1364,7 @@ def main():
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                     time_range_suffix = df_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
+                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])}"
                         if row['Exam Duration'] != 3 else '', axis=1
                     )
                     df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
