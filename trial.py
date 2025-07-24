@@ -833,7 +833,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             day += timedelta(days=1)
 
     # Schedule remaining COMP subjects with "Is Common" = "NO"
-    remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
+    remaining_comp_mask = (df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")
+    remaining_comp = df_sem[remaining_comp_mask]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
         exam_day = find_next_valid_day_with_gap_control(base_date, [branch])
@@ -841,7 +842,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         exam_days[branch].add(exam_day.date())
 
     # Schedule remaining ELEC subjects with "Is Common" = "NO"
-    remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
+    remaining_elec_mask = (df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")
+    remaining_elec = df_sem[remaining_elec_mask]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
         exam_day = find_next_valid_day_with_gap_control(base_date, [branch])
@@ -856,7 +858,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
     else:
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    df_sem.loc[df_sem['Time Slot'] == "", 'Time Slot'] = slot_str
+    
+    # Use boolean mask to avoid ambiguous array truth value
+    time_slot_mask = df_sem['Time Slot'] == ""
+    df_sem.loc[time_slot_mask, 'Time Slot'] = slot_str
 
     return df_sem
 
@@ -902,7 +907,8 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
             day += timedelta(days=1)
 
     # Schedule common COMP subjects
-    common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
+    common_comp_mask = (df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')
+    common_comp = df[common_comp_mask]
     for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
         exam_day = find_next_valid_day_with_gap_control(base_date, branches, max_gap_days)
@@ -919,7 +925,8 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
             exam_days[branch].add(exam_day.date())
 
     # Schedule common ELEC subjects
-    common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
+    common_elec_mask = (df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')
+    common_elec = df[common_elec_mask]
     for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
         exam_day = find_next_valid_day_with_gap_control(base_date, branches, max_gap_days)
