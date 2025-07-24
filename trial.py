@@ -810,9 +810,12 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
                 day += timedelta(days=1)
                 continue
             if all(day_date not in exam_days[branch] for branch in for_branches):
-                # Check if this day is within 2 days of the last date for any branch
-                if all(last_dates.get(branch, base_date).date() <= day_date <= (last_dates.get(branch, base_date) + timedelta(days=2)).date() 
-                       for branch in for_branches):
+                # Check if this day is within 2 days of the last date for each branch
+                within_range = all(
+                    last_dates.get(branch, base_date).date() <= day_date <= (last_dates.get(branch, base_date) + timedelta(days=2)).date()
+                    for branch in for_branches
+                )
+                if within_range:
                     return day
                 # If no match within 2 days, allow a broader search but prefer closeness
                 if (day - max(last_dates.values(), default=base_date)).days > max_lookahead:
@@ -869,9 +872,12 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
                 day += timedelta(days=1)
                 continue
             if all(day_date not in exam_days[branch] for branch in for_branches):
-                # Check if this day is within 2 days of the last date for any branch
-                if all(last_dates.get(branch, base_date).date() <= day_date <= (last_dates.get(branch, base_date) + timedelta(days=2)).date() 
-                       for branch in for_branches):
+                # Check if this day is within 2 days of the last date for each branch
+                within_range = all(
+                    last_dates.get(branch, base_date).date() <= day_date <= (last_dates.get(branch, base_date) + timedelta(days=2)).date()
+                    for branch in for_branches
+                )
+                if within_range:
                     return day
                 # If no match within 2 days, allow a broader search but prefer closeness
                 if (day - max(last_dates.values(), default=base_date)).days > max_lookahead:
