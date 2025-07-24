@@ -807,11 +807,11 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days[branch] for branch in for_branches):
+            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
                 return day
             day += timedelta(days=1)
 
-    # Schedule remaining COMP subjects with "Is Common" = "NO"
+    # Schedule initial remaining COMP subjects with "IsCommon" = "NO"
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
@@ -819,7 +819,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Schedule remaining ELEC subjects with "Is Common" = "NO"
+    # Schedule initial remaining ELEC subjects with "IsCommon" = "NO"
     remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
@@ -827,7 +827,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Assign time slot based on semester
+    # Assign initial time slot based on semester
     sem = df_sem["Semester"].iloc[0]
     if sem % 2 != 0:
         odd_sem_position = (sem + 1) // 2
@@ -836,6 +836,36 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
     df_sem.loc[df_sem['Time Slot'] == "", 'Time Slot'] = slot_str
+
+    # Optimize by filling gaps with non-common subjects, max gap of 2 days
+    all_dates = pd.to_datetime(df_sem['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna().dt.date.unique()
+    if len(all_dates) > 1:
+        all_dates_sorted = sorted(all_dates)
+        unscheduled_non_common = df_sem[(df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
+        while not unscheduled_non_common.empty:
+            updated = False
+            for i in range(1, len(all_dates_sorted)):
+                gap_start = all_dates_sorted[i-1]
+                gap_end = all_dates_sorted[i]
+                gap_days = (gap_end - gap_start).days - 1
+                if gap_days > 2:  # Fill gaps larger than 2 days
+                    for day_offset in range(1, min(gap_days, 3)):  # Limit to max gap of 2 days
+                        candidate_day = datetime.combine(gap_start, datetime.min.time()) + timedelta(days=day_offset)
+                        candidate_date = candidate_day.date()
+                        if candidate_day.weekday() != 6 and candidate_date not in holidays:
+                            for idx, row in unscheduled_non_common.iterrows():
+                                branch = row['Branch']
+                                if all(candidate_date not in exam_days.get(b, set()) for b in [branch]):
+                                    df_sem.at[idx, 'Exam Date'] = candidate_day.strftime("%d-%m-%Y")
+                                    df_sem.at[idx, 'Time Slot'] = slot_str
+                                    exam_days[branch].add(candidate_date)
+                                    unscheduled_non_common = unscheduled_non_common.drop(idx)
+                                    updated = True
+                                    break
+            if not updated:
+                break  # No more changes possible
+            all_dates = pd.to_datetime(df_sem['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna().dt.date.unique()
+            all_dates_sorted = sorted(all_dates)
 
     return df_sem
 
@@ -851,7 +881,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days[branch] for branch in for_branches):
+            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
                 return day
             day += timedelta(days=1)
 
@@ -880,7 +910,9 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
-            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            slot_str = "10:00 AM - 1:00 PM —
+
+ if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         else:
             even_sem_position = min_sem // 2
             slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -908,14 +940,16 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     for sem in sorted(df_combined["Semester"].unique()):
         sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
 
-    # Calculate total span and warn if exceeds 20 days
+    # Calculate total span and check against 15-day limit
     all_dates = pd.to_datetime(df_combined['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
     if not all_dates.empty:
         start_date = min(all_dates)
         end_date = max(all_dates)
         total_span = (end_date - start_date).days + 1
-        if total_span > 20:
-            st.warning(f"⚠️ The timetable spans {total_span} days, exceeding the limit of 20 days.")
+        if total_span > 15:
+            st.warning(f"⚠️ The timetable spans {total_span} days, exceeding the limit of 15 days.")
+        else:
+            st.success(f"✅ The timetable spans {total_span} days, within the limit of 15 days.")
 
     return sem_dict
 
