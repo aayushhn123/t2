@@ -1140,135 +1140,135 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-   if uploaded_file is not None:
-    if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
-        with st.spinner("Processing your timetable... Please wait..."):
-            try:
-                holidays_set = set(holiday_dates)
-                st.write("Reading timetable...")
-                df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
-                st.write(f"df_non_elec shape: {df_non_elec.shape if df_non_elec is not None else 'None'}")
-                st.write(f"df_ele shape: {df_ele.shape if df_ele is not None else 'None'}")
+    if uploaded_file is not None:
+        if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
+            with st.spinner("Processing your timetable... Please wait..."):
+                try:
+                    holidays_set = set(holiday_dates)
+                    st.write("Reading timetable...")
+                    df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
+                    st.write(f"df_non_elec shape: {df_non_elec.shape if df_non_elec is not None else 'None'}")
+                    st.write(f"df_ele shape: {df_ele.shape if df_ele is not None else 'None'}")
 
-                if df_non_elec is not None and df_ele is not None:
-                    st.write("Processing constraints...")
-                    non_elec_sched = process_constraints(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
-                    st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
+                    if df_non_elec is not None and df_ele is not None:
+                        st.write("Processing constraints...")
+                        non_elec_sched = process_constraints(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
+                        st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
 
-                    # Find the maximum date from non-elective exams
-                    non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True) if non_elec_sched else pd.DataFrame()
-                    non_elec_dates = pd.to_datetime(non_elec_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                    max_non_elec_date = max(non_elec_dates).date() if not non_elec_dates.empty else base_date.date()
-                    st.write(f"Max non-elective date: {max_non_elec_date}")
+                        # Find the maximum date from non-elective exams
+                        non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True) if non_elec_sched else pd.DataFrame()
+                        non_elec_dates = pd.to_datetime(non_elec_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                        max_non_elec_date = max(non_elec_dates).date() if not non_elec_dates.empty else base_date.date()
+                        st.write(f"Max non-elective date: {max_non_elec_date}")
 
-                    # Define function to find next valid day for electives
-                    def find_next_valid_day(start_day):
-                        day = start_day
-                        while True:
-                            day_date = day.date()
-                            if day.weekday() == 6 or day_date in holidays_set:
-                                day += timedelta(days=1)
-                                continue
-                            return day
+                        # Define function to find next valid day for electives
+                        def find_next_valid_day(start_day):
+                            day = start_day
+                            while True:
+                                day_date = day.date()
+                                if day.weekday() == 6 or day_date in holidays_set:
+                                    day += timedelta(days=1)
+                                    continue
+                                return day
 
-                    # Schedule electives globally only if df_ele is not None
-                    if df_ele is not None and not df_ele.empty:
-                        st.write("Scheduling electives...")
-                        elective_day1 = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1))
-                        elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1))
-                        df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1.strftime("%d-%m-%Y")
-                        df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
-                        df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2.strftime("%d-%m-%Y")
-                        df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"
+                        # Schedule electives globally only if df_ele is not None
+                        if df_ele is not None and not df_ele.empty:
+                            st.write("Scheduling electives...")
+                            elective_day1 = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1))
+                            elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1))
+                            df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1.strftime("%d-%m-%Y")
+                            df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
+                            df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2.strftime("%d-%m-%Y")
+                            df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"
 
-                        # Combine non-electives and electives
-                        final_df = pd.concat([non_elec_df, df_ele], ignore_index=True)
+                            # Combine non-electives and electives
+                            final_df = pd.concat([non_elec_df, df_ele], ignore_index=True)
+                        else:
+                            final_df = non_elec_df
+                            st.write("No electives to schedule.")
+
+                        final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                        final_df = final_df.sort_values(["Exam Date", "Semester", "MainBranch"], ascending=True, na_position='last')
+                        sem_dict = {s: final_df[final_df["Semester"] == s].copy() for s in sorted(final_df["Semester"].unique())}
+                        st.write(f"Semesters in sem_dict: {list(sem_dict.keys())}")
+
+                        st.session_state.timetable_data = sem_dict
+                        st.session_state.original_df = original_df
+                        st.session_state.processing_complete = True
+
+                        # Compute statistics
+                        total_exams = sum(len(df) for df in sem_dict.values())
+                        total_semesters = len(sem_dict)
+                        total_branches = len(set(branch for df in sem_dict.values() for branch in df['MainBranch'].unique()))
+
+                        all_data = pd.concat(sem_dict.values(), ignore_index=True)
+                        all_dates = pd.to_datetime(all_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                        overall_date_range = (max(all_dates) - min(all_dates)).days + 1 if all_dates.size > 0 else 0
+                        unique_exam_days = len(all_dates.dt.date.unique())
+
+                        non_elective_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
+                        non_elective_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                        non_elective_range = f"{min(non_elective_dates).strftime('%d %b %Y')} to {max(non_elective_dates).strftime('%d %b %Y')}" if non_elective_dates.size > 0 else "N/A"
+
+                        elective_data = all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != "")]
+                        elective_dates = pd.to_datetime(elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                        elective_dates_str = ", ".join(sorted(set(elective_dates.dt.strftime("%d %b %Y")))) if elective_dates.size > 0 else "N/A"
+
+                        non_oe_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
+                        stream_counts = non_oe_data.groupby(['MainBranch', 'SubBranch'])['Subject'].count().reset_index()
+                        stream_counts['Stream'] = stream_counts['MainBranch'] + " " + stream_counts['SubBranch']
+                        stream_counts = stream_counts[['Stream', 'Subject']].rename(columns={'Subject': 'Subject Count'}).sort_values('Stream')
+
+                        # Store statistics in session state
+                        st.session_state.total_exams = total_exams
+                        st.session_state.total_semesters = total_semesters
+                        st.session_state.total_branches = total_branches
+                        st.session_state.overall_date_range = overall_date_range
+                        st.session_state.unique_exam_days = unique_exam_days
+                        st.session_state.non_elective_range = non_elective_range
+                        st.session_state.elective_dates_str = elective_dates_str
+                        st.session_state.stream_counts = stream_counts
+
+                        # Generate and store downloadable files
+                        st.write("Generating Excel...")
+                        excel_data = save_to_excel(sem_dict)
+                        if excel_data:
+                            st.session_state.excel_data = excel_data.getvalue()
+                        else:
+                            st.write("Excel generation failed.")
+
+                        st.write("Generating PDF...")
+                        if sem_dict:
+                            pdf_output = io.BytesIO()
+                            temp_pdf_path = "temp_timetable.pdf"
+                            generate_pdf_timetable(sem_dict, temp_pdf_path)
+                            with open(temp_pdf_path, "rb") as f:
+                                pdf_output.write(f.read())
+                            pdf_output.seek(0)
+                            if os.path.exists(temp_pdf_path):
+                                os.remove(temp_pdf_path)
+                            st.session_state.pdf_data = pdf_output.getvalue()
+                        else:
+                            st.write("PDF generation skipped due to empty sem_dict.")
+
+                        st.write("Generating verification...")
+                        verification_data = save_verification_excel(st.session_state.original_df, sem_dict)
+                        if verification_data:
+                            st.session_state.verification_data = verification_data.getvalue()
+                        else:
+                            st.write("Verification generation failed.")
+
+                        st.markdown('<div class="status-success">🎉 Timetable generated successfully!</div>',
+                                    unsafe_allow_html=True)
+
                     else:
-                        final_df = non_elec_df
-                        st.write("No electives to schedule.")
+                        st.markdown(
+                            '<div class="status-error">❌ Failed to read the Excel file. Please check the format.</div>',
+                            unsafe_allow_html=True)
 
-                    final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                    final_df = final_df.sort_values(["Exam Date", "Semester", "MainBranch"], ascending=True, na_position='last')
-                    sem_dict = {s: final_df[final_df["Semester"] == s].copy() for s in sorted(final_df["Semester"].unique())}
-                    st.write(f"Semesters in sem_dict: {list(sem_dict.keys())}")
-
-                    st.session_state.timetable_data = sem_dict
-                    st.session_state.original_df = original_df
-                    st.session_state.processing_complete = True
-
-                    # Compute statistics
-                    total_exams = sum(len(df) for df in sem_dict.values())
-                    total_semesters = len(sem_dict)
-                    total_branches = len(set(branch for df in sem_dict.values() for branch in df['MainBranch'].unique()))
-
-                    all_data = pd.concat(sem_dict.values(), ignore_index=True)
-                    all_dates = pd.to_datetime(all_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                    overall_date_range = (max(all_dates) - min(all_dates)).days + 1 if all_dates.size > 0 else 0
-                    unique_exam_days = len(all_dates.dt.date.unique())
-
-                    non_elective_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
-                    non_elective_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                    non_elective_range = f"{min(non_elective_dates).strftime('%d %b %Y')} to {max(non_elective_dates).strftime('%d %b %Y')}" if non_elective_dates.size > 0 else "N/A"
-
-                    elective_data = all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != "")]
-                    elective_dates = pd.to_datetime(elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                    elective_dates_str = ", ".join(sorted(set(elective_dates.dt.strftime("%d %b %Y")))) if elective_dates.size > 0 else "N/A"
-
-                    non_oe_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
-                    stream_counts = non_oe_data.groupby(['MainBranch', 'SubBranch'])['Subject'].count().reset_index()
-                    stream_counts['Stream'] = stream_counts['MainBranch'] + " " + stream_counts['SubBranch']
-                    stream_counts = stream_counts[['Stream', 'Subject']].rename(columns={'Subject': 'Subject Count'}).sort_values('Stream')
-
-                    # Store statistics in session state
-                    st.session_state.total_exams = total_exams
-                    st.session_state.total_semesters = total_semesters
-                    st.session_state.total_branches = total_branches
-                    st.session_state.overall_date_range = overall_date_range
-                    st.session_state.unique_exam_days = unique_exam_days
-                    st.session_state.non_elective_range = non_elective_range
-                    st.session_state.elective_dates_str = elective_dates_str
-                    st.session_state.stream_counts = stream_counts
-
-                    # Generate and store downloadable files
-                    st.write("Generating Excel...")
-                    excel_data = save_to_excel(sem_dict)
-                    if excel_data:
-                        st.session_state.excel_data = excel_data.getvalue()
-                    else:
-                        st.write("Excel generation failed.")
-
-                    st.write("Generating PDF...")
-                    if sem_dict:
-                        pdf_output = io.BytesIO()
-                        temp_pdf_path = "temp_timetable.pdf"
-                        generate_pdf_timetable(sem_dict, temp_pdf_path)
-                        with open(temp_pdf_path, "rb") as f:
-                            pdf_output.write(f.read())
-                        pdf_output.seek(0)
-                        if os.path.exists(temp_pdf_path):
-                            os.remove(temp_pdf_path)
-                        st.session_state.pdf_data = pdf_output.getvalue()
-                    else:
-                        st.write("PDF generation skipped due to empty sem_dict.")
-
-                    st.write("Generating verification...")
-                    verification_data = save_verification_excel(st.session_state.original_df, sem_dict)
-                    if verification_data:
-                        st.session_state.verification_data = verification_data.getvalue()
-                    else:
-                        st.write("Verification generation failed.")
-
-                    st.markdown('<div class="status-success">🎉 Timetable generated successfully!</div>',
+                except Exception as e:
+                    st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
                                 unsafe_allow_html=True)
-
-                else:
-                    st.markdown(
-                        '<div class="status-error">❌ Failed to read the Excel file. Please check the format.</div>',
-                        unsafe_allow_html=True)
-
-            except Exception as e:
-                st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
-                            unsafe_allow_html=True) 
 
     # Display timetable results if processing is complete
     if st.session_state.processing_complete:
