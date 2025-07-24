@@ -1140,7 +1140,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-    if uploaded_file is not None:
+  if uploaded_file is not None:
     if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
         with st.spinner("Processing your timetable... Please wait..."):
             try:
@@ -1268,7 +1268,7 @@ def main():
 
             except Exception as e:
                 st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
-                            unsafe_allow_html=True)
+                            unsafe_allow_html=True)  
 
     # Display timetable results if processing is complete
     if st.session_state.processing_complete:
