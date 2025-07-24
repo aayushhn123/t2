@@ -800,32 +800,47 @@ def read_timetable(uploaded_file):
         return None, None, None
 
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
-    def find_next_valid_day(start_day, for_branches):
+    def find_next_valid_day(start_day, for_branches, last_dates):
         day = start_day
+        # First, try within 2 days of the last scheduled date for each branch
+        max_lookahead = 2
         while True:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
             if all(day_date not in exam_days[branch] for branch in for_branches):
-                return day
+                # Check if this day is within 2 days of the last date for any branch
+                if all(last_dates.get(branch, base_date).date() <= day_date <= (last_dates.get(branch, base_date) + timedelta(days=2)).date() 
+                       for branch in for_branches):
+                    return day
+                # If no match within 2 days, allow a broader search but prefer closeness
+                if (day - max(last_dates.values(), default=base_date)).days > max_lookahead:
+                    max_lookahead += 1  # Incrementally expand search if needed
             day += timedelta(days=1)
+
+    # Initialize last dates for each branch
+    last_dates = {branch: base_date for branch in df_sem['Branch'].unique()}
 
     # Schedule remaining COMP subjects with "Is Common" = "NO"
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
-        exam_day = find_next_valid_day(base_date, [branch])
+        exam_day = find_next_valid_day(last_dates.get(branch, base_date), [branch], last_dates)
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        df_sem.at[idx, 'Time Slot'] = df_sem.at[idx, 'Time Slot'] if df_sem.at[idx, 'Time Slot'] else ""
         exam_days[branch].add(exam_day.date())
+        last_dates[branch] = exam_day
 
     # Schedule remaining ELEC subjects with "Is Common" = "NO"
     remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
-        exam_day = find_next_valid_day(base_date, [branch])
+        exam_day = find_next_valid_day(last_dates.get(branch, base_date), [branch], last_dates)
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        df_sem.at[idx, 'Time Slot'] = df_sem.at[idx, 'Time Slot'] if df_sem.at[idx, 'Time Slot'] else ""
         exam_days[branch].add(exam_day.date())
+        last_dates[branch] = exam_day
 
     # Assign time slot based on semester
     sem = df_sem["Semester"].iloc[0]
@@ -844,22 +859,34 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
 
-    def find_next_valid_day(start_day, for_branches):
+    def find_next_valid_day(start_day, for_branches, last_dates):
         day = start_day
+        # First, try within 2 days of the last scheduled date for each branch
+        max_lookahead = 2
         while True:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
             if all(day_date not in exam_days[branch] for branch in for_branches):
-                return day
+                # Check if this day is within 2 days of the last date for any branch
+                if all(last_dates.get(branch, base_date).date() <= day_date <= (last_dates.get(branch, base_date) + timedelta(days=2)).date() 
+                       for branch in for_branches):
+                    return day
+                # If no match within 2 days, allow a broader search but prefer closeness
+                if (day - max(last_dates.values(), default=base_date)).days > max_lookahead:
+                    max_lookahead += 1  # Incrementally expand search if needed
             day += timedelta(days=1)
+
+    # Initialize last dates for each branch
+    last_dates = {branch: base_date for branch in all_branches}
 
     # Schedule common COMP subjects
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        exam_day = find_next_valid_day(base_date, branches)
+        last_date = max(last_dates[branch] for branch in branches) if branches else base_date
+        exam_day = find_next_valid_day(last_date, branches, last_dates)
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
@@ -871,12 +898,14 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         df.loc[group.index, 'Time Slot'] = slot_str
         for branch in branches:
             exam_days[branch].add(exam_day.date())
+            last_dates[branch] = exam_day
 
     # Schedule common ELEC subjects
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        exam_day = find_next_valid_day(base_date, branches)
+        last_date = max(last_dates[branch] for branch in branches) if branches else base_date
+        exam_day = find_next_valid_day(last_date, branches, last_dates)
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
@@ -888,6 +917,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         df.loc[group.index, 'Time Slot'] = slot_str
         for branch in branches:
             exam_days[branch].add(exam_day.date())
+            last_dates[branch] = exam_day
 
     # Schedule remaining subjects per semester
     final_list = []
