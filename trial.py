@@ -806,20 +806,31 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         max_lookahead = 2
         while True:
             day_date = day.date()
+            print(f"Debug: Checking day {day_date}, for_branches {for_branches}, last_dates {last_dates}")
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
             if all(day_date not in exam_days[branch] for branch in for_branches):
                 # Check if this day is within 2 days of the last date for each branch
-                within_range = all(
-                    last_dates.get(branch, base_date).date() <= day_date <= (last_dates.get(branch, base_date) + timedelta(days=2)).date()
-                    for branch in for_branches
-                )
+                within_range = True
+                for branch in for_branches:
+                    last_date = last_dates.get(branch, base_date)
+                    print(f"Debug: Branch {branch}, last_date {last_date}, day_date {day_date}")
+                    if not isinstance(last_date, datetime):
+                        last_date = base_date  # Fallback if last_date is not a datetime
+                    last_date_dt = last_date.date() if hasattr(last_date, 'date') else last_date
+                    two_days_later = last_date_dt + timedelta(days=2)
+                    if not (last_date_dt <= day_date <= two_days_later):
+                        within_range = False
+                        break
                 if within_range:
+                    print(f"Debug: Found valid day {day_date} within range")
                     return day
                 # If no match within 2 days, allow a broader search but prefer closeness
-                if (day - max(last_dates.values(), default=base_date)).days > max_lookahead:
+                max_last_date = max((d for d in last_dates.values() if isinstance(d, datetime)), default=base_date)
+                if (day - max_last_date).days > max_lookahead:
                     max_lookahead += 1  # Incrementally expand search if needed
+                    print(f"Debug: Expanding lookahead to {max_lookahead} days")
             day += timedelta(days=1)
 
     # Initialize last dates for each branch
@@ -868,20 +879,31 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         max_lookahead = 2
         while True:
             day_date = day.date()
+            print(f"Debug: Checking day {day_date}, for_branches {for_branches}, last_dates {last_dates}")
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
             if all(day_date not in exam_days[branch] for branch in for_branches):
                 # Check if this day is within 2 days of the last date for each branch
-                within_range = all(
-                    last_dates.get(branch, base_date).date() <= day_date <= (last_dates.get(branch, base_date) + timedelta(days=2)).date()
-                    for branch in for_branches
-                )
+                within_range = True
+                for branch in for_branches:
+                    last_date = last_dates.get(branch, base_date)
+                    print(f"Debug: Branch {branch}, last_date {last_date}, day_date {day_date}")
+                    if not isinstance(last_date, datetime):
+                        last_date = base_date  # Fallback if last_date is not a datetime
+                    last_date_dt = last_date.date() if hasattr(last_date, 'date') else last_date
+                    two_days_later = last_date_dt + timedelta(days=2)
+                    if not (last_date_dt <= day_date <= two_days_later):
+                        within_range = False
+                        break
                 if within_range:
+                    print(f"Debug: Found valid day {day_date} within range")
                     return day
                 # If no match within 2 days, allow a broader search but prefer closeness
-                if (day - max(last_dates.values(), default=base_date)).days > max_lookahead:
+                max_last_date = max((d for d in last_dates.values() if isinstance(d, datetime)), default=base_date)
+                if (day - max_last_date).days > max_lookahead:
                     max_lookahead += 1  # Incrementally expand search if needed
+                    print(f"Debug: Expanding lookahead to {max_lookahead} days")
             day += timedelta(days=1)
 
     # Initialize last dates for each branch
