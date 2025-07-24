@@ -910,7 +910,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
-            slot_str = "10:00 AM - 1:00 PM —
+            slot_str = "10:00 AM - 1:00 PM"
 
  if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         else:
