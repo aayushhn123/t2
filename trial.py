@@ -796,79 +796,34 @@ def read_timetable(uploaded_file):
         return None, None, None
 
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
-    def find_next_valid_day_with_gap_control(start_day, for_branches, max_gap_days=2):
-        """
-        Find the next valid day for scheduling exams, ensuring gaps are controlled.
-        
-        Args:
-            start_day (datetime): Starting day to search from.
-            for_branches (list): List of branch names (strings).
-            max_gap_days (int): Maximum allowed gap between exams (default: 2).
-        
-        Returns:
-            datetime: The next valid day for scheduling.
-        """
-        # Ensure for_branches is a list of strings
-        for_branches = list(for_branches) if for_branches else []
-
-        if for_branches:
-            # Collect latest exam dates across branches
-            latest_dates = []
-            for branch in for_branches:
-                branch_dates = exam_days.get(branch, set())
-                # Convert all dates to Python date objects
-                branch_dates = {d if isinstance(d, date) else d.date() for d in branch_dates}
-                latest_dates.extend(branch_dates)
-            
-            if latest_dates:
-                latest_exam_date = max(latest_dates)
-                # Try scheduling within max_gap_days from the latest exam
-                for gap in range(1, max_gap_days + 1):
-                    candidate_day = datetime.combine(latest_exam_date, datetime.min.time()) + timedelta(days=gap)
-                    candidate_date = candidate_day.date()
-                    # Validate the candidate date
-                    is_valid = (
-                        candidate_day.weekday() != 6 and  # Not Sunday
-                        candidate_date not in holidays and  # Not a holiday
-                        all(candidate_date not in {d if isinstance(d, date) else d.date() for d in exam_days.get(branch, set())} 
-                            for branch in for_branches)
-                    )
-                    if is_valid:
-                        return candidate_day
-
-        # Fallback logic if no slot is found within gap limit
+    def find_next_valid_day(start_day, for_branches):
         day = start_day
         while True:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            # Ensure the date isn’t already scheduled for any branch
-            is_valid = all(day_date not in {d if isinstance(d, date) else d.date() for d in exam_days.get(branch, set())} 
-                           for branch in for_branches)
-            if is_valid:
+            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
                 return day
             day += timedelta(days=1)
 
-    # Schedule remaining COMP subjects with "Is Common" = "NO"
-    remaining_comp_mask = (df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")
-    remaining_comp = df_sem[remaining_comp_mask]
+    # Schedule initial remaining COMP subjects with "Is Common" = "NO"
+    remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
-        exam_day = find_next_valid_day_with_gap_control(base_date, [branch])
+        exam_day = find_next_valid_day(base_date, [branch])
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Schedule remaining ELEC subjects with "Is Common" = "NO"
-    remaining_elec_mask = (df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")
-    remaining_elec = df_sem[remaining_elec_mask]
+    # Schedule initial remaining ELEC subjects with "Is Common" = "NO"
+    remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
-        exam_day = find_next_valid_day_with_gap_control(base_date, [branch])
+        exam_day = find_next_valid_day(base_date, [branch])
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Assign time slot based on semester
+    # Assign initial time slot based on semester
     sem = df_sem["Semester"].iloc[0]
     if sem % 2 != 0:
         odd_sem_position = (sem + 1) // 2
@@ -876,78 +831,60 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
     else:
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    
-    # Use boolean mask to avoid ambiguous array truth value
-    time_slot_mask = df_sem['Time Slot'] == ""
-    df_sem.loc[time_slot_mask, 'Time Slot'] = slot_str
+    df_sem.loc[df_sem['Time Slot'] == "", 'Time Slot'] = slot_str
+
+    # Optimize by filling gaps with non-common subjects from other semesters
+    all_dates = pd.to_datetime(df_sem['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna().dt.date.unique()
+    if len(all_dates) > 1:
+        all_dates_sorted = sorted(all_dates)
+        unscheduled_non_common = df_sem[(df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
+        if not unscheduled_non_common.empty:
+            for i in range(1, len(all_dates_sorted)):
+                gap_start = all_dates_sorted[i-1]
+                gap_end = all_dates_sorted[i]
+                gap_days = (gap_end - gap_start).days - 1
+                if gap_days > 1:  # Only fill gaps larger than 1 day
+                    for day_offset in range(1, gap_days):
+                        candidate_day = datetime.combine(gap_start, datetime.min.time()) + timedelta(days=day_offset)
+                        candidate_date = candidate_day.date()
+                        if candidate_day.weekday() != 6 and candidate_date not in holidays:
+                            # Find a non-common subject from another semester that fits
+                            for idx, row in unscheduled_non_common.iterrows():
+                                branch = row['Branch']
+                                other_sem = row['Semester']
+                                # Check if this subject can be scheduled without conflict
+                                if all(candidate_date not in exam_days.get(b, set()) for b in [branch]) and \
+                                   not any((df_sem['Semester'] == other_sem) & (df_sem['Branch'] == branch) & 
+                                           (pd.to_datetime(df_sem['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.date == candidate_date)):
+                                    df_sem.at[idx, 'Exam Date'] = candidate_day.strftime("%d-%m-%Y")
+                                    df_sem.at[idx, 'Time Slot'] = slot_str
+                                    exam_days[branch].add(candidate_date)
+                                    unscheduled_non_common = unscheduled_non_common.drop(idx)
+                                    break
 
     return df_sem
 
-def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, max_gap_days=2):
+def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     # Initialize exam_days for all branches
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
 
-    def find_next_valid_day_with_gap_control(start_day, for_branches, max_gap_days=2):
-        """
-        Find the next valid day for scheduling exams, ensuring gaps are controlled.
-        
-        Args:
-            start_day (datetime): Starting day to search from.
-            for_branches (list): List of branch names (strings).
-            max_gap_days (int): Maximum allowed gap between exams (default: 2).
-        
-        Returns:
-            datetime: The next valid day for scheduling.
-        """
-        # Ensure for_branches is a list of strings
-        for_branches = list(for_branches) if for_branches else []
-
-        if for_branches:
-            # Collect latest exam dates across branches
-            latest_dates = []
-            for branch in for_branches:
-                branch_dates = exam_days.get(branch, set())
-                # Convert all dates to Python date objects
-                branch_dates = {d if isinstance(d, date) else d.date() for d in branch_dates}
-                latest_dates.extend(branch_dates)
-            
-            if latest_dates:
-                latest_exam_date = max(latest_dates)
-                # Try scheduling within max_gap_days from the latest exam
-                for gap in range(1, max_gap_days + 1):
-                    candidate_day = datetime.combine(latest_exam_date, datetime.min.time()) + timedelta(days=gap)
-                    candidate_date = candidate_day.date()
-                    # Validate the candidate date
-                    is_valid = (
-                        candidate_day.weekday() != 6 and  # Not Sunday
-                        candidate_date not in holidays and  # Not a holiday
-                        all(candidate_date not in {d if isinstance(d, date) else d.date() for d in exam_days.get(branch, set())} 
-                            for branch in for_branches)
-                    )
-                    if is_valid:
-                        return candidate_day
-
-        # Fallback logic if no slot is found within gap limit
+    def find_next_valid_day(start_day, for_branches):
         day = start_day
         while True:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            # Ensure the date isn’t already scheduled for any branch
-            is_valid = all(day_date not in {d if isinstance(d, date) else d.date() for d in exam_days.get(branch, set())} 
-                           for branch in for_branches)
-            if is_valid:
+            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
                 return day
             day += timedelta(days=1)
 
     # Schedule common COMP subjects
-    common_comp_mask = (df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')
-    common_comp = df[common_comp_mask]
-    for _, group in common_comp.groupby('ModuleCode'):
+    common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
+    for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        exam_day = find_next_valid_day_with_gap_control(base_date, branches, max_gap_days)
+        exam_day = find_next_valid_day(base_date, branches)
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
@@ -961,11 +898,10 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
             exam_days[branch].add(exam_day.date())
 
     # Schedule common ELEC subjects
-    common_elec_mask = (df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')
-    common_elec = df[common_elec_mask]
-    for _, group in common_elec.groupby('ModuleCode'):
+    common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
+    for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        exam_day = find_next_valid_day_with_gap_control(base_date, branches, max_gap_days)
+        exam_day = find_next_valid_day(base_date, branches)
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
@@ -1005,21 +941,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
         total_span = (end_date - start_date).days + 1
         if total_span > 20:
             st.warning(f"⚠️ The timetable spans {total_span} days, exceeding the limit of 20 days.")
-        
-        # Additional gap analysis
-        sorted_dates = sorted(all_dates.dt.date.unique())
-        large_gaps = []
-        for i in range(1, len(sorted_dates)):
-            gap = (sorted_dates[i] - sorted_dates[i-1]).days
-            if gap > max_gap_days:
-                large_gaps.append((sorted_dates[i-1], sorted_dates[i], gap))
-        
-        if large_gaps:
-            gap_info = [f"{start.strftime('%d-%m-%Y')} to {end.strftime('%d-%m-%Y')} ({days} days)" 
-                       for start, end, days in large_gaps]
-            st.info(f"ℹ️ Large gaps detected: {', '.join(gap_info)}")
-        else:
-            st.success(f"✅ All gaps between exams are within {max_gap_days} days limit.")
 
     return sem_dict
 
