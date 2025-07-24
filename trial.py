@@ -799,6 +799,10 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
 
+from datetime import datetime, timedelta
+import pandas as pd
+import streamlit as st
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, for_branches):
         day = start_day
@@ -910,9 +914,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
-            slot_str = "10:00 AM - 1:00 PM"
-
- if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         else:
             even_sem_position = min_sem // 2
             slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
