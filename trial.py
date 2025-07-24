@@ -275,8 +275,7 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 # Cache for text wrapping results
 wrap_text_cache = {}
 
-# PDF generation utilities (unchanged)
-def wrap_text(pdf, text, col_width):
+# PDF generation utilities (unchanged)def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
         return wrap_text_cache[cache_key]
@@ -546,15 +545,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             return 3.0
 
-    def get_semester_default_time_slot(semester, branch):
-        # Placeholder function: Replace with actual logic or data source
-        # Example: B.Tech Semester 5 EXTC defaults to "10:00 AM - 1:00 PM"
-        default_timings = {
-            ("5", "EXTC"): "10:00 AM - 1:00 PM",
-            # Add other semester-branch combinations as needed
-        }
-        return default_timings.get((semester, branch), "10:00 AM - 1:00 PM")  # Default fallback
-
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
             continue
@@ -583,263 +573,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 if chunk_df.empty:
                     continue
 
-                # Get the time slot for this chunk, with debug
+                # Get the time slot for this chunk
                 time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
-                print(f"Debug: Sheet {sheet_name}, Time Slot: {time_slot}")  # Debug output
 
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-                # Modify subjects to include time range if duration != 3 hours or if timing overrides default
-                default_time_slot = get_semester_default_time_slot(semester, main_branch)
-                print(f"Debug: Default Time Slot for {semester} {main_branch}: {default_time_slot}")  # Debug output
-                for sub_branch in chunk:
-                    for idx in chunk_df.index:
-                        cell_value = chunk_df.at[idx, sub_branch]
-                        if cell_value == "---":
-                            continue
-                        subjects = cell_value.split(", ")
-                        modified_subjects = []
-                        for subject in subjects:
-                            duration = extract_duration(subject)
-                            base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            # Ensure time_slot is available before comparison
-                            if time_slot and default_time_slot and time_slot != default_time_slot:
-                                modified_subjects.append(f"{base_subject} ({time_slot})")
-                            else:
-                                modified_subjects.append(base_subject)
-                            # Add duration-based time range if different from 3 hours
-                            if duration != 3 and time_slot:
-                                start_time = time_slot.split(" - ")[0]
-                                end_time = calculate_end_time(start_time, duration)
-                                modified_subjects[-1] = f"{modified_subjects[-1]} ({start_time} to {end_time})"
-                        chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
-
-                page_width = pdf.w - 2 * pdf.l_margin
-                remaining = page_width - exam_date_width
-                sub_width = remaining / max(len(chunk), 1)
-                col_widths = [exam_date_width] + [sub_width] * len(chunk)
-                total_w = sum(col_widths)
-                if total_w > page_width:
-                    factor = page_width / total_w
-                    col_widths = [w * factor for w in col_widths]
-                
-                # Add page before printing the table
-                pdf.add_page()
-                # Add footer with page number to the new page
-                footer_height = 25
-                add_footer_with_page_number(pdf, footer_height)
-                
-                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, time_slot=time_slot)
-
-        # Handle electives with updated table structure
-        if sheet_name.endswith('_Electives'):
-            pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
-            print(f"Debug: Elective Sheet {sheet_name}, Time Slot: {time_slot}")  # Debug output
-            
-            # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
-            elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
-                'SubjectDisplay': lambda x: ", ".join(x)
-            }).reset_index()
-
-            # Convert Exam Date to desired format
-            elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-
-            # Clean 'SubjectDisplay' to remove [OE] from each subject
-            elective_data['SubjectDisplay'] = elective_data.apply(
-                lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in row['SubjectDisplay'].split(", ")]),
-                axis=1
-            )
-
-            # Modify subjects for timing overrides
-            default_time_slot = get_semester_default_time_slot(semester, main_branch)
-            print(f"Debug: Default Time Slot for {semester} {main_branch}: {default_time_slot}")  # Debug output
-            for idx in elective_data.index:
-                cell_value = elective_data.at[idx, 'SubjectDisplay']
-                if cell_value == "---":
-                    continue
-                subjects = cell_value.split(", ")
-                modified_subjects = []
-                for subject in subjects:
-                    duration = extract_duration(subject)
-                    base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                    if time_slot and default_time_slot and time_slot != default_time_slot:
-                        modified_subjects.append(f"{base_subject} ({time_slot})")
-                    else:
-                        modified_subjects.append(base_subject)
-                    if duration != 3 and time_slot:
-                        start_time = time_slot.split(" - ")[0]
-                        end_time = calculate_end_time(start_time, duration)
-                        modified_subjects[-1] = f"{modified_subjects[-1]} ({start_time} to {end_time})"
-                elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
-
-            # Rename columns for clarity in the PDF
-            elective_data = elective_data.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
-
-            # Set column widths for three columns
-            exam_date_width = 60
-            oe_width = 30
-            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
-            col_widths = [exam_date_width, oe_width, subject_width]
-            cols_to_print = ['Exam Date', 'OE Type', 'Subjects']
-            
-            # Add page before printing the electives table
-            pdf.add_page()
-            # Add footer with page number to the new page
-            footer_height = 25
-            add_footer_with_page_number(pdf, footer_height)
-            
-            print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                             header_content=header_content, branches=['All Streams'], time_slot=time_slot)
-
-    pdf.output(pdf_path)
-
-def add_footer_with_page_number(pdf, footer_height):
-    """Add footer with signature and page number"""
-    pdf.set_xy(10, pdf.h - footer_height)
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
-    pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
-    pdf.set_font("Arial", size=13)
-    pdf.set_xy(10, pdf.h - footer_height + 7)
-    pdf.cell(0, 5, "Signature", 0, 1, 'L')
-    
-    # Add page numbers in bottom right
-    pdf.set_font("Arial", size=14)
-    pdf.set_text_color(0, 0, 0)
-    page_text = f"{pdf.page_no()} of {{nb}}"
-    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))  # Estimate width
-    pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
-    pdf.cell(text_width, 5, page_text, 0, 0, 'R')
-
-def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot=None):
-    """Add header to a new page"""
-    pdf.set_y(0)
-    pdf.set_font("Arial", size=14)
-    text_width = pdf.get_string_width(current_date)
-    x = pdf.w - 10 - text_width
-    pdf.set_xy(x, 5)
-    pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
-    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
-    pdf.set_fill_color(149, 33, 28)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", 'B', 16)
-    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
-    pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14,
-             "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
-             0, 1, 'C')
-    pdf.set_font("Arial", 'B', 15)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(10, 51)
-    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    
-    # Add time slot if provided
-    if time_slot:
-        pdf.set_font("Arial", 'B', 14)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(85)
-    else:
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(71)
-
-def calculate_end_time(start_time, duration_hours):
-    """Calculate the end time given a start time and duration in hours."""
-    start = datetime.strptime(start_time, "%I:%M %p")
-    duration = timedelta(hours=duration_hours)
-    end = start + duration
-    return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
-
-def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
-    pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
-    pdf.set_auto_page_break(auto=False, margin=15)
-    
-    # Enable automatic page numbering with alias
-    pdf.alias_nb_pages()
-    
-    df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
-
-    def int_to_roman(num):
-        roman_values = [
-            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
-        ]
-        result = ""
-        for value, numeral in roman_values:
-            while num >= value:
-                result += numeral
-                num -= value
-        return result
-
-    def extract_duration(subject_str):
-        match = re.search(r'\[Duration: (\d+\.?\d*) hrs\]', subject_str)
-        if match:
-            return float(match.group(1))
-        else:
-            return 3.0
-
-    def get_semester_default_time_slot(semester, branch):
-        # Placeholder function: Replace with actual logic or data source
-        # Example: B.Tech Semester 5 EXTC defaults to "10:00 AM - 1:00 PM"
-        default_timings = {
-            ("5", "EXTC"): "10:00 AM - 1:00 PM",
-            # Add other semester-branch combinations as needed
-        }
-        return default_timings.get((semester, branch), "10:00 AM - 1:00 PM")  # Default fallback
-
-    for sheet_name, pivot_df in df_dict.items():
-        if pivot_df.empty:
-            continue
-        parts = sheet_name.split('_Sem_')
-        main_branch = parts[0]
-        main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
-        semester = parts[1] if len(parts) > 1 else ""
-        semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
-        header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
-
-        # Handle normal subjects
-        if not sheet_name.endswith('_Electives'):
-            pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            fixed_cols = ["Exam Date"]
-            sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols and c != "Time Slot"]
-            exam_date_width = 60
-            table_font_size = 12
-            line_height = 10
-
-            for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
-                chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
-                cols_to_print = fixed_cols + chunk
-                chunk_df = pivot_df[cols_to_print].copy()
-                mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
-                chunk_df = chunk_df[mask].reset_index(drop=True)
-                if chunk_df.empty:
-                    continue
-
-                # Get the time slot for this chunk, with debug
-                time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
-                print(f"Debug: Sheet {sheet_name}, Time Slot: {time_slot}")  # Debug output
-
-                # Convert Exam Date to desired format
-                chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-
-                # Modify subjects to include time range if duration != 3 hours or if timing overrides default
-                default_time_slot = get_semester_default_time_slot(semester, main_branch)
-                print(f"Debug: Default Time Slot for {semester} {main_branch}: {default_time_slot}")  # Debug output
+                # Modify subjects to always include time slot in brackets if available
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
                         cell_value = chunk_df.at[idx, sub_branch]
@@ -850,12 +590,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         for subject in subjects:
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            # Ensure time_slot and default_time_slot are valid before comparison
-                            if time_slot and default_time_slot and time_slot.strip() and default_time_slot.strip():
-                                if time_slot != default_time_slot:
-                                    modified_subjects.append(f"{base_subject} ({time_slot})")
-                                else:
-                                    modified_subjects.append(base_subject)
+                            # Always append time_slot if available
+                            if time_slot and time_slot.strip():
+                                modified_subjects.append(f"{base_subject} ({time_slot})")
                             else:
                                 modified_subjects.append(base_subject)
                             # Add duration-based time range if different from 3 hours
@@ -887,7 +624,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
-            print(f"Debug: Elective Sheet {sheet_name}, Time Slot: {time_slot}")  # Debug output
             
             # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
             elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
@@ -903,9 +639,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 axis=1
             )
 
-            # Modify subjects for timing overrides
-            default_time_slot = get_semester_default_time_slot(semester, main_branch)
-            print(f"Debug: Default Time Slot for {semester} {main_branch}: {default_time_slot}")  # Debug output
+            # Modify subjects to always include time slot in brackets if available
             for idx in elective_data.index:
                 cell_value = elective_data.at[idx, 'SubjectDisplay']
                 if pd.isna(cell_value) or cell_value.strip() == "---":
@@ -915,11 +649,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 for subject in subjects:
                     duration = extract_duration(subject)
                     base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                    if time_slot and default_time_slot and time_slot.strip() and default_time_slot.strip():
-                        if time_slot != default_time_slot:
-                            modified_subjects.append(f"{base_subject} ({time_slot})")
-                        else:
-                            modified_subjects.append(base_subject)
+                    if time_slot and time_slot.strip():
+                        modified_subjects.append(f"{base_subject} ({time_slot})")
                     else:
                         modified_subjects.append(base_subject)
                     if duration != 3 and time_slot and time_slot.strip():
