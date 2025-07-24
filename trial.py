@@ -798,35 +798,55 @@ def read_timetable(uploaded_file):
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
     def find_next_valid_day_with_gap_control(start_day, for_branches, max_gap_days=2):
         """
-        Find next valid day with gap control - tries to minimize gaps between exams
+        Find the next valid day for scheduling exams, ensuring gaps are controlled.
+        
+        Args:
+            start_day (datetime): Starting day to search from.
+            for_branches (list): List of branch names (strings).
+            max_gap_days (int): Maximum allowed gap between exams (default: 2).
+        
+        Returns:
+            datetime: The next valid day for scheduling.
         """
+        # Ensure for_branches is a list of strings
+        for_branches = list(for_branches) if for_branches else []
+
         if for_branches:
-            # Get the latest exam date for the branches
+            # Collect latest exam dates across branches
             latest_dates = []
             for branch in for_branches:
-                if exam_days.get(branch, set()):
-                    latest_dates.extend(exam_days[branch])
+                branch_dates = exam_days.get(branch, set())
+                # Convert all dates to Python date objects
+                branch_dates = {d if isinstance(d, date) else d.date() for d in branch_dates}
+                latest_dates.extend(branch_dates)
             
             if latest_dates:
                 latest_exam_date = max(latest_dates)
-                # Try to schedule within max_gap_days from the latest exam
+                # Try scheduling within max_gap_days from the latest exam
                 for gap in range(1, max_gap_days + 1):
                     candidate_day = datetime.combine(latest_exam_date, datetime.min.time()) + timedelta(days=gap)
                     candidate_date = candidate_day.date()
-                    # Check validity for each branch independently
-                    if (candidate_day.weekday() != 6 and  # Not Sunday
+                    # Validate the candidate date
+                    is_valid = (
+                        candidate_day.weekday() != 6 and  # Not Sunday
                         candidate_date not in holidays and  # Not a holiday
-                        all(candidate_date not in exam_days.get(branch, set()) for branch in for_branches)):
+                        all(candidate_date not in {d if isinstance(d, date) else d.date() for d in exam_days.get(branch, set())} 
+                            for branch in for_branches)
+                    )
+                    if is_valid:
                         return candidate_day
-        
-        # Fallback to original logic if no slot found within gap limit
+
+        # Fallback logic if no slot is found within gap limit
         day = start_day
         while True:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
+            # Ensure the date isn’t already scheduled for any branch
+            is_valid = all(day_date not in {d if isinstance(d, date) else d.date() for d in exam_days.get(branch, set())} 
+                           for branch in for_branches)
+            if is_valid:
                 return day
             day += timedelta(days=1)
 
@@ -870,42 +890,62 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
 
     def find_next_valid_day_with_gap_control(start_day, for_branches, max_gap_days=2):
         """
-        Find next valid day with gap control - tries to minimize gaps between exams
+        Find the next valid day for scheduling exams, ensuring gaps are controlled.
+        
+        Args:
+            start_day (datetime): Starting day to search from.
+            for_branches (list): List of branch names (strings).
+            max_gap_days (int): Maximum allowed gap between exams (default: 2).
+        
+        Returns:
+            datetime: The next valid day for scheduling.
         """
+        # Ensure for_branches is a list of strings
+        for_branches = list(for_branches) if for_branches else []
+
         if for_branches:
-            # Get the latest exam date for the branches
+            # Collect latest exam dates across branches
             latest_dates = []
             for branch in for_branches:
-                if exam_days.get(branch, set()):
-                    latest_dates.extend(exam_days[branch])
+                branch_dates = exam_days.get(branch, set())
+                # Convert all dates to Python date objects
+                branch_dates = {d if isinstance(d, date) else d.date() for d in branch_dates}
+                latest_dates.extend(branch_dates)
             
             if latest_dates:
                 latest_exam_date = max(latest_dates)
-                # Try to schedule within max_gap_days from the latest exam
+                # Try scheduling within max_gap_days from the latest exam
                 for gap in range(1, max_gap_days + 1):
                     candidate_day = datetime.combine(latest_exam_date, datetime.min.time()) + timedelta(days=gap)
                     candidate_date = candidate_day.date()
-                    # Check validity for each branch independently
-                    if (candidate_day.weekday() != 6 and  # Not Sunday
+                    # Validate the candidate date
+                    is_valid = (
+                        candidate_day.weekday() != 6 and  # Not Sunday
                         candidate_date not in holidays and  # Not a holiday
-                        all(candidate_date not in exam_days.get(branch, set()) for branch in for_branches)):
+                        all(candidate_date not in {d if isinstance(d, date) else d.date() for d in exam_days.get(branch, set())} 
+                            for branch in for_branches)
+                    )
+                    if is_valid:
                         return candidate_day
-        
-        # Fallback to original logic if no slot found within gap limit
+
+        # Fallback logic if no slot is found within gap limit
         day = start_day
         while True:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
+            # Ensure the date isn’t already scheduled for any branch
+            is_valid = all(day_date not in {d if isinstance(d, date) else d.date() for d in exam_days.get(branch, set())} 
+                           for branch in for_branches)
+            if is_valid:
                 return day
             day += timedelta(days=1)
 
     # Schedule common COMP subjects
     common_comp_mask = (df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')
     common_comp = df[common_comp_mask]
-    for module_code, group in common_comp.groupby('ModuleCode'):
+    for _, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
         exam_day = find_next_valid_day_with_gap_control(base_date, branches, max_gap_days)
         min_sem = group['Semester'].min()
@@ -923,7 +963,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
     # Schedule common ELEC subjects
     common_elec_mask = (df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')
     common_elec = df[common_elec_mask]
-    for module_code, group in common_elec.groupby('ModuleCode'):
+    for _, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
         exam_day = find_next_valid_day_with_gap_control(base_date, branches, max_gap_days)
         min_sem = group['Semester'].min()
