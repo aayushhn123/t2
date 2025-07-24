@@ -524,6 +524,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf.alias_nb_pages()
     
     df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
+    # Load verification data from session state (assuming it's an Excel byte stream)
+    import io
+    import pandas as pd
+    verification_data = st.session_state.verification_data
+    if verification_data:
+        verification_df = pd.read_excel(io.BytesIO(verification_data))
+        # Assume columns: "Subject", "Exam Date", "Time Slot" (adjust based on actual structure)
+        subject_timing_map = dict(zip(verification_df["Subject"], verification_df["Time Slot"]))
+    else:
+        subject_timing_map = {}
 
     def int_to_roman(num):
         roman_values = [
@@ -544,6 +554,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             return float(match.group(1))
         else:
             return 3.0
+
+    def get_semester_default_time_slot(semester, branch):
+        # Placeholder function: Replace with actual logic or data source
+        # Example: B.Tech Semester 5 EXTC defaults to "10:00 AM - 1:00 PM"
+        default_timings = {
+            ("5", "EXTC"): "10:00 AM - 1:00 PM",
+            # Add other semester-branch combinations as needed
+        }
+        return default_timings.get((semester, branch), "10:00 AM - 1:00 PM")  # Default fallback
 
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
@@ -573,13 +592,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 if chunk_df.empty:
                     continue
 
-                # Get the time slot for this chunk
-                time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
-
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-                # Modify subjects to always include time slot in brackets if available
+                # Modify subjects to include time range if duration != 3 hours or if timing overrides default
+                default_time_slot = get_semester_default_time_slot(semester, main_branch)
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
                         cell_value = chunk_df.at[idx, sub_branch]
@@ -590,14 +607,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         for subject in subjects:
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            # Always append time_slot if available
-                            if time_slot and time_slot.strip():
-                                modified_subjects.append(f"{base_subject} ({time_slot})")
+                            # Get actual timing from verification data
+                            actual_time_slot = subject_timing_map.get(base_subject, default_time_slot)
+                            if actual_time_slot and actual_time_slot != default_time_slot:
+                                modified_subjects.append(f"{base_subject} ({actual_time_slot})")
                             else:
                                 modified_subjects.append(base_subject)
                             # Add duration-based time range if different from 3 hours
-                            if duration != 3 and time_slot and time_slot.strip():
-                                start_time = time_slot.split(" - ")[0]
+                            if duration != 3 and actual_time_slot:
+                                start_time = actual_time_slot.split(" - ")[0]
                                 end_time = calculate_end_time(start_time, duration)
                                 modified_subjects[-1] = f"{modified_subjects[-1]} ({start_time} to {end_time})"
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
@@ -618,12 +636,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 add_footer_with_page_number(pdf, footer_height)
                 
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, time_slot=time_slot)
+                                 header_content=header_content, branches=chunk)
 
         # Handle electives with updated table structure
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
             
             # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
             elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
@@ -639,7 +656,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 axis=1
             )
 
-            # Modify subjects to always include time slot in brackets if available
+            # Modify subjects for timing overrides
+            default_time_slot = get_semester_default_time_slot(semester, main_branch)
             for idx in elective_data.index:
                 cell_value = elective_data.at[idx, 'SubjectDisplay']
                 if pd.isna(cell_value) or cell_value.strip() == "---":
@@ -649,12 +667,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 for subject in subjects:
                     duration = extract_duration(subject)
                     base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                    if time_slot and time_slot.strip():
-                        modified_subjects.append(f"{base_subject} ({time_slot})")
+                    # Get actual timing from verification data
+                    actual_time_slot = subject_timing_map.get(base_subject, default_time_slot)
+                    if actual_time_slot and actual_time_slot != default_time_slot:
+                        modified_subjects.append(f"{base_subject} ({actual_time_slot})")
                     else:
                         modified_subjects.append(base_subject)
-                    if duration != 3 and time_slot and time_slot.strip():
-                        start_time = time_slot.split(" - ")[0]
+                    # Add duration-based time range if different from 3 hours
+                    if duration != 3 and actual_time_slot:
+                        start_time = actual_time_slot.split(" - ")[0]
                         end_time = calculate_end_time(start_time, duration)
                         modified_subjects[-1] = f"{modified_subjects[-1]} ({start_time} to {end_time})"
                 elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
@@ -676,7 +697,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             add_footer_with_page_number(pdf, footer_height)
             
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                             header_content=header_content, branches=['All Streams'], time_slot=time_slot)
+                             header_content=header_content, branches=['All Streams'])
 
     pdf.output(pdf_path)
 
