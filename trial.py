@@ -583,14 +583,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 if chunk_df.empty:
                     continue
 
-                # Get the time slot for this chunk
+                # Get the time slot for this chunk, with debug
                 time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
+                print(f"Debug: Sheet {sheet_name}, Time Slot: {time_slot}")  # Debug output
 
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
                 # Modify subjects to include time range if duration != 3 hours or if timing overrides default
                 default_time_slot = get_semester_default_time_slot(semester, main_branch)
+                print(f"Debug: Default Time Slot for {semester} {main_branch}: {default_time_slot}")  # Debug output
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
                         cell_value = chunk_df.at[idx, sub_branch]
@@ -601,12 +603,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         for subject in subjects:
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            # Check if time_slot exists and differs from default
-                            if time_slot and time_slot != default_time_slot:
+                            # Ensure time_slot is available before comparison
+                            if time_slot and default_time_slot and time_slot != default_time_slot:
                                 modified_subjects.append(f"{base_subject} ({time_slot})")
                             else:
                                 modified_subjects.append(base_subject)
-                            # Optionally add duration-based time range if different from 3 hours
+                            # Add duration-based time range if different from 3 hours
                             if duration != 3 and time_slot:
                                 start_time = time_slot.split(" - ")[0]
                                 end_time = calculate_end_time(start_time, duration)
@@ -635,6 +637,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
+            print(f"Debug: Elective Sheet {sheet_name}, Time Slot: {time_slot}")  # Debug output
             
             # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
             elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
@@ -652,6 +655,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
             # Modify subjects for timing overrides
             default_time_slot = get_semester_default_time_slot(semester, main_branch)
+            print(f"Debug: Default Time Slot for {semester} {main_branch}: {default_time_slot}")  # Debug output
             for idx in elective_data.index:
                 cell_value = elective_data.at[idx, 'SubjectDisplay']
                 if cell_value == "---":
@@ -661,7 +665,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 for subject in subjects:
                     duration = extract_duration(subject)
                     base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                    if time_slot and time_slot != default_time_slot:
+                    if time_slot and default_time_slot and time_slot != default_time_slot:
                         modified_subjects.append(f"{base_subject} ({time_slot})")
                     else:
                         modified_subjects.append(base_subject)
@@ -826,31 +830,36 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 if chunk_df.empty:
                     continue
 
-                # Get the time slot for this chunk
+                # Get the time slot for this chunk, with debug
                 time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
+                print(f"Debug: Sheet {sheet_name}, Time Slot: {time_slot}")  # Debug output
 
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
                 # Modify subjects to include time range if duration != 3 hours or if timing overrides default
                 default_time_slot = get_semester_default_time_slot(semester, main_branch)
+                print(f"Debug: Default Time Slot for {semester} {main_branch}: {default_time_slot}")  # Debug output
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
                         cell_value = chunk_df.at[idx, sub_branch]
-                        if cell_value == "---":
+                        if pd.isna(cell_value) or cell_value.strip() == "---":
                             continue
                         subjects = cell_value.split(", ")
                         modified_subjects = []
                         for subject in subjects:
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            # Check if time_slot exists and differs from default
-                            if time_slot and time_slot != default_time_slot:
-                                modified_subjects.append(f"{base_subject} ({time_slot})")
+                            # Ensure time_slot and default_time_slot are valid before comparison
+                            if time_slot and default_time_slot and time_slot.strip() and default_time_slot.strip():
+                                if time_slot != default_time_slot:
+                                    modified_subjects.append(f"{base_subject} ({time_slot})")
+                                else:
+                                    modified_subjects.append(base_subject)
                             else:
                                 modified_subjects.append(base_subject)
-                            # Optionally add duration-based time range if different from 3 hours
-                            if duration != 3 and time_slot:
+                            # Add duration-based time range if different from 3 hours
+                            if duration != 3 and time_slot and time_slot.strip():
                                 start_time = time_slot.split(" - ")[0]
                                 end_time = calculate_end_time(start_time, duration)
                                 modified_subjects[-1] = f"{modified_subjects[-1]} ({start_time} to {end_time})"
@@ -878,6 +887,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
+            print(f"Debug: Elective Sheet {sheet_name}, Time Slot: {time_slot}")  # Debug output
             
             # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
             elective_data = pivot_df.groupby(['OE', 'Exam Date']).agg({
@@ -895,20 +905,24 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
             # Modify subjects for timing overrides
             default_time_slot = get_semester_default_time_slot(semester, main_branch)
+            print(f"Debug: Default Time Slot for {semester} {main_branch}: {default_time_slot}")  # Debug output
             for idx in elective_data.index:
                 cell_value = elective_data.at[idx, 'SubjectDisplay']
-                if cell_value == "---":
+                if pd.isna(cell_value) or cell_value.strip() == "---":
                     continue
                 subjects = cell_value.split(", ")
                 modified_subjects = []
                 for subject in subjects:
                     duration = extract_duration(subject)
                     base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                    if time_slot and time_slot != default_time_slot:
-                        modified_subjects.append(f"{base_subject} ({time_slot})")
+                    if time_slot and default_time_slot and time_slot.strip() and default_time_slot.strip():
+                        if time_slot != default_time_slot:
+                            modified_subjects.append(f"{base_subject} ({time_slot})")
+                        else:
+                            modified_subjects.append(base_subject)
                     else:
                         modified_subjects.append(base_subject)
-                    if duration != 3 and time_slot:
+                    if duration != 3 and time_slot and time_slot.strip():
                         start_time = time_slot.split(" - ")[0]
                         end_time = calculate_end_time(start_time, duration)
                         modified_subjects[-1] = f"{modified_subjects[-1]} ({start_time} to {end_time})"
