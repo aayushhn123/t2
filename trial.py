@@ -800,12 +800,11 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         """
         Find next valid day with gap control - tries to minimize gaps between exams
         """
-        # First, try to find a slot within max_gap_days from the last scheduled exam
         if for_branches:
             # Get the latest exam date for the branches
             latest_dates = []
             for branch in for_branches:
-                if exam_days[branch]:
+                if exam_days.get(branch, set()):
                     latest_dates.extend(exam_days[branch])
             
             if latest_dates:
@@ -814,11 +813,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
                 for gap in range(1, max_gap_days + 1):
                     candidate_day = datetime.combine(latest_exam_date, datetime.min.time()) + timedelta(days=gap)
                     candidate_date = candidate_day.date()
-                    
-                    # Check if this day is valid
+                    # Check validity for each branch independently
                     if (candidate_day.weekday() != 6 and  # Not Sunday
                         candidate_date not in holidays and  # Not a holiday
-                        all(candidate_date not in exam_days[branch] for branch in for_branches)):
+                        all(candidate_date not in exam_days.get(branch, set()) for branch in for_branches)):
                         return candidate_day
         
         # Fallback to original logic if no slot found within gap limit
@@ -828,7 +826,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days[branch] for branch in for_branches):
+            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
                 return day
             day += timedelta(days=1)
 
@@ -874,12 +872,11 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
         """
         Find next valid day with gap control - tries to minimize gaps between exams
         """
-        # First, try to find a slot within max_gap_days from the last scheduled exam
         if for_branches:
             # Get the latest exam date for the branches
             latest_dates = []
             for branch in for_branches:
-                if exam_days[branch]:
+                if exam_days.get(branch, set()):
                     latest_dates.extend(exam_days[branch])
             
             if latest_dates:
@@ -888,11 +885,10 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
                 for gap in range(1, max_gap_days + 1):
                     candidate_day = datetime.combine(latest_exam_date, datetime.min.time()) + timedelta(days=gap)
                     candidate_date = candidate_day.date()
-                    
-                    # Check if this day is valid
+                    # Check validity for each branch independently
                     if (candidate_day.weekday() != 6 and  # Not Sunday
                         candidate_date not in holidays and  # Not a holiday
-                        all(candidate_date not in exam_days[branch] for branch in for_branches)):
+                        all(candidate_date not in exam_days.get(branch, set()) for branch in for_branches)):
                         return candidate_day
         
         # Fallback to original logic if no slot found within gap limit
@@ -902,7 +898,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False, m
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days[branch] for branch in for_branches):
+            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
                 return day
             day += timedelta(days=1)
 
