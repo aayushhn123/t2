@@ -803,11 +803,11 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
+            if all(day_date not in exam_days[branch] for branch in for_branches):
                 return day
             day += timedelta(days=1)
 
-    # Schedule initial remaining COMP subjects with "Is Common" = "NO"
+    # Schedule remaining COMP subjects with "Is Common" = "NO"
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
@@ -815,7 +815,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Schedule initial remaining ELEC subjects with "Is Common" = "NO"
+    # Schedule remaining ELEC subjects with "Is Common" = "NO"
     remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
@@ -823,7 +823,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Assign initial time slot based on semester
+    # Assign time slot based on semester
     sem = df_sem["Semester"].iloc[0]
     if sem % 2 != 0:
         odd_sem_position = (sem + 1) // 2
@@ -832,35 +832,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
         even_sem_position = sem // 2
         slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
     df_sem.loc[df_sem['Time Slot'] == "", 'Time Slot'] = slot_str
-
-    # Optimize by filling gaps with non-common subjects from other semesters
-    all_dates = pd.to_datetime(df_sem['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna().dt.date.unique()
-    if len(all_dates) > 1:
-        all_dates_sorted = sorted(all_dates)
-        unscheduled_non_common = df_sem[(df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
-        if not unscheduled_non_common.empty:
-            for i in range(1, len(all_dates_sorted)):
-                gap_start = all_dates_sorted[i-1]
-                gap_end = all_dates_sorted[i]
-                gap_days = (gap_end - gap_start).days - 1
-                if gap_days > 1:  # Only fill gaps larger than 1 day
-                    for day_offset in range(1, gap_days):
-                        candidate_day = datetime.combine(gap_start, datetime.min.time()) + timedelta(days=day_offset)
-                        candidate_date = candidate_day.date()
-                        if candidate_day.weekday() != 6 and candidate_date not in holidays:
-                            # Find a non-common subject from another semester that fits
-                            for idx, row in unscheduled_non_common.iterrows():
-                                branch = row['Branch']
-                                other_sem = row['Semester']
-                                # Check if this subject can be scheduled without conflict
-                                if all(candidate_date not in exam_days.get(b, set()) for b in [branch]) and \
-                                   not any((df_sem['Semester'] == other_sem) & (df_sem['Branch'] == branch) & 
-                                           (pd.to_datetime(df_sem['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.date == candidate_date)):
-                                    df_sem.at[idx, 'Exam Date'] = candidate_day.strftime("%d-%m-%Y")
-                                    df_sem.at[idx, 'Time Slot'] = slot_str
-                                    exam_days[branch].add(candidate_date)
-                                    unscheduled_non_common = unscheduled_non_common.drop(idx)
-                                    break
 
     return df_sem
 
@@ -876,7 +847,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
+            if all(day_date not in exam_days[branch] for branch in for_branches):
                 return day
             day += timedelta(days=1)
 
