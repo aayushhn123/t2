@@ -546,6 +546,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             return 3.0
 
+    # Define semester default timings (example mapping, adjust as needed)
+    semester_timings = {
+        "5_EXTC": "10:00 AM - 1:00 PM",  # Example for Semester 5 EXTC
+        # Add other semester-branch combinations as needed
+    }
+
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
             continue
@@ -580,7 +586,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-                # Modify subjects to include time range if duration != 3 hours
+                # Modify subjects to include time range if duration != 3 hours or if it mismatches semester timing
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
                         cell_value = chunk_df.at[idx, sub_branch]
@@ -591,10 +597,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         for subject in subjects:
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            if duration != 3 and time_slot:
-                                start_time = time_slot.split(" - ")[0]
-                                end_time = calculate_end_time(start_time, duration)
-                                modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
+                            # Determine semester-branch key (e.g., "5_EXTC")
+                            semester_key = f"{semester}_{sub_branch}" if semester and sub_branch else None
+                            default_timing = semester_timings.get(semester_key, time_slot)  # Default to chunk time_slot if no specific timing
+                            start_time = time_slot.split(" - ")[0] if time_slot else "10:00 AM"
+                            end_time = calculate_end_time(start_time, duration)
+                            scheduled_time = f"{start_time} to {end_time}"
+                            # Add scheduled time in brackets if it differs from default timing
+                            if default_timing and scheduled_time != default_timing:
+                                modified_subjects.append(f"{base_subject} ({scheduled_time})")
                             else:
                                 modified_subjects.append(base_subject)
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
@@ -694,7 +705,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             st.warning("Warning: All pages were filtered out - keeping original PDF")
     except Exception as e:
         st.error(f"Error during PDF post-processing: {str(e)}")
-
+        
 def read_timetable(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file, engine='openpyxl')
