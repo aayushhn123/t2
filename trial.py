@@ -801,7 +801,6 @@ def read_timetable(uploaded_file):
 
 
 
-
 from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
@@ -852,6 +851,11 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
     3. Efficient slot utilization
     4. Common subject consolidation
     """
+    # Constants
+    MORNING_SLOT = "10:00 AM - 1:00 PM"
+    AFTERNOON_SLOT = "2:00 PM - 5:00 PM"
+    MAX_BRANCHES_PER_SLOT = 20
+    
     # Initialize tracking structures
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
@@ -861,11 +865,6 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
     df['Scheduled'] = False
     df['Exam Date'] = ""
     df['Time Slot'] = ""
-    
-    # Constants
-    MAX_BRANCHES_PER_SLOT = 20
-    MORNING_SLOT = "10:00 AM - 1:00 PM"
-    AFTERNOON_SLOT = "2:00 PM - 5:00 PM"
     
     def get_next_valid_date(current_date):
         """Get next valid exam date (not Sunday or holiday)"""
