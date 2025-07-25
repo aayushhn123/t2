@@ -803,37 +803,39 @@ from datetime import timedelta, datetime
 import pandas as pd
 import streamlit as st
 
+from datetime import datetime, timedelta
+import pandas as pd
+import streamlit as st
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, branch):
         """
-        Find the next valid day that is empty for the specific branch (not scheduled yet).
-        An empty day is one not in exam_days for that branch, skipping weekends and holidays.
+        Find the next valid day that doesn't conflict with existing exams for the specific branch.
+        Empty days ('---') are implicitly handled as any day not in exam_days is considered free.
         """
         day = start_day
         while True:
             day_date = day.date()
-            # Skip Sundays (weekday 6) and holidays
-            if day.weekday() == 6 or day_date in holidays:
+            if day.weekday() == 6 or day_date in holidays:  # Skip Sundays and holidays
                 day += timedelta(days=1)
                 continue
-            # Check if this day is empty for the specific branch
-            if day_date not in exam_days[branch]:
+            if day_date not in exam_days.get(branch, set()):  # Check only this branch's schedule
                 return day
             day += timedelta(days=1)
 
-    # Schedule remaining COMP subjects
+    # Schedule remaining COMP subjects with "IsCommon" = "NO"
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
-        exam_day = find_next_valid_day(base_date, branch)
+        exam_day = find_next_valid_day(base_date, branch)  # Schedule based on branch availability
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
-    # Schedule remaining ELEC subjects
+    # Schedule remaining ELEC subjects with "IsCommon" = "NO"
     remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
-        exam_day = find_next_valid_day(base_date, branch)
+        exam_day = find_next_valid_day(base_date, branch)  # Schedule based on branch availability
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
@@ -861,16 +863,14 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         current_date = start_day
         while True:
             current_date_only = current_date.date()
-            # Skip weekends and holidays
             if current_date.weekday() == 6 or current_date_only in holidays:
                 current_date += timedelta(days=1)
                 continue
-            # Check if this date is free for all required branches
             if all(current_date_only not in exam_days[branch] for branch in for_branches):
                 return current_date
             current_date += timedelta(days=1)
 
-    # Schedule common COMP subjects - find earliest slots
+    # Schedule common COMP subjects - find earliest slots across all relevant branches
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
@@ -887,7 +887,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         for branch in branches:
             exam_days[branch].add(exam_day.date())
 
-    # Schedule common ELEC subjects - find earliest slots
+    # Schedule common ELEC subjects - find earliest slots across all relevant branches
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
@@ -942,7 +942,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
                 gap = (dates[i] - dates[i-1]).days
                 if gap > max_gap:
                     issues.append(f"Branch {branch}: {gap}-day gap between {dates[i-1].strftime('%d-%m-%Y')} and {dates[i].strftime('%d-%m-%Y')}")
-
+        
         if issues:
             st.warning(f"⚠️ Found {len(issues)} gaps exceeding 2 days:\n" + "\n".join(issues[:5]))
             if len(issues) > 5:
