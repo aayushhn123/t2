@@ -799,7 +799,6 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
 
-
 from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
@@ -1199,10 +1198,7 @@ def visualize_schedule(df):
     if len(branch_date_matrix) > 10:
         st.write("(Showing first 10 branches)")
         branch_date_matrix = branch_date_matrix.iloc[:10]
-    st.dataframe(
-        branch_date_matrix.style.background_gradient(cmap='YlOrRd', axis=None),
-        use_container_width=True
-    )
+    st.dataframe(branch_date_matrix, use_container_width=True)  # Removed background_gradient
 
 def post_process_schedule_optimization(sem_dict, holidays, max_span_days=20):
     """
@@ -1380,6 +1376,7 @@ def quick_schedule_test():
     """
     # [Existing implementation remains unchanged]
     pass
+
 
 
     
