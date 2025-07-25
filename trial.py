@@ -805,6 +805,9 @@ import pandas as pd
 import streamlit as st
 from collections import defaultdict
 
+# Global constants
+MAX_BRANCHES_PER_DAY = 40
+
 # Existing helper functions
 def find_gaps_in_schedule(exam_dates, max_gap=2):
     """
@@ -849,13 +852,10 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
     2. Maximum compression to achieve < 20 day span
     3. Common subject consolidation
     """
-    # Constants
-    MAX_BRANCHES_PER_DAY = 40  # Adjusted capacity for single slot per day
-    
     # Initialize tracking structures
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
-    daily_schedule = defaultdict(list)  # Single list per day instead of morning/afternoon
+    daily_schedule = defaultdict(list)  # Single list per day
     
     # Add scheduled flag and initialize columns
     df['Scheduled'] = False
