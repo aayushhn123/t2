@@ -354,5 +354,44 @@ def main():
     except Exception as e:
         print(f"Error generating PDF: {str(e)}")
 
-if __name__ == "__main__":
-    main()
+import streamlit as st
+from datetime import datetime
+import os
+
+st.set_page_config(page_title="Exam Timetable Generator", layout="wide")
+st.title("📄 Exam Timetable PDF Generator")
+
+st.write("Upload your **optimized Excel timetable** and generate a formatted **PDF** instantly.")
+
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+
+if uploaded_file:
+    # Save uploaded file temporarily
+    excel_path = f"uploaded_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    with open(excel_path, "wb") as f:
+        f.write(uploaded_file.read())
+    
+    output_pdf = f"timetable_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    
+    with st.spinner("Generating PDF..."):
+        try:
+            generate_pdf_from_excel(excel_path, output_pdf)
+            st.success("✅ PDF generated successfully!")
+            
+            with open(output_pdf, "rb") as f:
+                st.download_button(
+                    label="⬇️ Download Timetable PDF",
+                    data=f,
+                    file_name=output_pdf,
+                    mime="application/pdf"
+                )
+        except Exception as e:
+            st.error(f"Error generating PDF: {e}")
+    
+    # Cleanup temp files after user downloads
+    if os.path.exists(excel_path):
+        os.remove(excel_path)
+    if os.path.exists(output_pdf):
+        os.remove(output_pdf)
+else:
+    st.info("Please upload an Excel file to start.")
