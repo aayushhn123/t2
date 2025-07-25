@@ -800,6 +800,7 @@ def read_timetable(uploaded_file):
         return None, None, None
 
 
+
 from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
@@ -830,19 +831,15 @@ def find_best_day_for_gap_filling(start_date, end_date, branch_exam_days, holida
     Prefers middle of the gap to distribute exams evenly.
     """
     gap_days = (end_date - start_date).days
-    # Try to place exam in the middle of the gap
     middle_offset = gap_days // 2
     candidate_date = start_date + timedelta(days=middle_offset)
     
-    # Find valid day near the middle
     for offset in range(-middle_offset + 1, gap_days):
         check_date = start_date + timedelta(days=middle_offset + offset)
         if check_date >= end_date:
             continue
         if check_date.weekday() != 6 and check_date not in holidays and check_date not in branch_exam_days:
             return check_date
-    
-    # If no valid day found in gap, return None
     return None
 
 # Enhanced scheduling function with aggressive optimization
@@ -889,15 +886,11 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
         slot_key = 'morning' if 'AM' in slot else 'afternoon'
         current_branches = daily_schedule[date][slot_key]
         
-        # Check capacity
         if len(current_branches) + len(branches_to_check) > MAX_BRANCHES_PER_SLOT:
             return False
-        
-        # Check for conflicts
         for branch in branches_to_check:
             if branch in current_branches:
                 return False
-        
         return True
     
     def schedule_exam(exam_indices, date, slot, branches):
@@ -910,10 +903,9 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
             df.at[idx, 'Time Slot'] = slot
             df.at[idx, 'Scheduled'] = True
         
-        # Update tracking
         daily_schedule[date][slot_key].extend(branches)
         for branch in branches:
-            exam_days[branch].add(date.date())
+            exam_days[branch].add(date)  # Store as datetime.date directly
     
     # Phase 1: Common Subject Scheduling
     st.info("Phase 1: Scheduling common subjects...")
@@ -925,7 +917,6 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
         min_semester = group['Semester'].min()
         preferred_slot = get_time_slot_for_semester(min_semester)
         
-        # Try to fit in existing days first
         scheduled = False
         for date in sorted(daily_schedule.keys()):
             if can_schedule_in_slot(date, preferred_slot, branches):
@@ -933,11 +924,9 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
                 scheduled = True
                 break
         
-        # If not, use next available date
         if not scheduled:
             while not can_schedule_in_slot(current_date, preferred_slot, branches):
                 current_date = get_next_valid_date(current_date + timedelta(days=1))
-            
             schedule_exam(group.index.tolist(), current_date, preferred_slot, branches)
     
     # Phase 2: Branch-wise Non-Common Subject Scheduling
@@ -953,7 +942,6 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
             'category': row['Category']
         })
     
-    # Sort branches by number of exams (busiest first)
     sorted_branches = sorted(non_common_by_branch.keys(), 
                            key=lambda x: len(non_common_by_branch[x]), 
                            reverse=True)
@@ -968,7 +956,6 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
             best_date = None
             min_gap = float('inf')
             
-            # Fill gaps in existing schedule
             if exam_days[branch]:
                 last_exam_date = max(exam_days[branch])
                 check_start = min(exam_days[branch])
@@ -981,7 +968,6 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
                         current_check.date() not in holidays):
                         gaps_before = [abs((current_check.date() - d).days) for d in exam_days[branch]]
                         max_gap_before = max(gaps_before) if gaps_before else 0
-                        
                         if can_schedule_in_slot(current_check, preferred_slot, [branch]):
                             if max_gap_before < min_gap:
                                 min_gap = max_gap_before
@@ -989,7 +975,6 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
                     
                     current_check += timedelta(days=1)
             
-            # If no gap-filling opportunity, find next sequential date
             if best_date is None:
                 if exam_days[branch]:
                     last_date = datetime.combine(max(exam_days[branch]), datetime.min.time())
@@ -1036,8 +1021,8 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
                     daily_schedule[target_date]['morning'].extend(branches_to_move)
                     daily_schedule[date]['morning'] = []
                     for branch in branches_to_move:
-                        exam_days[branch].remove(date.date())
-                        exam_days[branch].add(target_date.date())
+                        exam_days[branch].remove(date)
+                        exam_days[branch].add(target_date)
                     break
     
     # Drop temporary 'Scheduled' column
