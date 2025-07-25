@@ -4,7 +4,7 @@ from datetime import datetime
 import re
 import os
 from PyPDF2 import PdfReader, PdfWriter
-import io
+import streamlit as st
 
 # Define the mapping of main branch abbreviations to full forms
 BRANCH_FULL_FORM = {
@@ -83,7 +83,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     pdf.set_xy(x0, y0 + row_h)
 
 def add_footer_with_page_number(pdf, footer_height):
-    """Add footer with signature and page number"""
     pdf.set_xy(10, pdf.h - footer_height)
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
@@ -92,7 +91,6 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.set_xy(10, pdf.h - footer_height + 7)
     pdf.cell(0, 5, "Signature", 0, 1, 'L')
     
-    # Add page numbers in bottom right
     pdf.set_font("Arial", size=14)
     pdf.set_text_color(0, 0, 0)
     page_text = f"{pdf.page_no()} of {{nb}}"
@@ -101,14 +99,16 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
 def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot=None):
-    """Add header to a new page"""
     pdf.set_y(0)
     pdf.set_font("Arial", size=14)
     text_width = pdf.get_string_width(current_date)
     x = pdf.w - 10 - text_width
     pdf.set_xy(x, 5)
     pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
-    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+    try:
+        pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+    except FileNotFoundError:
+        st.warning("Logo file not found. Continuing without logo.")
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Arial", 'B', 16)
@@ -160,7 +160,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
     logo_width = 45
     logo_x = (pdf.w - logo_width) / 2
-    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+    try:
+        pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
+    except FileNotFoundError:
+        pass  # Handled in add_header_to_page
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Arial", 'B', 16)
@@ -229,7 +232,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
     
-    df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
+    try:
+        df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
+    except Exception as e:
+        st.error(f"Failed to read Excel file: {e}")
+        return
 
     def int_to_roman(num):
         roman_values = [
@@ -245,7 +252,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         return result
 
     for sheet_name, pivot_df in df_dict.items():
+        st.write(f"Processing sheet: {sheet_name}")  # Debugging
         if pivot_df.empty:
+            st.warning(f"Sheet {sheet_name} is empty, skipping.")
             continue
         parts = sheet_name.split('_Sem_')
         main_branch = parts[0]
@@ -261,6 +270,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             exam_date_width = 60
             line_height = 10
 
+            if "Exam Date" not in pivot_df.columns:
+                st.error(f"Sheet {sheet_name} is missing 'Exam Date' column. Available columns: {list(pivot_df.columns)}")
+                continue
+
             for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
                 chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
                 cols_to_print = fixed_cols[:1] + chunk
@@ -268,11 +281,18 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
                 chunk_df = chunk_df[mask].reset_index(drop=True)
                 if chunk_df.empty:
+                    st.warning(f"No data to display for columns {chunk} in sheet {sheet_name}, skipping.")
                     continue
 
                 time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
 
-                chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+                try:
+                    chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], errors='coerce').dt.strftime("%A, %d %B, %Y")
+                    if chunk_df["Exam Date"].isna().any():
+                        st.warning(f"Some dates in 'Exam Date' column of sheet {sheet_name} could not be parsed.")
+                except Exception as e:
+                    st.error(f"Error parsing 'Exam Date' in sheet {sheet_name}: {e}")
+                    continue
 
                 page_width = pdf.w - 2 * pdf.l_margin
                 remaining = page_width - exam_date_width
@@ -289,8 +309,18 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index(drop=True) if pivot_df.index.name else pivot_df
+            if "Exam Date" not in pivot_df.columns or "OE" not in pivot_df.columns or "SubjectDisplay" not in pivot_df.columns:
+                st.error(f"Sheet {sheet_name} is missing required columns. Available columns: {list(pivot_df.columns)}")
+                continue
             elective_data = pivot_df.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
-            elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+            
+            try:
+                elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], errors='coerce').dt.strftime("%A, %d %B, %Y")
+                if elective_data["Exam Date"].isna().any():
+                    st.warning(f"Some dates in 'Exam Date' column of sheet {sheet_name} could not be parsed.")
+            except Exception as e:
+                st.error(f"Error parsing 'Exam Date' in sheet {sheet_name}: {e}")
+                continue
 
             exam_date_width = 60
             oe_width = 30
@@ -331,42 +361,23 @@ def generate_pdf_from_excel(excel_path, output_pdf):
             with open(output_pdf, 'wb') as output_file:
                 writer.write(output_file)
         else:
-            print("Warning: All pages were filtered out - keeping original PDF")
+            st.warning("All pages were filtered out - keeping original PDF")
             with open(temp_pdf_path, 'rb') as original, open(output_pdf, 'wb') as output:
                 output.write(original.read())
     except Exception as e:
-        print(f"Error during PDF post-processing: {str(e)}")
+        st.error(f"Error during PDF post-processing: {e}")
     finally:
         if os.path.exists(temp_pdf_path):
             os.remove(temp_pdf_path)
 
-def main():
-    excel_path = "optimized_timetable_20250725_154510.xlsx"  # Path to the input Excel file
-    output_pdf = f"timetable_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"  # Output PDF path
-    
-    if not os.path.exists(excel_path):
-        print(f"Error: Excel file '{excel_path}' not found.")
-        return
-    
-    try:
-        generate_pdf_from_excel(excel_path, output_pdf)
-        print(f"PDF generated successfully: {output_pdf}")
-    except Exception as e:
-        print(f"Error generating PDF: {str(e)}")
-
-import streamlit as st
-from datetime import datetime
-import os
-
+# Streamlit UI
 st.set_page_config(page_title="Exam Timetable Generator", layout="wide")
 st.title("📄 Exam Timetable PDF Generator")
-
 st.write("Upload your **optimized Excel timetable** and generate a formatted **PDF** instantly.")
 
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
 if uploaded_file:
-    # Save uploaded file temporarily
     excel_path = f"uploaded_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     with open(excel_path, "wb") as f:
         f.write(uploaded_file.read())
@@ -376,7 +387,7 @@ if uploaded_file:
     with st.spinner("Generating PDF..."):
         try:
             generate_pdf_from_excel(excel_path, output_pdf)
-            st.success("✅ PDF generated successfully!")
+            st.success(f"✅ PDF generated successfully: {output_pdf}")
             
             with open(output_pdf, "rb") as f:
                 st.download_button(
@@ -387,11 +398,9 @@ if uploaded_file:
                 )
         except Exception as e:
             st.error(f"Error generating PDF: {e}")
-    
-    # Cleanup temp files after user downloads
-    if os.path.exists(excel_path):
-        os.remove(excel_path)
-    if os.path.exists(output_pdf):
-        os.remove(output_pdf)
+        finally:
+            if os.path.exists(excel_path):
+                os.remove(excel_path)
+            # Keep output_pdf for download, clean up after download
 else:
     st.info("Please upload an Excel file to start.")
