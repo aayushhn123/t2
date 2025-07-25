@@ -1413,7 +1413,7 @@ def main():
                         st.write("Processing constraints...")
                         non_elec_sched = process_constraints(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
                         non_elec_sched = optimize_exam_schedule(non_elec_sched, holidays_set)  # Add this line
-                        st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")s
+                        st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
 
                         # Find the maximum date from non-elective exams
                         non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True) if non_elec_sched else pd.DataFrame()
