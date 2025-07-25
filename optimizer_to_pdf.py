@@ -800,7 +800,7 @@ def read_timetable(uploaded_file):
         return None, None, None
 
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
-    def find_next_valid_day(start_day, for_branches, is_intd=False, max_days=20):
+    def find_next_valid_day(start_day, branch, is_intd=False, max_days=20):
         """
         Find the next valid day that doesn't conflict with existing exams within 20 days.
         """
@@ -811,11 +811,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             if day.weekday() in [5, 6] or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            # For non-INTD, check if the day is free for the branch
-            if not is_intd:
-                if any(day_date in exam_days[branch] for branch in for_branches):
-                    day += timedelta(days=1)
-                    continue
+            # For non-INTD, ensure only one exam per branch per day
+            if not is_intd and day_date in exam_days[branch]:
+                day += timedelta(days=1)
+                continue
             return day
             day += timedelta(days=1)
         return None  # Indicate no valid day found within 20 days
@@ -834,7 +833,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
     for idx, row in non_intd_subjects.iterrows():
         branch = row['Branch']
         sem = row['Semester']
-        exam_day = find_next_valid_day(base_date, [branch], is_intd=False)
+        exam_day = find_next_valid_day(base_date, branch, is_intd=False)
         if exam_day:
             day_date = exam_day.date()
             slot = assign_time_slot(sem)
@@ -842,12 +841,12 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             df_sem.at[idx, 'Time Slot'] = slot
             exam_days[branch].add(day_date)
 
-    # Schedule INTD subjects (multiple allowed per day across branches)
+    # Schedule INTD subjects (one per branch per day, multiple across branches allowed)
     intd_subjects = df_sem[(df_sem['Category'] == 'INTD') & (df_sem['Exam Date'] == "")]
     for idx, row in intd_subjects.iterrows():
         branch = row['Branch']
         sem = row['Semester']
-        exam_day = find_next_valid_day(base_date, [branch], is_intd=True)
+        exam_day = find_next_valid_day(base_date, branch, is_intd=True)
         if exam_day:
             day_date = exam_day.date()
             slot = assign_time_slot(sem)
@@ -855,7 +854,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             df_sem.at[idx, 'Time Slot'] = slot
             exam_days[branch].add(day_date)
 
-    # Ensure all subjects are scheduled within 20 days (fallback)
+    # Ensure all subjects are scheduled within 20 days (fallback with strict branch limit)
     unscheduled = df_sem[df_sem['Exam Date'] == ""]
     current_day = base_date
     while not unscheduled.empty and (current_day - base_date).days < 20:
@@ -867,7 +866,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             branch = row['Branch']
             sem = row['Semester']
             is_intd = row['Category'] == 'INTD'
-            if is_intd or day_date not in exam_days[branch]:
+            if (not is_intd and day_date not in exam_days[branch]) or (is_intd and day_date not in exam_days[branch]):
                 slot = assign_time_slot(sem)
                 df_sem.at[idx, 'Exam Date'] = current_day.strftime("%d-%m-%Y")
                 df_sem.at[idx, 'Time Slot'] = slot
@@ -882,7 +881,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
 
-    def find_next_valid_day(start_day, for_branches, is_intd=False, max_days=20):
+    def find_next_valid_day(start_day, branch, is_intd=False, max_days=20):
         """
         Find the next valid day that doesn't conflict with existing exams within 20 days.
         """
@@ -893,11 +892,10 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             if day.weekday() in [5, 6] or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            # For non-INTD, check if the day is free for the branch
-            if not is_intd:
-                if any(day_date in exam_days[branch] for branch in for_branches):
-                    day += timedelta(days=1)
-                    continue
+            # For non-INTD, ensure only one exam per branch per day
+            if not is_intd and day_date in exam_days[branch]:
+                day += timedelta(days=1)
+                continue
             return day
             day += timedelta(days=1)
         return None  # Indicate no valid day found within 20 days
@@ -905,10 +903,9 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     # Schedule common non-INTD subjects - one per branch per day
     common_non_intd = df[(df['Category'] != 'INTD') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_non_intd.groupby('ModuleCode'):
-        branches = group['Branch'].unique()
-        for branch in branches:
+        for branch in group['Branch'].unique():
             branch_group = group[group['Branch'] == branch]
-            exam_day = find_next_valid_day(base_date, [branch], is_intd=False)
+            exam_day = find_next_valid_day(base_date, branch, is_intd=False)
             if exam_day:
                 min_sem = branch_group['Semester'].min()
                 slot = "10:00 AM - 1:00 PM" if (min_sem % 2 != 0 and (min_sem + 1) // 2 % 2 == 1) or (min_sem % 2 == 0 and min_sem // 2 % 2 == 1) else "2:00 PM - 5:00 PM"
@@ -916,17 +913,17 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
                 df.loc[branch_group.index, 'Time Slot'] = slot
                 exam_days[branch].add(exam_day.date())
 
-    # Schedule common INTD subjects - multiple allowed per day
+    # Schedule common INTD subjects - one per branch per day, multiple across branches allowed
     common_intd = df[(df['Category'] == 'INTD') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_intd.groupby('ModuleCode'):
-        branches = group['Branch'].unique()
-        exam_day = find_next_valid_day(base_date, branches, is_intd=True)
-        if exam_day:
-            min_sem = group['Semester'].min()
-            slot = "10:00 AM - 1:00 PM" if (min_sem % 2 != 0 and (min_sem + 1) // 2 % 2 == 1) or (min_sem % 2 == 0 and min_sem // 2 % 2 == 1) else "2:00 PM - 5:00 PM"
-            df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            df.loc[group.index, 'Time Slot'] = slot
-            for branch in branches:
+        for branch in group['Branch'].unique():
+            branch_group = group[group['Branch'] == branch]
+            exam_day = find_next_valid_day(base_date, branch, is_intd=True)
+            if exam_day:
+                min_sem = branch_group['Semester'].min()
+                slot = "10:00 AM - 1:00 PM" if (min_sem % 2 != 0 and (min_sem + 1) // 2 % 2 == 1) or (min_sem % 2 == 0 and min_sem // 2 % 2 == 1) else "2:00 PM - 5:00 PM"
+                df.loc[branch_group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+                df.loc[branch_group.index, 'Time Slot'] = slot
                 exam_days[branch].add(exam_day.date())
 
     # Schedule remaining subjects per semester
