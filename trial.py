@@ -799,6 +799,10 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
 
+from datetime import timedelta, datetime
+import pandas as pd
+import streamlit as st
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, branch):
         """
@@ -937,9 +941,8 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             for i in range(1, len(dates)):
                 gap = (dates[i] - dates[i-1]).days
                 if gap > max_gap:
-                    issues.append(f"Branch {branch}: {gap}-day gap
-                    between {dates[i-1].strftime('%d-%m-%Y')} and {dates[i].strftime('%d-%m-%Y')}")
-        
+                    issues.append(f"Branch {branch}: {gap}-day gap between {dates[i-1].strftime('%d-%m-%Y')} and {dates[i].strftime('%d-%m-%Y')}")
+
         if issues:
             st.warning(f"⚠️ Found {len(issues)} gaps exceeding 2 days:\n" + "\n".join(issues[:5]))
             if len(issues) > 5:
@@ -969,7 +972,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             st.warning(f"⚠️ The timetable spans {total_span} days, exceeding the limit of 20 days.")
 
     return sem_dict
-
     
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
