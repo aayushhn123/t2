@@ -800,7 +800,6 @@ def read_timetable(uploaded_file):
         return None, None, None
 
 
-
 from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
@@ -848,23 +847,19 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
     Aggressive scheduling optimization that ensures:
     1. No gaps > 2 days between exams
     2. Maximum compression to achieve < 20 day span
-    3. Efficient slot utilization
-    4. Common subject consolidation
+    3. Common subject consolidation
     """
     # Constants
-    MORNING_SLOT = "10:00 AM - 1:00 PM"
-    AFTERNOON_SLOT = "2:00 PM - 5:00 PM"
-    MAX_BRANCHES_PER_SLOT = 20
+    MAX_BRANCHES_PER_DAY = 40  # Adjusted capacity for single slot per day
     
     # Initialize tracking structures
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
-    daily_schedule = defaultdict(lambda: {'morning': [], 'afternoon': []})
+    daily_schedule = defaultdict(list)  # Single list per day instead of morning/afternoon
     
     # Add scheduled flag and initialize columns
     df['Scheduled'] = False
     df['Exam Date'] = ""
-    df['Time Slot'] = ""
     
     def get_next_valid_date(current_date):
         """Get next valid exam date (not Sunday or holiday)"""
@@ -872,38 +867,25 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
             current_date += timedelta(days=1)
         return current_date
     
-    def get_time_slot_for_semester(semester):
-        """Determine time slot based on semester"""
-        if semester % 2 != 0:
-            odd_sem_position = (semester + 1) // 2
-            return MORNING_SLOT if odd_sem_position % 2 == 1 else AFTERNOON_SLOT
-        else:
-            even_sem_position = semester // 2
-            return MORNING_SLOT if even_sem_position % 2 == 1 else AFTERNOON_SLOT
-    
-    def can_schedule_in_slot(date, slot, branches_to_check):
-        """Check if branches can be scheduled in given slot"""
-        slot_key = 'morning' if 'AM' in slot else 'afternoon'
-        current_branches = daily_schedule[date][slot_key]
-        
-        if len(current_branches) + len(branches_to_check) > MAX_BRANCHES_PER_SLOT:
+    def can_schedule_in_day(date, branches_to_check):
+        """Check if branches can be scheduled in given day"""
+        current_branches = daily_schedule[date]
+        if len(current_branches) + len(branches_to_check) > MAX_BRANCHES_PER_DAY:
             return False
         for branch in branches_to_check:
             if branch in current_branches:
                 return False
         return True
     
-    def schedule_exam(exam_indices, date, slot, branches):
+    def schedule_exam(exam_indices, date, branches):
         """Schedule exam for given indices"""
         date_str = date.strftime("%d-%m-%Y")
-        slot_key = 'morning' if 'AM' in slot else 'afternoon'
         
         for idx in exam_indices:
             df.at[idx, 'Exam Date'] = date_str
-            df.at[idx, 'Time Slot'] = slot
             df.at[idx, 'Scheduled'] = True
         
-        daily_schedule[date][slot_key].extend(branches)
+        daily_schedule[date].extend(branches)
         for branch in branches:
             exam_days[branch].add(date.date())  # Store as datetime.date
     
@@ -914,20 +896,17 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
     
     for module_code, group in common_subjects.groupby('ModuleCode'):
         branches = group['Branch'].unique().tolist()
-        min_semester = group['Semester'].min()
-        preferred_slot = get_time_slot_for_semester(min_semester)
-        
         scheduled = False
         for date in sorted(daily_schedule.keys()):
-            if can_schedule_in_slot(date, preferred_slot, branches):
-                schedule_exam(group.index.tolist(), date, preferred_slot, branches)
+            if can_schedule_in_day(date, branches):
+                schedule_exam(group.index.tolist(), date, branches)
                 scheduled = True
                 break
         
         if not scheduled:
-            while not can_schedule_in_slot(current_date, preferred_slot, branches):
+            while not can_schedule_in_day(current_date, branches):
                 current_date = get_next_valid_date(current_date + timedelta(days=1))
-            schedule_exam(group.index.tolist(), current_date, preferred_slot, branches)
+            schedule_exam(group.index.tolist(), current_date, branches)
     
     # Phase 2: Branch-wise Non-Common Subject Scheduling
     st.info("Phase 2: Packing non-common subjects with gap control...")
@@ -951,8 +930,6 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
         branch_exams.sort(key=lambda x: x['semester'])
         
         for exam in branch_exams:
-            semester = exam['semester']
-            preferred_slot = get_time_slot_for_semester(semester)
             best_date = None
             min_gap = float('inf')
             
@@ -968,7 +945,7 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
                         current_check.date() not in holidays):
                         gaps_before = [abs((current_check.date() - d).days) for d in exam_days[branch]]
                         max_gap_before = max(gaps_before) if gaps_before else 0
-                        if can_schedule_in_slot(current_check, preferred_slot, [branch]):
+                        if can_schedule_in_day(current_check, [branch]):
                             if max_gap_before < min_gap:
                                 min_gap = max_gap_before
                                 best_date = current_check
@@ -982,44 +959,36 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
                     days_checked = 0
                     while days_checked < 3:
                         search_date = get_next_valid_date(search_date)
-                        if can_schedule_in_slot(search_date, preferred_slot, [branch]):
+                        if can_schedule_in_day(search_date, [branch]):
                             best_date = search_date
-                            break
-                        alt_slot = AFTERNOON_SLOT if preferred_slot == MORNING_SLOT else MORNING_SLOT
-                        if can_schedule_in_slot(search_date, alt_slot, [branch]):
-                            best_date = search_date
-                            preferred_slot = alt_slot
                             break
                         search_date += timedelta(days=1)
                         days_checked += 1
                     if best_date is None:
                         best_date = search_date
-                        while not can_schedule_in_slot(best_date, preferred_slot, [branch]):
+                        while not can_schedule_in_day(best_date, [branch]):
                             best_date = get_next_valid_date(best_date + timedelta(days=1))
                 else:
                     best_date = get_next_valid_date(base_date)
-                    while not can_schedule_in_slot(best_date, preferred_slot, [branch]):
+                    while not can_schedule_in_day(best_date, [branch]):
                         best_date = get_next_valid_date(best_date + timedelta(days=1))
             
-            schedule_exam([exam['idx']], best_date, preferred_slot, [branch])
+            schedule_exam([exam['idx']], best_date, [branch])
     
     # Phase 3: Final Compression
     st.info("Phase 3: Final compression pass...")
     dates_to_check = sorted(daily_schedule.keys())
     for i, date in enumerate(dates_to_check):
-        morning_count = len(daily_schedule[date]['morning'])
-        afternoon_count = len(daily_schedule[date]['afternoon'])
-        total_count = morning_count + afternoon_count
-        
-        if total_count < 5 and i > 0:
+        current_count = len(daily_schedule[date])
+        if current_count < 5 and i > 0:
             for j in range(i-1, max(0, i-3), -1):
                 target_date = dates_to_check[j]
-                if morning_count > 0 and can_schedule_in_slot(target_date, MORNING_SLOT, daily_schedule[date]['morning']):
-                    branches_to_move = daily_schedule[date]['morning']
-                    mask = (df['Exam Date'] == date.strftime("%d-%m-%Y")) & (df['Time Slot'] == MORNING_SLOT)
+                if can_schedule_in_day(target_date, daily_schedule[date]):
+                    branches_to_move = daily_schedule[date]
+                    mask = (df['Exam Date'] == date.strftime("%d-%m-%Y"))
                     df.loc[mask, 'Exam Date'] = target_date.strftime("%d-%m-%Y")
-                    daily_schedule[target_date]['morning'].extend(branches_to_move)
-                    daily_schedule[date]['morning'] = []
+                    daily_schedule[target_date].extend(branches_to_move)
+                    daily_schedule[date] = []
                     for branch in branches_to_move:
                         exam_days[branch].remove(date)
                         exam_days[branch].add(target_date.date())
@@ -1069,15 +1038,6 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
                 st.write(f"  - {violation}")
         else:
             st.success("✅ All gaps are within the 2-day limit!")
-        
-        st.write("### Slot Utilization")
-        total_morning = sum(len(d['morning']) for d in daily_schedule.values())
-        total_afternoon = sum(len(d['afternoon']) for d in daily_schedule.values())
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Morning Slots", f"{total_morning} exams")
-        with col2:
-            st.metric("Afternoon Slots", f"{total_afternoon} exams")
     
     # Organize by semester
     sem_dict = {}
@@ -1169,7 +1129,7 @@ def generate_optimization_report(sem_dict, target_span):
         st.metric("Total Span", f"{total_span} days", 
                  delta=f"{delta_span} days" if delta_span > 0 else "✓ On target")
     with col2:
-        efficiency = (total_exams / (unique_dates * 2 * 20)) * 100
+        efficiency = (total_exams / (unique_dates * MAX_BRANCHES_PER_DAY)) * 100
         st.metric("Slot Efficiency", f"{efficiency:.1f}%")
     with col3:
         avg_gap = calculate_average_gap(combined_df)
@@ -1211,11 +1171,6 @@ def generate_optimization_suggestions(df, target_span):
     sparse_days = date_counts[date_counts < 10]
     if len(sparse_days) > 0:
         suggestions.append(f"Consolidate {len(sparse_days)} sparse days with fewer than 10 exams")
-    
-    slot_usage = df.groupby(['ParsedDate', 'Time Slot']).size()
-    underutilized = slot_usage[slot_usage < 15]
-    if len(underutilized) > 0:
-        suggestions.append(f"Better utilize {len(underutilized)} time slots with capacity")
     
     if df['ParsedDate'].nunique() > target_span - 4:
         suggestions.append("Consider using Saturdays for make-up exams if permitted")
@@ -1282,7 +1237,7 @@ def post_process_schedule_optimization(sem_dict, holidays, max_span_days=20):
                 if target_date.weekday() == 6 or target_date.date() in holidays:
                     continue
                 target_exams = combined_df[combined_df['ParsedDate'] == target_date]
-                if len(target_exams) > 0 and len(target_exams) < 40:
+                if len(target_exams) > 0 and len(target_exams) < MAX_BRANCHES_PER_DAY:
                     combined_df.loc[sparse_exams.index, 'Exam Date'] = target_date.strftime("%d-%m-%Y")
                     combined_df.loc[sparse_exams.index, 'ParsedDate'] = target_date
                     break
@@ -1331,7 +1286,6 @@ def validate_schedule_constraints(sem_dict):
     1. No gaps > 2 days for any branch
     2. Common subjects scheduled on same day
     3. No Sunday exams
-    4. Time slots properly assigned
     """
     all_exams = []
     for sem, df in sem_dict.items():
@@ -1384,13 +1338,6 @@ def validate_schedule_constraints(sem_dict):
         validation_passed = False
     else:
         st.success("✅ Sunday constraint: No exams on Sundays")
-    
-    invalid_slots = combined_df[~combined_df['Time Slot'].isin([MORNING_SLOT, AFTERNOON_SLOT])]
-    if not invalid_slots.empty:
-        st.error(f"❌ Time slot constraint violated: {len(invalid_slots)} invalid slots")
-        validation_passed = False
-    else:
-        st.success("✅ Time slot constraint: All slots valid")
     
     st.write("### Schedule Statistics")
     col1, col2, col3, col4 = st.columns(4)
