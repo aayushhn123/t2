@@ -899,20 +899,24 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     end_date = (base_date + timedelta(days=19)).date()
 
-    # Initialize exam_days for all branches
+    # Initialize exam_days for all branches and a set for common exam dates
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
+    common_exam_dates = set()  # Track dates used by common subjects
 
     def find_earliest_available_slot(start_day, for_branches):
         """
         Find the earliest available slot from start_day onwards within 20 days.
+        For common subjects, ensure the date is not already used by another common subject.
         """
         current_date = start_day
         while current_date.date() <= end_date:
             current_date_only = current_date.date()
             
-            # Skip weekends and holidays
-            if current_date.weekday() == 6 or current_date_only in holidays:
+            # Skip weekends, holidays, and dates already used by common subjects
+            if (current_date.weekday() == 6 or 
+                current_date_only in holidays or 
+                current_date_only in common_exam_dates):
                 current_date += timedelta(days=1)
                 continue
             
@@ -927,12 +931,13 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             current_date_only = current_date.date()
             if (current_date.weekday() < 5 and
                 current_date_only not in holidays and
+                current_date_only not in common_exam_dates and
                 all(current_date_only not in exam_days[branch] for branch in for_branches)):
                 return current_date
             current_date += timedelta(days=1)
         return current_date  # Return last day as a last resort
 
-    # Schedule common COMP subjects - find earliest slots
+    # Schedule common COMP subjects - ensure unique dates
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
@@ -948,8 +953,9 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         df.loc[group.index, 'Time Slot'] = slot_str
         for branch in branches:
             exam_days[branch].add(exam_day.date())
+        common_exam_dates.add(exam_day.date())  # Mark this date as used for common subjects
 
-    # Schedule common ELEC subjects - find earliest slots
+    # Schedule common ELEC subjects - ensure unique dates
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
@@ -965,6 +971,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         df.loc[group.index, 'Time Slot'] = slot_str
         for branch in branches:
             exam_days[branch].add(exam_day.date())
+        common_exam_dates.add(exam_day.date())  # Mark this date as used for common subjects
 
     # Schedule remaining subjects per semester
     final_list = []
@@ -1621,4 +1628,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
