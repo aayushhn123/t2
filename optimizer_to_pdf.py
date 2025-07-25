@@ -822,7 +822,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, all_
         return None  # Indicate no valid day found
 
     # Schedule remaining subjects one per day
-    remaining_subjects = df_sem[(df_sem['Exam Date'] == "")].copy()
+    remaining_subjects = df_sem[(df_sem['Exam Date'] == "") & (df_sem['IsCommon'] == 'NO')].copy()
     for idx, row in remaining_subjects.iterrows():
         branch = row['Branch']
         exam_day = find_next_valid_day(base_date, [branch])
@@ -866,22 +866,23 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             day += timedelta(days=1)
         return None  # Indicate no valid day found
 
-    # Schedule common subjects one per day
+    # Schedule common subjects by ModuleCode, ensuring same date across all semesters
     common_subjects = df[df['IsCommon'] == 'YES'].copy()
-    for idx, row in common_subjects.iterrows():
-        branch = row['Branch']
-        exam_day = find_next_valid_day(base_date, [branch])
+    for module_code, group in common_subjects.groupby('ModuleCode'):
+        branches = group['Branch'].unique()
+        exam_day = find_next_valid_day(base_date, branches)
         if exam_day:
-            df.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            min_sem = row['Semester']
+            min_sem = group['Semester'].min()
             if min_sem % 2 != 0:
                 odd_sem_position = (min_sem + 1) // 2
                 slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
             else:
                 even_sem_position = min_sem // 2
                 slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-            df.at[idx, 'Time Slot'] = slot_str
-            exam_days[branch].add(exam_day.date())
+            df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+            df.loc[group.index, 'Time Slot'] = slot_str
+            for branch in branches:
+                exam_days[branch].add(exam_day.date())
             all_used_dates.add(exam_day.date())
 
     # Schedule remaining subjects per semester
