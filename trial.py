@@ -799,7 +799,7 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
 
-def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
+def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days):
     def find_next_valid_day(start_day, for_branches):
         """
         Find the next valid day that doesn't conflict with existing exams
@@ -814,39 +814,11 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
                 return day
             day += timedelta(days=1)
 
-    def find_earliest_available_slot(start_day, for_branches):
-        """
-        Find the earliest available slot from start_day onwards
-        """
-        # Get all existing exam dates to find the earliest gap
-        all_dates = set()
-        for branch in for_branches:
-            all_dates.update(exam_days[branch])
-        
-        if not all_dates:
-            return find_next_valid_day(start_day, for_branches)
-        
-        # Try to find a slot starting from base_date
-        current_date = start_day
-        while True:
-            current_date_only = current_date.date()
-            
-            # Skip weekends and holidays
-            if current_date.weekday() == 6 or current_date_only in holidays:
-                current_date += timedelta(days=1)
-                continue
-            
-            # Check if this date is free for all required branches
-            if all(current_date_only not in exam_days[branch] for branch in for_branches):
-                return current_date
-            
-            current_date += timedelta(days=1)
-
     # Schedule remaining COMP subjects
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
-        exam_day = find_earliest_available_slot(base_date, [branch])
+        exam_day = find_next_valid_day(base_date, [branch])
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
@@ -854,7 +826,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
     remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
-        exam_day = find_earliest_available_slot(base_date, [branch])
+        exam_day = find_next_valid_day(base_date, [branch])
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
 
@@ -871,34 +843,118 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
     return df_sem
 
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
-    # Initialize exam_days for all branches
+    # Initialize exam days for all branches
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
+    optimization_log = []
 
-    def find_earliest_available_slot(start_day, for_branches):
+    def find_next_valid_day(start_day, for_branches):
         """
-        Find the earliest available slot from start_day onwards
+        Find the next valid day that doesn't conflict with existing exams
         """
-        current_date = start_day
+        day = start_day
         while True:
-            current_date_only = current_date.date()
-            
-            # Skip weekends and holidays
-            if current_date.weekday() == 6 or current_date_only in holidays:
-                current_date += timedelta(days=1)
+            day_date = day.date()
+            if day.weekday() == 6 or day_date in holidays:
+                day += timedelta(days=1)
                 continue
-            
-            # Check if this date is free for all required branches
-            if all(current_date_only not in exam_days[branch] for branch in for_branches):
-                return current_date
-            
-            current_date += timedelta(days=1)
+            if all(day_date not in exam_days[branch] for branch in for_branches):
+                return day
+            day += timedelta(days=1)
 
-    # Schedule common COMP subjects - find earliest slots
+    def analyze_timetable(df_pivot):
+        """Analyze current timetable to find empty slots and calculate span"""
+        analysis = {
+            'total_empty_slots': 0,
+            'empty_slots_by_date': defaultdict(int),
+            'current_span': 0,
+            'all_dates': set(),
+            'exam_dates': set()
+        }
+        
+        for (date, time_slot), row in df_pivot.iterrows():
+            try:
+                date_obj = pd.to_datetime(date, format="%d-%m-%Y")
+                analysis['all_dates'].add(date_obj)
+            except:
+                continue
+                
+            for col in df_pivot.columns:
+                if pd.isna(row[col]) or str(row[col]).strip() == "---":
+                    analysis['total_empty_slots'] += 1
+                    analysis['empty_slots_by_date'][date] += 1
+                else:
+                    analysis['exam_dates'].add(date_obj)
+        
+        if analysis['exam_dates']:
+            min_date = min(analysis['exam_dates'])
+            max_date = max(analysis['exam_dates'])
+            analysis['current_span'] = (max_date - min_date).days + 1
+            analysis['start_date'] = min_date
+            analysis['end_date'] = max_date
+        
+        return analysis
+
+    def optimize_timetable(df_pivot):
+        """Optimize timetable by filling empty slots"""
+        initial_analysis = analyze_timetable(df_pivot)
+        optimization_moves = []
+        
+        # Get all dates and sort them
+        all_dates = []
+        for (date, time_slot), _ in df_pivot.iterrows():
+            try:
+                date_obj = pd.to_datetime(date, format="%d-%m-%Y")
+                all_dates.append((date_obj, date, time_slot))
+            except:
+                continue
+        all_dates.sort(key=lambda x: x[0])
+        
+        # Find movable exams
+        for i in range(len(all_dates) - 1, 0, -1):
+            late_date_obj, late_date, late_time = all_dates[i]
+            if late_date_obj.date() in holidays:
+                continue
+                
+            for col in df_pivot.columns:
+                exam = df_pivot.loc[(late_date, late_time), col]
+                if pd.isna(exam) or str(exam).strip() == "---":
+                    continue
+                    
+                for j in range(i):
+                    early_date_obj, early_date, early_time = all_dates[j]
+                    if early_date_obj.date() in holidays:
+                        continue
+                        
+                    current_value = df_pivot.loc[(early_date, early_time), col]
+                    if pd.isna(current_value) or str(current_value).strip() == "---":
+                        optimization_moves.append({
+                            'exam': exam,
+                            'branch': col,
+                            'from_date': late_date,
+                            'from_time': late_time,
+                            'to_date': early_date,
+                            'to_time': early_time,
+                            'days_saved': (late_date_obj - early_date_obj).days
+                        })
+                        df_pivot.loc[(early_date, early_time), col] = exam
+                        df_pivot.loc[(late_date, late_time), col] = "---"
+                        optimization_log.append(
+                            f"Moved {exam} from {late_date} to {early_date} (saved {(late_date_obj - early_date_obj).days} days)"
+                        )
+                        break
+        
+        final_analysis = analyze_timetable(df_pivot)
+        days_saved = initial_analysis['current_span'] - final_analysis['current_span']
+        slots_filled = initial_analysis['total_empty_slots'] - final_analysis['total_empty_slots']
+        
+        return df_pivot, days_saved, slots_filled, optimization_log
+
+    # Initial scheduling of common subjects
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        exam_day = find_earliest_available_slot(base_date, branches)
+        exam_day = find_next_valid_day(base_date, branches)
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
@@ -911,11 +967,10 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         for branch in branches:
             exam_days[branch].add(exam_day.date())
 
-    # Schedule common ELEC subjects - find earliest slots
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        exam_day = find_earliest_available_slot(base_date, branches)
+        exam_day = find_next_valid_day(base_date, branches)
         min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
@@ -927,6 +982,39 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         df.loc[group.index, 'Time Slot'] = slot_str
         for branch in branches:
             exam_days[branch].add(exam_day.date())
+
+    # Save initial schedule to Excel for optimization
+    temp_excel = "temp_initial_schedule.xlsx"
+    excel_data = save_to_excel({'temp': df})
+    with open(temp_excel, "wb") as f:
+        f.write(excel_data.getvalue())
+    
+    # Read pivot data from Excel
+    df_dict = pd.read_excel(temp_excel, sheet_name=None, index_col=[0, 1])
+    os.remove(temp_excel)
+    
+    if 'temp' in df_dict:
+        df_pivot = df_dict['temp']
+        # Optimize timetable
+        df_pivot, days_saved, slots_filled, optimization_log = optimize_timetable(df_pivot)
+        
+        # Update original df with optimized data
+        for (date, time_slot), row in df_pivot.iterrows():
+            for col in df_pivot.columns:
+                value = row[col]
+                if pd.notna(value) and str(value).strip() != "---":
+                    mask = (df['Exam Date'] == date) & (df['Time Slot'] == time_slot) & (df['SubBranch'] == col)
+                    if not mask.any():
+                        # Find matching branch and update
+                        for idx, row_df in df.iterrows():
+                            if row_df['SubBranch'] == col and row_df['Exam Date'] == "":
+                                df.at[idx, 'Exam Date'] = date
+                                df.at[idx, 'Time Slot'] = time_slot
+                                break
+                elif pd.isna(value) or str(value).strip() == "---":
+                    mask = (df['Exam Date'] == date) & (df['Time Slot'] == time_slot) & (df['SubBranch'] == col)
+                    df.loc[mask, 'Exam Date'] = ""
+                    df.loc[mask, 'Time Slot'] = ""
 
     # Schedule remaining subjects per semester
     final_list = []
@@ -936,7 +1024,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         df_sem = df[df["Semester"] == sem].copy()
         if df_sem.empty:
             continue
-        scheduled_sem = schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty)
+        scheduled_sem = schedule_semester_non_electives(df_sem, holidays, base_date, exam_days)
         final_list.append(scheduled_sem)
 
     if not final_list:
@@ -946,9 +1034,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     
     # Post-processing optimization: Check and warn about gaps > 2 days
     def validate_and_optimize_gaps(df_combined, max_gap=2):
-        """
-        Check for gaps > 2 days between consecutive exams for each branch and warn
-        """
         issues = []
         
         for branch in df_combined['Branch'].unique():
@@ -956,11 +1041,9 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             if len(branch_exams) < 2:
                 continue
                 
-            # Sort by exam date
             branch_exams['Exam Date Parsed'] = pd.to_datetime(branch_exams['Exam Date'], format="%d-%m-%Y", errors='coerce')
             branch_exams = branch_exams.sort_values('Exam Date Parsed')
             
-            # Check gaps between consecutive exams
             dates = branch_exams['Exam Date Parsed'].dropna().tolist()
             for i in range(1, len(dates)):
                 gap = (dates[i] - dates[i-1]).days
@@ -974,7 +1057,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         
         return df_combined
     
-    # Validate gaps
     df_combined = validate_and_optimize_gaps(df_combined)
     
     sem_dict = {}
@@ -995,143 +1077,15 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         else:
             st.warning(f"⚠️ The timetable spans {total_span} days, exceeding the limit of 20 days.")
 
+    # Display optimization metrics
+    st.info(f"📊 Optimization Results: Days saved: {days_saved} | Slots filled: {slots_filled}")
+    if optimization_log:
+        with st.expander("📝 Optimization Log", expanded=False):
+            for log in optimization_log[-10:]:
+                st.write(f"• {log}")
+
     return sem_dict
 
-def optimize_exam_schedule(semester_wise_timetable, holidays):
-    """
-    Post-processing optimization to fill empty slots and reduce exam span
-    This function can be called after process_constraints to optimize the schedule
-    """
-    if not semester_wise_timetable:
-        return semester_wise_timetable
-    
-    # Combine all semester data
-    all_data = []
-    for sem, df_sem in semester_wise_timetable.items():
-        df_copy = df_sem.copy()
-        df_copy['_semester'] = sem
-        all_data.append(df_copy)
-    
-    combined_df = pd.concat(all_data, ignore_index=True)
-    combined_df['_datetime'] = pd.to_datetime(combined_df['Exam Date'], format="%d-%m-%Y", errors='coerce')
-    
-    # Get date range
-    exam_dates = sorted(combined_df['_datetime'].dropna().unique())
-    if len(exam_dates) <= 1:
-        return semester_wise_timetable
-    
-    original_span = (exam_dates[-1] - exam_dates[0]).days + 1
-    
-    # Build schedule grid
-    branches = combined_df['Branch'].unique()
-    time_slots = combined_df['Time Slot'].unique()
-    
-    # Create schedule dictionary
-    schedule = {}
-    for date in pd.date_range(exam_dates[0], exam_dates[-1], freq='D'):
-        if date.weekday() != 6 and date.date() not in holidays:
-            date_str = date.strftime("%Y-%m-%d")
-            schedule[date_str] = {ts: {b: None for b in branches} for ts in time_slots}
-    
-    # Fill current exams
-    exam_map = {}  # Maps position to dataframe index
-    for idx, row in combined_df.iterrows():
-        if pd.notna(row['_datetime']):
-            date_str = row['_datetime'].strftime("%Y-%m-%d")
-            if date_str in schedule:
-                schedule[date_str][row['Time Slot']][row['Branch']] = row['Subject']
-                exam_map[f"{date_str}|{row['Time Slot']}|{row['Branch']}"] = idx
-    
-    # Find and fill empty slots
-    moves = 0
-    dates_sorted = sorted(schedule.keys())
-    
-    # Strategy: Move exams from later dates to earlier empty slots
-    for i in range(len(dates_sorted) - 1, 0, -1):
-        late_date = dates_sorted[i]
-        
-        for time_slot in time_slots:
-            for branch in branches:
-                exam = schedule[late_date][time_slot][branch]
-                if not exam:
-                    continue
-                
-                # Try to find earlier empty slot
-                for j in range(i):
-                    early_date = dates_sorted[j]
-                    
-                    # Check all time slots on this earlier date
-                    for target_slot in time_slots:
-                        if schedule[early_date][target_slot][branch] is None:
-                            # Check if this is a common exam
-                            key = f"{late_date}|{time_slot}|{branch}"
-                            if key in exam_map:
-                                idx = exam_map[key]
-                                row = combined_df.iloc[idx]
-                                
-                                if row['IsCommon'] == 'YES':
-                                    # Find all related exams
-                                    related = combined_df[
-                                        (combined_df['ModuleCode'] == row['ModuleCode']) &
-                                        (combined_df['Semester'] == row['Semester'])
-                                    ]
-                                    
-                                    # Check if all can move
-                                    can_move = True
-                                    for _, rel_row in related.iterrows():
-                                        if schedule[early_date][target_slot][rel_row['Branch']] is not None:
-                                            can_move = False
-                                            break
-                                    
-                                    if can_move:
-                                        # Move all related exams
-                                        for rel_idx in related.index:
-                                            rel_branch = combined_df.at[rel_idx, 'Branch']
-                                            
-                                            # Update schedule
-                                            schedule[early_date][target_slot][rel_branch] = schedule[late_date][time_slot][rel_branch]
-                                            schedule[late_date][time_slot][rel_branch] = None
-                                            
-                                            # Update dataframe
-                                            early_datetime = pd.to_datetime(early_date)
-                                            combined_df.at[rel_idx, 'Exam Date'] = early_datetime.strftime("%d-%m-%Y")
-                                            combined_df.at[rel_idx, '_datetime'] = early_datetime
-                                            combined_df.at[rel_idx, 'Time Slot'] = target_slot
-                                        
-                                        moves += 1
-                                        break
-                                else:
-                                    # Move single exam
-                                    schedule[early_date][target_slot][branch] = exam
-                                    schedule[late_date][time_slot][branch] = None
-                                    
-                                    # Update dataframe
-                                    early_datetime = pd.to_datetime(early_date)
-                                    combined_df.at[idx, 'Exam Date'] = early_datetime.strftime("%d-%m-%Y")
-                                    combined_df.at[idx, '_datetime'] = early_datetime
-                                    combined_df.at[idx, 'Time Slot'] = target_slot
-                                    
-                                    moves += 1
-                                    break
-                    
-                    if moves > 0:
-                        break
-    
-    # Calculate improvement
-    new_dates = sorted(combined_df['_datetime'].dropna().unique())
-    new_span = (new_dates[-1] - new_dates[0]).days + 1 if new_dates else original_span
-    
-    if new_span < original_span:
-        st.success(f"✅ Optimization successful! Reduced exam span from {original_span} to {new_span} days ({original_span - new_span} days saved)")
-    
-    # Rebuild semester dictionary
-    optimized = {}
-    for sem in semester_wise_timetable.keys():
-        sem_data = combined_df[combined_df['_semester'] == sem].copy()
-        sem_data = sem_data.drop(['_semester', '_datetime'], axis=1)
-        optimized[sem] = sem_data
-    
-    return optimized
     
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
@@ -1412,7 +1366,6 @@ def main():
                     if df_non_elec is not None and df_ele is not None:
                         st.write("Processing constraints...")
                         non_elec_sched = process_constraints(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
-                        non_elec_sched = optimize_exam_schedule(non_elec_sched, holidays_set)  # Add this line
                         st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
 
                         # Find the maximum date from non-elective exams
