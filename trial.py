@@ -801,6 +801,7 @@ def read_timetable(uploaded_file):
 
 
 
+
 from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
@@ -905,7 +906,7 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
         
         daily_schedule[date][slot_key].extend(branches)
         for branch in branches:
-            exam_days[branch].add(date)  # Store as datetime.date directly
+            exam_days[branch].add(date.date())  # Store as datetime.date
     
     # Phase 1: Common Subject Scheduling
     st.info("Phase 1: Scheduling common subjects...")
@@ -957,12 +958,12 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
             min_gap = float('inf')
             
             if exam_days[branch]:
-                last_exam_date = max(exam_days[branch])
-                check_start = min(exam_days[branch])
+                last_exam_date = max(exam_days[branch])  # datetime.date
+                check_start = min(exam_days[branch])     # datetime.date
                 check_end = last_exam_date + timedelta(days=3)
                 
                 current_check = datetime.combine(check_start, datetime.min.time())
-                while current_check.date() <= check_end.date():
+                while current_check.date() <= check_end:
                     if (current_check.date() not in exam_days[branch] and 
                         current_check.weekday() != 6 and 
                         current_check.date() not in holidays):
@@ -1022,7 +1023,7 @@ def schedule_with_aggressive_gap_optimization(df, holidays, base_date, schedule_
                     daily_schedule[date]['morning'] = []
                     for branch in branches_to_move:
                         exam_days[branch].remove(date)
-                        exam_days[branch].add(target_date)
+                        exam_days[branch].add(target_date.date())
                     break
     
     # Drop temporary 'Scheduled' column
@@ -1433,6 +1434,7 @@ def quick_schedule_test():
     """
     # [Existing implementation remains unchanged]
     pass
+
 
     
 def save_to_excel(semester_wise_timetable):
