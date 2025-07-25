@@ -800,6 +800,7 @@ def read_timetable(uploaded_file):
         return None, None, None
 
 
+
 from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
@@ -914,16 +915,18 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         candidate_day = datetime.combine(current_date, datetime.min.time())
         candidate_date = candidate_day.date()
         if candidate_day.weekday() != 6 and candidate_date not in holidays:
-            # Try both time slots
+            # Check for available slots
             for slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
-                if any((df['Exam Date'] == candidate_day.strftime("%d-%m-%Y")) & 
-                       (df['Time Slot'] == slot) & 
-                       (df['Branch'] == branch) for branch in df['Branch'].unique()):
+                # Filter DataFrame for the current date and slot
+                existing_exams = df[(pd.to_datetime(df['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.date == candidate_date) & 
+                                  (df['Time Slot'] == slot)]
+                if not existing_exams.empty:
                     continue
                 for idx, row in non_common_subjects.iterrows():
                     branch = row['Branch']
                     semester = row['Semester']
-                    if all(candidate_date not in exam_days.get(b, set()) for b in [branch]) and \
+                    # Check branch-specific conflict
+                    if candidate_date not in exam_days.get(branch, set()) and \
                        not any((df['Semester'] == semester) & (df['Branch'] == branch) & 
                                (pd.to_datetime(df['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.date == candidate_date) & 
                                (df['Time Slot'] == slot)):
