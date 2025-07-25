@@ -800,13 +800,12 @@ def read_timetable(uploaded_file):
         return None, None, None
 
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
-    def find_next_valid_day(start_day, for_branches, max_days=20):
+    def find_next_valid_day(start_day, for_branches, max_days=25):
         """
-        Find the next valid day that doesn't conflict with existing exams within 20 days.
+        Find the next valid day that doesn't conflict with existing exams, extending up to 25 days.
         """
-        end_date = start_day + timedelta(days=max_days - 1)
         day = start_day
-        while day <= end_date:
+        while True:
             day_date = day.date()
             if day.weekday() in [5, 6] or day_date in holidays:
                 day += timedelta(days=1)
@@ -814,15 +813,13 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             if all(day_date not in exam_days[branch] for branch in for_branches):
                 return day
             day += timedelta(days=1)
-        return None  # Indicate no valid day found within 20 days
 
-    def find_earliest_available_slot(start_day, for_branches, max_days=20):
+    def find_earliest_available_slot(start_day, for_branches, max_days=25):
         """
-        Find the earliest available slot from start_day onwards within 20 days.
+        Find the earliest available slot from start_day onwards, extending up to 25 days.
         """
-        end_date = start_day + timedelta(days=max_days - 1)
         current_date = start_day
-        while current_date <= end_date:
+        while True:
             current_date_only = current_date.date()
             if current_date.weekday() in [5, 6] or current_date_only in holidays:
                 current_date += timedelta(days=1)
@@ -830,7 +827,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             if all(current_date_only not in exam_days[branch] for branch in for_branches):
                 return current_date
             current_date += timedelta(days=1)
-        return None  # Indicate no valid slot within 20 days
 
     # Schedule remaining COMP subjects
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
@@ -867,13 +863,12 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
 
-    def find_earliest_available_slot(start_day, for_branches, max_days=20):
+    def find_earliest_available_slot(start_day, for_branches, max_days=25):
         """
-        Find the earliest available slot from start_day onwards within 20 days.
+        Find the earliest available slot from start_day onwards, extending up to 25 days.
         """
-        end_date = start_day + timedelta(days=max_days - 1)
         current_date = start_day
-        while current_date <= end_date:
+        while True:
             current_date_only = current_date.date()
             if current_date.weekday() in [5, 6] or current_date_only in holidays:
                 current_date += timedelta(days=1)
@@ -881,7 +876,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             if all(current_date_only not in exam_days[branch] for branch in for_branches):
                 return current_date
             current_date += timedelta(days=1)
-        return None  # Indicate no valid slot within 20 days
 
     # Schedule common COMP subjects - find earliest slots
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
@@ -972,9 +966,11 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         end_date = max(all_dates)
         total_span = (end_date - start_date).days + 1
         if total_span <= 20:
-            st.success(f"✅ Timetable optimized successfully! Total span: {total_span} days (within 20-day limit)")
+            st.success(f"✅ Timetable optimized successfully! Total span: {total_span} days (within 20-day target)")
+        elif total_span <= 25:
+            st.info(f"ℹ️ Timetable span: {total_span} days (within 25-day limit)")
         else:
-            st.warning(f"⚠️ The timetable spans {total_span} days, exceeding the limit of 20 days. Some exams may be unscheduled.")
+            st.warning(f"⚠️ The timetable spans {total_span} days, exceeding the limit of 25 days.")
 
     return sem_dict
     
