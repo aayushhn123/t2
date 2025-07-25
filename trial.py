@@ -1565,34 +1565,27 @@ def main():
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                     time_range_suffix = df_elec.apply(
                         lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-                        if row['Exam Duration'] > 3:  # Assuming 'Exam till the end' was meant to relate to duration
-    time_range_suffix = f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})"
-else:
-    time_range_suffix = ""
-df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
-df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
-elec_pivot = df_elec.pivot_table(
-    index=["Exam Date", "Time Slot"],
-    columns="SubBranch",
-    values="SubjectDisplay",
-    aggfunc=lambda x: ", ".join(sorted(set(x)))
-).fillna("---")
-if not elec_pivot.empty:
-    st.markdown(f"#### {main_branch_full} - Elective Subjects")
-    formatted_pivot = elec_pivot.copy()
-    if len(formatted_pivot.index.levels) > 0:
-        formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in formatted_pivot.index.levels[0]]
-        formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
-    st.dataframe(formatted_pivot, use_container_width=True)
+                        if row['Exam Duration'] != 3 else '', axis=1
+                    )
+                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
+                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                    df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                        lambda x: ", ".join(x)
+                    ).reset_index()
+                    if not elec_pivot.empty:
+                        st.markdown(f"#### {main_branch_full} - Open Electives")
+                        st.dataframe(elec_pivot, use_container_width=True)
 
-# End of timetable results section
-st.markdown("---")
-st.markdown("""
-<div class="footer">
-    <p>© 2025 Mukesh Patel School of Technology Management & Engineering | Powered by Streamlit</p>
-</div>
-""", unsafe_allow_html=True)
+    # Display footer
+    st.markdown("---")
+    st.markdown("""
+    <div class="footer">
+        <p>🎓 <strong>Exam Timetable Generator</strong></p>
+        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
+        <p style="font-size: 0.9em;">Streamlined scheduling • Conflict-free timetables • Multiple export formats</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
