@@ -1682,10 +1682,18 @@ def main():
                             st.write("Scheduling electives...")
                             elective_day1 = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1))
                             elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1))
+    
+                            # CRITICAL FIX: OE1 and OE5 must be scheduled together on the same date/time
+                            # Schedule OE1 and OE5 together on the first elective day
                             df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1.strftime("%d-%m-%Y")
                             df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
+    
+                            # Schedule OE2 on the second elective day (afternoon slot)
                             df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2.strftime("%d-%m-%Y")
                             df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"
+    
+                            st.write(f"✅ OE1 and OE5 scheduled together on {elective_day1.strftime('%d-%m-%Y')} at 10:00 AM - 1:00 PM")
+                            st.write(f"✅ OE2 scheduled on {elective_day2.strftime('%d-%m-%Y')} at 2:00 PM - 5:00 PM")
 
                             # Combine non-electives and electives
                             final_df = pd.concat([non_elec_df, df_ele], ignore_index=True)
