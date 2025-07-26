@@ -1286,11 +1286,184 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
         lambda x: x.strftime("%d-%m-%Y") if isinstance(x, pd.Timestamp) else str(x)
     )
     
-    oe_groups = oe_data_copy.groupby(['OE', 'Exam Date', 'Time Slot'])
+    # Special handling for OE1 and OE5 - they should be grouped together
+    # Create combined groups for OE1/OE5 and separate groups for OE2
+    oe1_oe5_data = oe_data_copy[oe_data_copy['OE'].isin(['OE1', 'OE5'])]
+    oe2_data = oe_data_copy[oe_data_copy['OE'] == 'OE2']
+    
     moves_made = 0
     optimization_log = []
     
-    for (oe_type, current_date, current_slot), group in oe_groups:
+    # Process OE1/OE5 together (they should always be on the same date/time)
+    if not oe1_oe5_data.empty:
+        oe1_oe5_groups = oe1_oe5_data.groupby(['Exam Date', 'Time Slot'])
+        
+        for (current_date, current_slot), group in oe1_oe5_groups:
+            # Now current_date is guaranteed to be a string
+            current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
+            affected_branches = group['Branch'].unique()
+            
+            # Find earlier slots that are empty for ALL branches with OE1/OE5
+            best_date = None
+            best_slot = None
+            
+            sorted_dates = sorted(schedule_grid.keys(), 
+                                key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+            
+            for check_date_str in sorted_dates:
+                check_date_obj = datetime.strptime(check_date_str, "%d-%m-%Y")
+                
+                # Only look for earlier dates
+                if check_date_obj >= current_date_obj:
+                    break
+                
+                # Skip weekends and holidays
+                if check_date_obj.weekday() == 6 or check_date_obj.date() in holidays:
+                    continue
+                
+                # Check both time slots
+                for time_slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
+                    can_move = True
+                    
+                    # Check if this slot is empty for all affected branches
+                    for branch in affected_branches:
+                        if (check_date_str in schedule_grid and 
+                            time_slot in schedule_grid[check_date_str] and
+                            branch in schedule_grid[check_date_str][time_slot] and
+                            schedule_grid[check_date_str][time_slot][branch] is not None):
+                            can_move = False
+                            break
+                    
+                    if can_move:
+                        best_date = check_date_str
+                        best_slot = time_slot
+                        break
+                
+                if best_date:
+                    break
+            
+            # If we found a better slot, move all OE1/OE5 exams together
+            if best_date and best_date != current_date:
+                days_saved = (current_date_obj - datetime.strptime(best_date, "%d-%m-%Y")).days
+                
+                # Update all exams in this OE1/OE5 group
+                for idx in group.index:
+                    sem = all_data.at[idx, 'Semester']
+                    branch = all_data.at[idx, 'Branch']
+                    subject = all_data.at[idx, 'Subject']
+                    oe_type = all_data.at[idx, 'OE']
+                    
+                    # Update in the semester dictionary
+                    mask = (sem_dict[sem]['Subject'] == subject) & \
+                           (sem_dict[sem]['Branch'] == branch)
+                    sem_dict[sem].loc[mask, 'Exam Date'] = best_date
+                    sem_dict[sem].loc[mask, 'Time Slot'] = best_slot
+                    
+                    # Update schedule grid
+                    # Remove from old position
+                    if (current_date in schedule_grid and 
+                        current_slot in schedule_grid[current_date] and
+                        branch in schedule_grid[current_date][current_slot]):
+                        schedule_grid[current_date][current_slot][branch] = None
+                    
+                    # Add to new position
+                    if best_date not in schedule_grid:
+                        schedule_grid[best_date] = {}
+                    if best_slot not in schedule_grid[best_date]:
+                        schedule_grid[best_date][best_slot] = {}
+                    schedule_grid[best_date][best_slot][branch] = subject
+                
+                moves_made += 1
+                optimization_log.append(
+                    f"Moved OE1/OE5 exams from {current_date} to {best_date} (saved {days_saved} days)"
+                )
+    
+    # Process OE2 separately
+    if not oe2_data.empty:
+        oe2_groups = oe2_data.groupby(['Exam Date', 'Time Slot'])
+        
+    # Process OE2 separately
+    if not oe2_data.empty:
+        oe2_groups = oe2_data.groupby(['Exam Date', 'Time Slot'])
+        
+        for (current_date, current_slot), group in oe2_groups:
+            # Now current_date is guaranteed to be a string
+            current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
+            affected_branches = group['Branch'].unique()
+            
+            # Find earlier slots that are empty for ALL branches with OE2
+            best_date = None
+            best_slot = None
+            
+            sorted_dates = sorted(schedule_grid.keys(), 
+                                key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+            
+            for check_date_str in sorted_dates:
+                check_date_obj = datetime.strptime(check_date_str, "%d-%m-%Y")
+                
+                # Only look for earlier dates
+                if check_date_obj >= current_date_obj:
+                    break
+                
+                # Skip weekends and holidays
+                if check_date_obj.weekday() == 6 or check_date_obj.date() in holidays:
+                    continue
+                
+                # Check both time slots
+                for time_slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
+                    can_move = True
+                    
+                    # Check if this slot is empty for all affected branches
+                    for branch in affected_branches:
+                        if (check_date_str in schedule_grid and 
+                            time_slot in schedule_grid[check_date_str] and
+                            branch in schedule_grid[check_date_str][time_slot] and
+                            schedule_grid[check_date_str][time_slot][branch] is not None):
+                            can_move = False
+                            break
+                    
+                    if can_move:
+                        best_date = check_date_str
+                        best_slot = time_slot
+                        break
+                
+                if best_date:
+                    break
+            
+            # If we found a better slot, move all OE2 exams
+            if best_date and best_date != current_date:
+                days_saved = (current_date_obj - datetime.strptime(best_date, "%d-%m-%Y")).days
+                
+                # Update all exams in this OE2 group
+                for idx in group.index:
+                    sem = all_data.at[idx, 'Semester']
+                    branch = all_data.at[idx, 'Branch']
+                    subject = all_data.at[idx, 'Subject']
+                    
+                    # Update in the semester dictionary
+                    mask = (sem_dict[sem]['Subject'] == subject) & \
+                           (sem_dict[sem]['Branch'] == branch)
+                    sem_dict[sem].loc[mask, 'Exam Date'] = best_date
+                    sem_dict[sem].loc[mask, 'Time Slot'] = best_slot
+                    
+                    # Update schedule grid
+                    # Remove from old position
+                    if (current_date in schedule_grid and 
+                        current_slot in schedule_grid[current_date] and
+                        branch in schedule_grid[current_date][current_slot]):
+                        schedule_grid[current_date][current_slot][branch] = None
+                    
+                    # Add to new position
+                    if best_date not in schedule_grid:
+                        schedule_grid[best_date] = {}
+                    if best_slot not in schedule_grid[best_date]:
+                        schedule_grid[best_date][best_slot] = {}
+                    schedule_grid[best_date][best_slot][branch] = subject
+                
+                moves_made += 1
+                optimization_log.append(
+                    f"Moved OE2 exams from {current_date} to {best_date} (saved {days_saved} days)"
+                )
         # Now current_date is guaranteed to be a string
         current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
         affected_branches = group['Branch'].unique()
