@@ -914,6 +914,9 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
         even_sem_position = sem // 2
         preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
     
+    # Remove duplicates before scheduling
+    df_sem = df_sem.drop_duplicates(subset=['Branch', 'Subject', 'Category', 'ModuleCode'])
+    
     # Schedule COMP subjects
     comp_subjects = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     
@@ -950,7 +953,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
                 
                 current_date += timedelta(days=1)
     
-    # Schedule ELEC subjects - FIXED LOGIC: Only one exam per day per branch
+    # Schedule ELEC subjects
     elec_subjects = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     
     for idx, row in elec_subjects.iterrows():
@@ -977,7 +980,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
                 date_str = current_date.strftime("%d-%m-%Y")
                 
                 if current_date.weekday() != 6 and current_date.date() not in holidays:
-                    # CRITICAL FIX: Only schedule if this branch has NO exam on this date
+                    # Only schedule if this branch has NO exam on this date
                     if current_date.date() not in exam_days[branch]:
                         df_sem.at[idx, 'Exam Date'] = date_str
                         df_sem.at[idx, 'Time Slot'] = preferred_slot
@@ -1018,8 +1021,11 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
 
 def process_constraints_with_real_time_optimization(df, holidays, base_date, schedule_by_difficulty=False):
     """
-    Enhanced process_constraints that fills empty slots during scheduling
+    Enhanced process_constraints that fills empty slots during scheduling and removes duplicates
     """
+    # Remove duplicates at the beginning
+    df = df.drop_duplicates(subset=['Branch', 'Subject', 'Category', 'ModuleCode', 'Semester'])
+    
     # Initialize exam_days for all branches
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
@@ -1086,9 +1092,11 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     
     st.write(f"📊 Subject distribution: COMP (Common: {comp_common}, Individual: {comp_individual}), ELEC (Common: {elec_common}, Individual: {elec_individual})")
 
-    # Schedule common COMP subjects with optimization
+    # Schedule common COMP subjects with optimization and deduplication
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
+        # Remove duplicates within the group
+        group = group.drop_duplicates(subset=['Branch', 'Subject'])
         branches = group['Branch'].unique()
         subject = group['Subject'].iloc[0]
         
@@ -1113,9 +1121,11 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
             exam_days[branch].add(exam_day.date())
             optimizer.add_exam_to_grid(date_str, slot_str, branch, subject)
 
-    # Schedule common ELEC subjects with optimization
+    # Schedule common ELEC subjects with optimization and deduplication
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
+        # Remove duplicates within the group
+        group = group.drop_duplicates(subset=['Branch', 'Subject'])
         branches = group['Branch'].unique()
         subject = group['Subject'].iloc[0]
         
@@ -1170,6 +1180,9 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         return {}
 
     df_combined = pd.concat(final_list, ignore_index=True)
+    
+    # Remove any remaining duplicates from the final combined data
+    df_combined = df_combined.drop_duplicates(subset=['Branch', 'Subject', 'Exam Date', 'Time Slot'])
     
     # Check for any unscheduled subjects
     unscheduled_final = df_combined[df_combined['Exam Date'] == ""]
@@ -1774,67 +1787,50 @@ def save_to_excel(semester_wise_timetable):
                     )
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
                     
-                    # FIXED: First group by Exam Date and SubBranch to combine all subjects for that date/branch
-                    # This handles cases where a branch has subjects in both morning and afternoon slots
+                    # FIXED: Remove duplicates before grouping
+                    df_non_elec = df_non_elec.drop_duplicates(subset=['Exam Date', 'SubBranch', 'SubjectDisplay', 'Time Slot'])
+                    
+                    # Group by Exam Date and SubBranch, combining subjects with unique set
                     consolidated_df = df_non_elec.groupby(['Exam Date', 'SubBranch']).agg({
-                        'SubjectDisplay': lambda x: ", ".join(sorted(set(str(i) for i in x))),
-                        'Time Slot': lambda x: list(set(x))[0]  # Take any time slot since we're consolidating
+                        'SubjectDisplay': lambda x: ", ".join(sorted(set(str(i) for i in x))),  # Use set to remove duplicates
+                        'Time Slot': lambda x: list(set(x))[0]  # Take unique time slot
                     }).reset_index()
                     
-                    # Now group by just Exam Date to ensure only one row per date
-                    # Keep all SubBranch data but ensure single time slot per date
-                    date_consolidated = consolidated_df.groupby('Exam Date').agg({
-                        'Time Slot': 'first'  # Use first time slot found for this date
-                    }).reset_index()
-                    
-                    # Merge back to get the consolidated subject data
-                    final_df = consolidated_df.merge(date_consolidated[['Exam Date', 'Time Slot']], 
-                                                   on=['Exam Date', 'Time Slot'], how='inner')
-                    
-                    # If there are still subjects on the same date with different time slots,
-                    # we need to group them under the primary time slot
-                    remaining_subjects = consolidated_df[~consolidated_df.index.isin(final_df.index)]
-                    if not remaining_subjects.empty:
-                        # For remaining subjects, group them by date and subbranch and add to final_df
-                        for date in remaining_subjects['Exam Date'].unique():
-                            date_subjects = remaining_subjects[remaining_subjects['Exam Date'] == date]
-                            primary_time_slot = date_consolidated[date_consolidated['Exam Date'] == date]['Time Slot'].iloc[0]
-                            
-                            for _, row in date_subjects.iterrows():
-                                # Check if this SubBranch already exists for this date in final_df
-                                existing_mask = (final_df['Exam Date'] == date) & (final_df['SubBranch'] == row['SubBranch'])
-                                if existing_mask.any():
-                                    # Combine with existing subjects
-                                    existing_idx = final_df[existing_mask].index[0]
-                                    final_df.at[existing_idx, 'SubjectDisplay'] = (
-                                        final_df.at[existing_idx, 'SubjectDisplay'] + ", " + row['SubjectDisplay']
-                                    )
-                                else:
-                                    # Add new row with primary time slot
-                                    new_row = row.copy()
-                                    new_row['Time Slot'] = primary_time_slot
-                                    final_df = pd.concat([final_df, new_row.to_frame().T], ignore_index=True)
+                    # Group by Exam Date to get the primary time slot for each date
+                    date_time_slots = consolidated_df.groupby('Exam Date')['Time Slot'].first().reset_index()
                     
                     # Create pivot table with consolidated data
-                    pivot_df = final_df.pivot_table(
-                        index=["Exam Date", "Time Slot"],
+                    pivot_df = consolidated_df.pivot_table(
+                        index=["Exam Date"],
                         columns="SubBranch",
                         values="SubjectDisplay",
-                        aggfunc='first'
+                        aggfunc=lambda x: ", ".join(sorted(set(str(i) for i in x)))  # Additional safety against duplicates
                     ).fillna("---")
                     
+                    # Add Time Slot as a separate column by merging
+                    pivot_df = pivot_df.reset_index()
+                    pivot_df = pivot_df.merge(date_time_slots, on='Exam Date', how='left')
+                    
+                    # Reorder columns to have Time Slot after Exam Date
+                    cols = ['Exam Date', 'Time Slot'] + [col for col in pivot_df.columns if col not in ['Exam Date', 'Time Slot']]
+                    pivot_df = pivot_df[cols]
+                    
+                    # Set multi-index for better formatting
+                    pivot_df = pivot_df.set_index(['Exam Date', 'Time Slot'])
                     pivot_df = pivot_df.sort_index(ascending=True)
+                    
                     # Format dates in the multi-level index
                     if len(pivot_df.index.levels) > 0:
                         formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
                         pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
+                    
                     roman_sem = int_to_roman(sem)
                     sheet_name = f"{main_branch}_Sem_{roman_sem}"
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
                     pivot_df.to_excel(writer, sheet_name=sheet_name)
 
-                # Process electives in a separate sheet (unchanged)
+                # Process electives in a separate sheet
                 if not df_elec.empty:
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
@@ -1842,8 +1838,12 @@ def save_to_excel(semester_wise_timetable):
                     duration_suffix = df_elec.apply(
                         lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
                     df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                    
+                    # Remove duplicates from electives as well
+                    df_elec = df_elec.drop_duplicates(subset=['OE', 'Exam Date', 'Time Slot', 'SubjectDisplay'])
+                    
                     elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-                        lambda x: ", ".join(sorted(set(str(i) for i in x if str(i).strip())))
+                        lambda x: ", ".join(sorted(set(x)))  # Use set to remove duplicates
                     ).reset_index()
                     elec_pivot['Exam Date'] = pd.to_datetime(
                         elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
