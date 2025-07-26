@@ -1502,22 +1502,33 @@ def save_to_excel(semester_wise_timetable):
                         df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce'
                     )
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                    pivot_df = df_non_elec.pivot_table(
+                    
+                    # FIXED: Group by Exam Date and SubBranch, combining subjects from different time slots
+                    grouped_df = df_non_elec.groupby(['Exam Date', 'SubBranch']).agg({
+                        'SubjectDisplay': lambda x: ", ".join(str(i) for i in x),
+                        'Time Slot': 'first'  # Keep first time slot for the date
+                    }).reset_index()
+                    
+                    # Create pivot table with multi-level index (Exam Date, Time Slot) but consolidated data
+                    pivot_df = grouped_df.pivot_table(
                         index=["Exam Date", "Time Slot"],
                         columns="SubBranch",
                         values="SubjectDisplay",
-                        aggfunc=lambda x: ", ".join(str(i) for i in x)
+                        aggfunc='first'
                     ).fillna("---")
-                    pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
-                    formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
-                    pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
+                    
+                    pivot_df = pivot_df.sort_index(ascending=True)
+                    # Format dates in the multi-level index
+                    if len(pivot_df.index.levels) > 0:
+                        formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
+                        pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
                     roman_sem = int_to_roman(sem)
                     sheet_name = f"{main_branch}_Sem_{roman_sem}"
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
                     pivot_df.to_excel(writer, sheet_name=sheet_name)
 
-                # Process electives in a separate sheet
+                # Process electives in a separate sheet (unchanged)
                 if not df_elec.empty:
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
@@ -1540,7 +1551,7 @@ def save_to_excel(semester_wise_timetable):
 
     output.seek(0)
     return output
-
+    
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
         return None
