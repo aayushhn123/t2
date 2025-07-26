@@ -1503,14 +1503,49 @@ def save_to_excel(semester_wise_timetable):
                     )
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
                     
-                    # FIXED: Group by Exam Date and SubBranch, combining subjects from different time slots
-                    grouped_df = df_non_elec.groupby(['Exam Date', 'SubBranch']).agg({
+                    # FIXED: First group by Exam Date and SubBranch to combine all subjects for that date/branch
+                    # This handles cases where a branch has subjects in both morning and afternoon slots
+                    consolidated_df = df_non_elec.groupby(['Exam Date', 'SubBranch']).agg({
                         'SubjectDisplay': lambda x: ", ".join(str(i) for i in x),
-                        'Time Slot': 'first'  # Keep first time slot for the date
+                        'Time Slot': lambda x: list(set(x))[0]  # Take any time slot since we're consolidating
                     }).reset_index()
                     
-                    # Create pivot table with multi-level index (Exam Date, Time Slot) but consolidated data
-                    pivot_df = grouped_df.pivot_table(
+                    # Now group by just Exam Date to ensure only one row per date
+                    # Keep all SubBranch data but ensure single time slot per date
+                    date_consolidated = consolidated_df.groupby('Exam Date').agg({
+                        'Time Slot': 'first'  # Use first time slot found for this date
+                    }).reset_index()
+                    
+                    # Merge back to get the consolidated subject data
+                    final_df = consolidated_df.merge(date_consolidated[['Exam Date', 'Time Slot']], 
+                                                   on=['Exam Date', 'Time Slot'], how='inner')
+                    
+                    # If there are still subjects on the same date with different time slots,
+                    # we need to group them under the primary time slot
+                    remaining_subjects = consolidated_df[~consolidated_df.index.isin(final_df.index)]
+                    if not remaining_subjects.empty:
+                        # For remaining subjects, group them by date and subbranch and add to final_df
+                        for date in remaining_subjects['Exam Date'].unique():
+                            date_subjects = remaining_subjects[remaining_subjects['Exam Date'] == date]
+                            primary_time_slot = date_consolidated[date_consolidated['Exam Date'] == date]['Time Slot'].iloc[0]
+                            
+                            for _, row in date_subjects.iterrows():
+                                # Check if this SubBranch already exists for this date in final_df
+                                existing_mask = (final_df['Exam Date'] == date) & (final_df['SubBranch'] == row['SubBranch'])
+                                if existing_mask.any():
+                                    # Combine with existing subjects
+                                    existing_idx = final_df[existing_mask].index[0]
+                                    final_df.at[existing_idx, 'SubjectDisplay'] = (
+                                        final_df.at[existing_idx, 'SubjectDisplay'] + ", " + row['SubjectDisplay']
+                                    )
+                                else:
+                                    # Add new row with primary time slot
+                                    new_row = row.copy()
+                                    new_row['Time Slot'] = primary_time_slot
+                                    final_df = pd.concat([final_df, new_row.to_frame().T], ignore_index=True)
+                    
+                    # Create pivot table with consolidated data
+                    pivot_df = final_df.pivot_table(
                         index=["Exam Date", "Time Slot"],
                         columns="SubBranch",
                         values="SubjectDisplay",
