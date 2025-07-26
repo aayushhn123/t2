@@ -2069,9 +2069,19 @@ def main():
 
                     if df_non_elec is not None and df_ele is not None:
                         st.write("Processing constraints...")
-                        non_elec_sched = integrate_gap_reduction_in_main_scheduling(df_non_elec, holidays_set, base_date, schedule_by_difficulty,reduce_gaps, max_gap_days)
+                        non_elec_sched = process_constraints_with_real_time_optimization(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
+                        # Apply gap reduction if enabled
+                        if reduce_gaps and non_elec_sched:
+                            st.write("Reducing gaps between exams...")
+                            non_elec_sched, gap_stats = reduce_exam_gaps(non_elec_sched, holidays_set, max_gap_days)
+    
+                            # Display results
+                            if gap_stats['gaps_reduced'] > 0:
+                                st.success(f"✅ Reduced {gap_stats['gaps_reduced']} large gaps!")
+                            else:
+                                st.info("ℹ️ No large gaps found or couldn't be reduced further.")
                         st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
-
+                        
                         # Find the maximum date from non-elective exams
                         non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True) if non_elec_sched else pd.DataFrame()
                         non_elec_dates = pd.to_datetime(non_elec_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
