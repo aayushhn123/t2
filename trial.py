@@ -918,7 +918,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
     df_sem = df_sem.drop_duplicates(subset=['Branch', 'Subject', 'Category', 'ModuleCode'])
     
     # Schedule COMP subjects
-    comp_subjects = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
+    comp_subjects = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & ((df_sem['Exam Date'] == "") | (df_sem['Exam Date'].isna()))]
     
     for idx, row in comp_subjects.iterrows():
         branch = row['Branch']
@@ -954,7 +954,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
                 current_date += timedelta(days=1)
     
     # Schedule ELEC subjects
-    elec_subjects = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
+    elec_subjects = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & ((df_sem['Exam Date'] == "") | (df_sem['Exam Date'].isna()))]
     
     for idx, row in elec_subjects.iterrows():
         branch = row['Branch']
@@ -992,12 +992,22 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
                 current_date += timedelta(days=1)
     
     # Assign time slot to any remaining exams (safety net)
-    df_sem.loc[df_sem['Time Slot'] == "", 'Time Slot'] = preferred_slot
+    mask_empty_time = (df_sem['Time Slot'] == "") | (df_sem['Time Slot'].isna())
+    df_sem.loc[mask_empty_time, 'Time Slot'] = preferred_slot
     
-    # Final check - ensure no exam is left unscheduled
-    unscheduled = df_sem[df_sem['Exam Date'] == ""]
+    # FIXED: Better check for unscheduled subjects
+    # Check for truly unscheduled subjects (empty or NaN exam dates)
+    unscheduled_mask = (df_sem['Exam Date'] == "") | (df_sem['Exam Date'].isna()) | (df_sem['Exam Date'].str.strip() == "")
+    unscheduled = df_sem[unscheduled_mask]
+    
     if not unscheduled.empty:
+        print(f"DEBUG: Found {len(unscheduled)} truly unscheduled subjects in semester {sem}")
+        print("Unscheduled subjects:")
+        for idx, row in unscheduled.iterrows():
+            print(f"  - {row['Subject']} ({row['Branch']}) - Exam Date: '{row['Exam Date']}'")
+        
         st.warning(f"⚠️ {len(unscheduled)} subjects remain unscheduled in semester {sem}")
+        
         # Force schedule them on empty days
         for idx, row in unscheduled.iterrows():
             branch = row['Branch']
@@ -1016,6 +1026,8 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
                         optimizer.optimization_log.append(f"🔧 Force scheduled {subject} on {date_str}")
                         break
                 current_date += timedelta(days=1)
+    else:
+        print(f"DEBUG: All subjects in semester {sem} are properly scheduled")
     
     return df_sem
 
@@ -1159,20 +1171,37 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         if df_sem.empty:
             continue
             
-        # Count unscheduled subjects before processing
-        unscheduled_before = len(df_sem[df_sem['Exam Date'] == ""])
+        # FIXED: Better counting of unscheduled subjects
+        # Count subjects that don't have exam dates scheduled yet (excluding common subjects already scheduled)
+        unscheduled_before_mask = ((df_sem['Exam Date'] == "") | (df_sem['Exam Date'].isna()) | (df_sem['Exam Date'].str.strip() == "")) & (df_sem['IsCommon'] == 'NO')
+        unscheduled_before = len(df_sem[unscheduled_before_mask])
+        
+        print(f"DEBUG: Semester {sem} - Unscheduled before: {unscheduled_before}")
+        print(f"DEBUG: Total subjects in semester: {len(df_sem)}")
+        print(f"DEBUG: Common subjects already scheduled: {len(df_sem[df_sem['IsCommon'] == 'YES'])}")
         
         scheduled_sem = schedule_semester_non_electives_with_optimization(
             df_sem, holidays, base_date, exam_days, optimizer, schedule_by_difficulty
         )
         
-        # Count unscheduled subjects after processing
-        unscheduled_after = len(scheduled_sem[scheduled_sem['Exam Date'] == ""])
+        # FIXED: Better counting of unscheduled subjects after processing
+        unscheduled_after_mask = (scheduled_sem['Exam Date'] == "") | (scheduled_sem['Exam Date'].isna()) | (scheduled_sem['Exam Date'].str.strip() == "")
+        unscheduled_after = len(scheduled_sem[unscheduled_after_mask])
+        
+        print(f"DEBUG: Semester {sem} - Unscheduled after: {unscheduled_after}")
         
         if unscheduled_after > 0:
-            st.warning(f"⚠️ Semester {sem}: {unscheduled_after} subjects remain unscheduled out of {unscheduled_before}")
+            # Show detailed info about what's unscheduled
+            unscheduled_subjects = scheduled_sem[unscheduled_after_mask]
+            print(f"DEBUG: Unscheduled subjects details:")
+            for idx, row in unscheduled_subjects.iterrows():
+                print(f"  - {row['Subject']} ({row['Branch']}) - Category: {row['Category']} - IsCommon: {row['IsCommon']} - Exam Date: '{row['Exam Date']}'")
+            
+            st.warning(f"⚠️ Semester {sem}: {unscheduled_after} subjects remain unscheduled out of {len(scheduled_sem)}")
+        elif unscheduled_before > 0:
+            st.success(f"✅ Semester {sem}: All {unscheduled_before} individual subjects scheduled successfully")
         else:
-            st.success(f"✅ Semester {sem}: All {unscheduled_before} subjects scheduled successfully")
+            st.info(f"ℹ️ Semester {sem}: All subjects were already scheduled (common subjects)")
         
         final_list.append(scheduled_sem)
 
@@ -1184,12 +1213,14 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     # Remove any remaining duplicates from the final combined data
     df_combined = df_combined.drop_duplicates(subset=['Branch', 'Subject', 'Exam Date', 'Time Slot'])
     
-    # Check for any unscheduled subjects
-    unscheduled_final = df_combined[df_combined['Exam Date'] == ""]
+    # FIXED: Final check for unscheduled subjects with better filtering
+    unscheduled_final_mask = (df_combined['Exam Date'] == "") | (df_combined['Exam Date'].isna()) | (df_combined['Exam Date'].str.strip() == "")
+    unscheduled_final = df_combined[unscheduled_final_mask]
+    
     if not unscheduled_final.empty:
         st.error(f"❌ {len(unscheduled_final)} subjects remain unscheduled!")
         with st.expander("View unscheduled subjects"):
-            st.dataframe(unscheduled_final[['Branch', 'Subject', 'Category', 'IsCommon']])
+            st.dataframe(unscheduled_final[['Branch', 'Subject', 'Category', 'IsCommon', 'Exam Date']])
     
     # Display optimization summary
     schedule_summary = optimizer.get_schedule_summary()
@@ -1200,7 +1231,7 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     with col2:
         st.metric("Empty Slots Used", f"{schedule_summary['utilization']:.1f}%")
     with col3:
-        st.metric("Total Subjects Scheduled", len(df_combined[df_combined['Exam Date'] != ""]))
+        st.metric("Total Subjects Scheduled", len(df_combined[~unscheduled_final_mask]))
     
     if optimizer.moves_made > 0:
         with st.expander("📝 Optimization Log", expanded=False):
