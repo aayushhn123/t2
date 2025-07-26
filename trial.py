@@ -1006,7 +1006,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
         for idx, row in unscheduled.iterrows():
             print(f"  - {row['Subject']} ({row['Branch']}) - Exam Date: '{row['Exam Date']}'")
         
-        st.warning(f"⚠️ {len(unscheduled)} subjects remain unscheduled in semester {sem}")
+        #st.warning(f"⚠️ {len(unscheduled)} subjects remain unscheduled in semester {sem}")
         
         # Force schedule them on empty days
         for idx, row in unscheduled.iterrows():
