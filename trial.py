@@ -2188,10 +2188,10 @@ def main():
                                     with col3:
                                         st.metric("Efficiency", f"{optimized_exam_days/optimized_span*100:.1f}%")
         
-                            with st.expander("📝 Optimization Details", expanded=False):
-                                for log in optimization_log:
-                                    if "Moved" in log or "Gap" in log or "Statistics" in log or "remaining" in log:
-                                        st.write(log)
+                                with st.expander("📝 Optimization Details", expanded=False):
+                                    for log in optimization_log:
+                                        if "Moved" in log or "Gap" in log or "Statistics" in log or "remaining" in log:
+                                            st.write(log)
                             else:
                                 st.info("ℹ️ Schedule is already optimally compacted")
 
