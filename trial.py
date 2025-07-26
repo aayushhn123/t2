@@ -2095,8 +2095,8 @@ def main():
                     holidays_set = set(holiday_dates)
                     st.write("Reading timetable...")
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
-                    st.write(f"df_non_elec shape: {df_non_elec.shape if df_non_elec is not None else 'None'}")
-                    st.write(f"df_ele shape: {df_ele.shape if df_ele is not None else 'None'}")
+                    #st.write(f"df_non_elec shape: {df_non_elec.shape if df_non_elec is not None else 'None'}")
+                    #st.write(f"df_ele shape: {df_ele.shape if df_ele is not None else 'None'}")
 
                     if df_non_elec is not None and df_ele is not None:
                         st.write("Processing constraints...")
@@ -2111,13 +2111,13 @@ def main():
                                 st.success(f"✅ Reduced {gap_stats['gaps_reduced']} large gaps!")
                             else:
                                 st.info("ℹ️ No large gaps found or couldn't be reduced further.")
-                        st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
+                        #st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
                         
                         # Find the maximum date from non-elective exams
                         non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True) if non_elec_sched else pd.DataFrame()
                         non_elec_dates = pd.to_datetime(non_elec_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                         max_non_elec_date = max(non_elec_dates).date() if not non_elec_dates.empty else base_date.date()
-                        st.write(f"Max non-elective date: {max_non_elec_date}")
+                        #st.write(f"Max non-elective date: {max_non_elec_date}")
 
                         # Define function to find next valid day for electives
                         def find_next_valid_day(start_day):
