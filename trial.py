@@ -2208,12 +2208,9 @@ def main():
                         sem_dict = {s: final_df[final_df["Semester"] == s].copy() for s in sorted(final_df["Semester"].unique())}
                         sem_dict = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)
 
-                        st.write("🔧 Optimizing schedule gaps...")
-                        sem_dict, optimization_log = full_schedule_optimization(sem_dict, holidays_set)
-
                         # Display optimization results
                         st.write("🔧 Optimizing schedule gaps...")
-                        sem_dict, optimization_log = full_schedule_optimization(sem_dict, holidays_set)
+                        sem_dict, optimization_log = safe_schedule_optimization(sem_dict, holidays_set)
 
                         # Display optimization results
                         if optimization_log:
