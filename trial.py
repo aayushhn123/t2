@@ -295,7 +295,7 @@ class RealTimeOptimizer:
         self.schedule_grid[date_str][time_slot][branch] = subject
     
     def find_earliest_empty_slot(self, branch, start_date, preferred_time_slot=None):
-        """Find the earliest empty slot for a branch"""
+        """Find the earliest empty slot for a branch - ensuring only one exam per day per branch"""
         # Sort dates chronologically
         sorted_dates = sorted(self.schedule_grid.keys(), 
                             key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
@@ -311,6 +311,21 @@ class RealTimeOptimizer:
             if date_obj.weekday() == 6 or date_obj.date() in self.holidays:
                 continue
             
+            # CRITICAL FIX: Check if this branch already has ANY exam on this date
+            branch_has_exam_today = False
+            if date_str in self.schedule_grid:
+                for time_slot in self.time_slots:
+                    if (time_slot in self.schedule_grid[date_str] and
+                        branch in self.schedule_grid[date_str][time_slot] and
+                        self.schedule_grid[date_str][time_slot][branch] is not None):
+                        branch_has_exam_today = True
+                        break
+            
+            # If branch already has an exam today, skip this date entirely
+            if branch_has_exam_today:
+                continue
+            
+            # Now check for available slots on this date (branch has no exams today)
             # Check preferred time slot first
             if preferred_time_slot:
                 if (date_str in self.schedule_grid and 
@@ -318,7 +333,7 @@ class RealTimeOptimizer:
                     if self.schedule_grid[date_str][preferred_time_slot].get(branch) is None:
                         return date_str, preferred_time_slot
             
-            # Check all time slots
+            # Check all time slots if preferred slot wasn't available
             for time_slot in self.time_slots:
                 if date_str not in self.schedule_grid:
                     return date_str, time_slot
@@ -331,7 +346,7 @@ class RealTimeOptimizer:
         
         return None, None
     
-    def initialize_grid_with_empty_days(self, start_date, num_days=40):  # Increased days
+    def initialize_grid_with_empty_days(self, start_date, num_days=40):
         """Pre-populate grid with empty days"""
         current_date = start_date
         for _ in range(num_days):
