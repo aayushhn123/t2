@@ -1242,7 +1242,12 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     # First, populate with all scheduled exams
     for _, row in all_data.iterrows():
         if pd.notna(row['Exam Date']):
-            date_str = row['Exam Date']
+            # Handle both string and Timestamp types for Exam Date
+            if isinstance(row['Exam Date'], pd.Timestamp):
+                date_str = row['Exam Date'].strftime("%d-%m-%Y")
+            else:
+                date_str = str(row['Exam Date'])
+            
             if date_str not in schedule_grid:
                 schedule_grid[date_str] = {}
             if row['Time Slot'] not in schedule_grid[date_str]:
@@ -1273,11 +1278,18 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
         current_date += timedelta(days=1)
     
     # Group OE subjects by type and date
-    oe_groups = oe_data.groupby(['OE', 'Exam Date', 'Time Slot'])
+    # First, ensure Exam Date is in string format for grouping
+    oe_data_copy = oe_data.copy()
+    oe_data_copy['Exam Date'] = oe_data_copy['Exam Date'].apply(
+        lambda x: x.strftime("%d-%m-%Y") if isinstance(x, pd.Timestamp) else str(x)
+    )
+    
+    oe_groups = oe_data_copy.groupby(['OE', 'Exam Date', 'Time Slot'])
     moves_made = 0
     optimization_log = []
     
     for (oe_type, current_date, current_slot), group in oe_groups:
+        # Now current_date is guaranteed to be a string
         current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
         affected_branches = group['Branch'].unique()
         
