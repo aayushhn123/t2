@@ -935,7 +935,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
                 
                 current_date += timedelta(days=1)
     
-    # Schedule ELEC subjects - FIXED LOGIC
+    # Schedule ELEC subjects - FIXED LOGIC: Only one exam per day per branch
     elec_subjects = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     
     for idx, row in elec_subjects.iterrows():
@@ -954,7 +954,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
             optimizer.optimization_log.append(f"✅ Filled empty slot: ELEC {subject} on {empty_date} at {empty_slot}")
             optimizer.moves_made += 1
         else:
-            # No empty slot found - schedule on the next available day for this branch
+            # No empty slot found - find next available day with NO EXAM for this branch
             current_date = base_date
             scheduled = False
             
@@ -962,29 +962,14 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
                 date_str = current_date.strftime("%d-%m-%Y")
                 
                 if current_date.weekday() != 6 and current_date.date() not in holidays:
-                    # Check if this branch has an exam on this date
+                    # CRITICAL FIX: Only schedule if this branch has NO exam on this date
                     if current_date.date() not in exam_days[branch]:
-                        # No exam on this date for this branch - schedule it
                         df_sem.at[idx, 'Exam Date'] = date_str
                         df_sem.at[idx, 'Time Slot'] = preferred_slot
                         optimizer.add_exam_to_grid(date_str, preferred_slot, branch, subject)
                         exam_days[branch].add(current_date.date())
                         scheduled = True
                         optimizer.optimization_log.append(f"📅 Scheduled ELEC {subject} for {branch} on {date_str}")
-                    else:
-                        # This branch has an exam on this date - check alternate time slot
-                        alternate_slot = "2:00 PM - 5:00 PM" if preferred_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
-                        
-                        # Check if alternate slot is free
-                        if (date_str not in optimizer.schedule_grid or 
-                            alternate_slot not in optimizer.schedule_grid[date_str] or
-                            optimizer.schedule_grid[date_str][alternate_slot].get(branch) is None):
-                            
-                            df_sem.at[idx, 'Exam Date'] = date_str
-                            df_sem.at[idx, 'Time Slot'] = alternate_slot
-                            optimizer.add_exam_to_grid(date_str, alternate_slot, branch, subject)
-                            scheduled = True
-                            optimizer.optimization_log.append(f"📅 Scheduled ELEC {subject} in alternate slot on {date_str}")
                 
                 current_date += timedelta(days=1)
     
@@ -995,7 +980,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
     unscheduled = df_sem[df_sem['Exam Date'] == ""]
     if not unscheduled.empty:
         st.warning(f"⚠️ {len(unscheduled)} subjects remain unscheduled in semester {sem}")
-        # Force schedule them
+        # Force schedule them on empty days
         for idx, row in unscheduled.iterrows():
             branch = row['Branch']
             subject = row['Subject']
@@ -1004,12 +989,14 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
             while True:
                 date_str = current_date.strftime("%d-%m-%Y")
                 if current_date.weekday() != 6 and current_date.date() not in holidays:
-                    df_sem.at[idx, 'Exam Date'] = date_str
-                    df_sem.at[idx, 'Time Slot'] = preferred_slot
-                    optimizer.add_exam_to_grid(date_str, preferred_slot, branch, subject)
-                    exam_days[branch].add(current_date.date())
-                    optimizer.optimization_log.append(f"🔧 Force scheduled {subject} on {date_str}")
-                    break
+                    # Force schedule only on days with no exams for this branch
+                    if current_date.date() not in exam_days[branch]:
+                        df_sem.at[idx, 'Exam Date'] = date_str
+                        df_sem.at[idx, 'Time Slot'] = preferred_slot
+                        optimizer.add_exam_to_grid(date_str, preferred_slot, branch, subject)
+                        exam_days[branch].add(current_date.date())
+                        optimizer.optimization_log.append(f"🔧 Force scheduled {subject} on {date_str}")
+                        break
                 current_date += timedelta(days=1)
     
     return df_sem
