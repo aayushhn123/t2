@@ -1777,7 +1777,7 @@ def save_to_excel(semester_wise_timetable):
                     # FIXED: First group by Exam Date and SubBranch to combine all subjects for that date/branch
                     # This handles cases where a branch has subjects in both morning and afternoon slots
                     consolidated_df = df_non_elec.groupby(['Exam Date', 'SubBranch']).agg({
-                        'SubjectDisplay': lambda x: ", ".join(str(i) for i in x),
+                        'SubjectDisplay': lambda x: ", ".join(sorted(set(str(i) for i in x))),
                         'Time Slot': lambda x: list(set(x))[0]  # Take any time slot since we're consolidating
                     }).reset_index()
                     
@@ -1843,7 +1843,7 @@ def save_to_excel(semester_wise_timetable):
                         lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
                     df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
                     elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-                        lambda x: ", ".join(sorted(set(x)))
+                        lambda x: ", ".join(sorted(set(str(i) for i in x if str(i).strip())))
                     ).reset_index()
                     elec_pivot['Exam Date'] = pd.to_datetime(
                         elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
