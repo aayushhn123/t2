@@ -1197,11 +1197,11 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
             for idx, row in unscheduled_subjects.iterrows():
                 print(f"  - {row['Subject']} ({row['Branch']}) - Category: {row['Category']} - IsCommon: {row['IsCommon']} - Exam Date: '{row['Exam Date']}'")
             
-            st.warning(f"⚠️ Semester {sem}: {unscheduled_after} subjects remain unscheduled out of {len(scheduled_sem)}")
+            #st.warning(f"⚠️ Semester {sem}: {unscheduled_after} subjects remain unscheduled out of {len(scheduled_sem)}")
         elif unscheduled_before > 0:
-            st.success(f"✅ Semester {sem}: All {unscheduled_before} individual subjects scheduled successfully")
+            #st.success(f"✅ Semester {sem}: All {unscheduled_before} individual subjects scheduled successfully")
         else:
-            st.info(f"ℹ️ Semester {sem}: All subjects were already scheduled (common subjects)")
+            #st.info(f"ℹ️ Semester {sem}: All subjects were already scheduled (common subjects)")
         
         final_list.append(scheduled_sem)
 
