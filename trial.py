@@ -1200,8 +1200,10 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
             #st.warning(f"⚠️ Semester {sem}: {unscheduled_after} subjects remain unscheduled out of {len(scheduled_sem)}")
         elif unscheduled_before > 0:
             #st.success(f"✅ Semester {sem}: All {unscheduled_before} individual subjects scheduled successfully")
+            pass
         else:
             #st.info(f"ℹ️ Semester {sem}: All subjects were already scheduled (common subjects)")
+            pass
         
         final_list.append(scheduled_sem)
 
