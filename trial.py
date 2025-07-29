@@ -1502,68 +1502,22 @@ def save_to_excel(semester_wise_timetable):
                         df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce'
                     )
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                    
-                    # FIXED: First group by Exam Date and SubBranch to combine all subjects for that date/branch
-                    # This handles cases where a branch has subjects in both morning and afternoon slots
-                    consolidated_df = df_non_elec.groupby(['Exam Date', 'SubBranch']).agg({
-                        'SubjectDisplay': lambda x: ", ".join(str(i) for i in x),
-                        'Time Slot': lambda x: list(set(x))[0]  # Take any time slot since we're consolidating
-                    }).reset_index()
-                    
-                    # Now group by just Exam Date to ensure only one row per date
-                    # Keep all SubBranch data but ensure single time slot per date
-                    date_consolidated = consolidated_df.groupby('Exam Date').agg({
-                        'Time Slot': 'first'  # Use first time slot found for this date
-                    }).reset_index()
-                    
-                    # Merge back to get the consolidated subject data
-                    final_df = consolidated_df.merge(date_consolidated[['Exam Date', 'Time Slot']], 
-                                                   on=['Exam Date', 'Time Slot'], how='inner')
-                    
-                    # If there are still subjects on the same date with different time slots,
-                    # we need to group them under the primary time slot
-                    remaining_subjects = consolidated_df[~consolidated_df.index.isin(final_df.index)]
-                    if not remaining_subjects.empty:
-                        # For remaining subjects, group them by date and subbranch and add to final_df
-                        for date in remaining_subjects['Exam Date'].unique():
-                            date_subjects = remaining_subjects[remaining_subjects['Exam Date'] == date]
-                            primary_time_slot = date_consolidated[date_consolidated['Exam Date'] == date]['Time Slot'].iloc[0]
-                            
-                            for _, row in date_subjects.iterrows():
-                                # Check if this SubBranch already exists for this date in final_df
-                                existing_mask = (final_df['Exam Date'] == date) & (final_df['SubBranch'] == row['SubBranch'])
-                                if existing_mask.any():
-                                    # Combine with existing subjects
-                                    existing_idx = final_df[existing_mask].index[0]
-                                    final_df.at[existing_idx, 'SubjectDisplay'] = (
-                                        final_df.at[existing_idx, 'SubjectDisplay'] + ", " + row['SubjectDisplay']
-                                    )
-                                else:
-                                    # Add new row with primary time slot
-                                    new_row = row.copy()
-                                    new_row['Time Slot'] = primary_time_slot
-                                    final_df = pd.concat([final_df, new_row.to_frame().T], ignore_index=True)
-                    
-                    # Create pivot table with consolidated data
-                    pivot_df = final_df.pivot_table(
+                    pivot_df = df_non_elec.pivot_table(
                         index=["Exam Date", "Time Slot"],
                         columns="SubBranch",
                         values="SubjectDisplay",
-                        aggfunc='first'
+                        aggfunc=lambda x: ", ".join(str(i) for i in x)
                     ).fillna("---")
-                    
-                    pivot_df = pivot_df.sort_index(ascending=True)
-                    # Format dates in the multi-level index
-                    if len(pivot_df.index.levels) > 0:
-                        formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
-                        pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
+                    pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
+                    formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
+                    pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
                     roman_sem = int_to_roman(sem)
                     sheet_name = f"{main_branch}_Sem_{roman_sem}"
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
                     pivot_df.to_excel(writer, sheet_name=sheet_name)
 
-                # Process electives in a separate sheet (unchanged)
+                # Process electives in a separate sheet
                 if not df_elec.empty:
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
@@ -1586,7 +1540,7 @@ def save_to_excel(semester_wise_timetable):
 
     output.seek(0)
     return output
-    
+
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
         return None
