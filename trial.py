@@ -1034,6 +1034,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
 def process_constraints_with_real_time_optimization(df, holidays, base_date, schedule_by_difficulty=False):
     """
     Enhanced process_constraints that ensures only one exam per day per subbranch
+    and eliminates duplicate scheduling of common subjects
     """
     # Initialize exam_days for all branches (MainBranch-SubBranch combinations)
     all_branches = df['Branch'].unique()
@@ -1074,16 +1075,19 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     
     st.write(f"📊 Subject distribution: COMP (Common: {comp_common}, Individual: {comp_individual}), ELEC (Common: {elec_common}, Individual: {elec_individual})")
 
-    # Schedule common COMP subjects - ensuring one exam per day per branch
+    # FIX: Schedule common COMP subjects - ensuring one exam per day per branch and NO DUPLICATES
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
-        branches = group['Branch'].unique()
-        subject = group['Subject'].iloc[0]
+        # CRITICAL FIX: Remove duplicates based on Branch and ModuleCode combination
+        group_deduplicated = group.drop_duplicates(subset=['Branch', 'ModuleCode'])
+        
+        branches = group_deduplicated['Branch'].unique()
+        subject = group_deduplicated['Subject'].iloc[0]
         
         # Find a day when ALL branches are free
         exam_day = find_earliest_available_slot_with_one_exam_per_day(base_date, branches, subject)
         
-        min_sem = group['Semester'].min()
+        min_sem = group_deduplicated['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
             slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -1092,24 +1096,29 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
             slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         
         date_str = exam_day.strftime("%d-%m-%Y")
-        df.loc[group.index, 'Exam Date'] = date_str
-        df.loc[group.index, 'Time Slot'] = slot_str
+        
+        # CRITICAL FIX: Update only the deduplicated group indices, not all original group indices
+        df.loc[group_deduplicated.index, 'Exam Date'] = date_str
+        df.loc[group_deduplicated.index, 'Time Slot'] = slot_str
         
         # Mark all branches as having an exam on this date
         for branch in branches:
             exam_days[branch].add(exam_day.date())
             optimizer.add_exam_to_grid(date_str, slot_str, branch, subject)
 
-    # Schedule common ELEC subjects - ensuring one exam per day per branch
+    # FIX: Schedule common ELEC subjects - ensuring one exam per day per branch and NO DUPLICATES
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
-        branches = group['Branch'].unique()
-        subject = group['Subject'].iloc[0]
+        # CRITICAL FIX: Remove duplicates based on Branch and ModuleCode combination
+        group_deduplicated = group.drop_duplicates(subset=['Branch', 'ModuleCode'])
+        
+        branches = group_deduplicated['Branch'].unique()
+        subject = group_deduplicated['Subject'].iloc[0]
         
         # Find a day when ALL branches are free
         exam_day = find_earliest_available_slot_with_one_exam_per_day(base_date, branches, subject)
         
-        min_sem = group['Semester'].min()
+        min_sem = group_deduplicated['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
             slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -1118,8 +1127,10 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
             slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         
         date_str = exam_day.strftime("%d-%m-%Y")
-        df.loc[group.index, 'Exam Date'] = date_str
-        df.loc[group.index, 'Time Slot'] = slot_str
+        
+        # CRITICAL FIX: Update only the deduplicated group indices, not all original group indices
+        df.loc[group_deduplicated.index, 'Exam Date'] = date_str
+        df.loc[group_deduplicated.index, 'Time Slot'] = slot_str
         
         # Mark all branches as having an exam on this date
         for branch in branches:
@@ -1158,8 +1169,11 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
 
     df_combined = pd.concat(final_list, ignore_index=True)
     
-    # Validate: Check for any branch having multiple exams on the same day
-    validation_check = df_combined.groupby(['Branch', 'Exam Date']).size()
+    # ENHANCED VALIDATION: Check for any branch having multiple exams on the same day
+    # But first, remove actual duplicates (same branch, same date, same subject)
+    df_combined_clean = df_combined.drop_duplicates(subset=['Branch', 'Exam Date', 'Subject', 'ModuleCode'])
+    
+    validation_check = df_combined_clean.groupby(['Branch', 'Exam Date']).size()
     multiple_exams_same_day = validation_check[validation_check > 1]
     
     if not multiple_exams_same_day.empty:
@@ -1167,13 +1181,13 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         with st.expander("View conflicts"):
             for (branch, date), count in multiple_exams_same_day.items():
                 st.write(f"Branch {branch} has {count} exams on {date}")
-                conflicting_subjects = df_combined[(df_combined['Branch'] == branch) & (df_combined['Exam Date'] == date)]['Subject'].tolist()
+                conflicting_subjects = df_combined_clean[(df_combined_clean['Branch'] == branch) & (df_combined_clean['Exam Date'] == date)]['Subject'].tolist()
                 st.write(f"Subjects: {', '.join(conflicting_subjects)}")
     else:
         st.success("✅ VALIDATION PASSED: No branch has multiple exams on the same day!")
     
     # Check for any unscheduled subjects
-    unscheduled_final = df_combined[df_combined['Exam Date'] == ""]
+    unscheduled_final = df_combined_clean[df_combined_clean['Exam Date'] == ""]
     if not unscheduled_final.empty:
         st.error(f"❌ {len(unscheduled_final)} subjects remain unscheduled!")
         with st.expander("View unscheduled subjects"):
@@ -1188,20 +1202,20 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     with col2:
         st.metric("Grid Utilization", f"{schedule_summary['utilization']:.1f}%")
     with col3:
-        st.metric("Total Subjects", len(df_combined[df_combined['Exam Date'] != ""]))
+        st.metric("Total Subjects", len(df_combined_clean[df_combined_clean['Exam Date'] != ""]))
     
     if optimizer.moves_made > 0:
         with st.expander("📝 Scheduling Log", expanded=False):
             for log in optimizer.optimization_log[-30:]:  # Show last 30
                 st.write(log)
     
-    # Rest of the function remains the same
+    # Rest of the function remains the same but use cleaned dataframe
     sem_dict = {}
-    for sem in sorted(df_combined["Semester"].unique()):
-        sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
+    for sem in sorted(df_combined_clean["Semester"].unique()):
+        sem_dict[sem] = df_combined_clean[df_combined_clean["Semester"] == sem].copy()
 
     # Calculate total span and provide feedback
-    all_dates = pd.to_datetime(df_combined['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+    all_dates = pd.to_datetime(df_combined_clean['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
     if not all_dates.empty:
         start_date = min(all_dates)
         end_date = max(all_dates)
