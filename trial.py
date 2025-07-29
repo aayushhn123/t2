@@ -1078,16 +1078,13 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     # FIX: Schedule common COMP subjects - ensuring one exam per day per branch and NO DUPLICATES
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
-        # CRITICAL FIX: Remove duplicates based on Branch and ModuleCode combination
-        group_deduplicated = group.drop_duplicates(subset=['Branch', 'ModuleCode'])
-        
-        branches = group_deduplicated['Branch'].unique()
-        subject = group_deduplicated['Subject'].iloc[0]
+        branches = group['Branch'].unique()
+        subject = group['Subject'].iloc[0]
         
         # Find a day when ALL branches are free
         exam_day = find_earliest_available_slot_with_one_exam_per_day(base_date, branches, subject)
         
-        min_sem = group_deduplicated['Semester'].min()
+        min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
             slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -1097,11 +1094,11 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         
         date_str = exam_day.strftime("%d-%m-%Y")
         
-        # CRITICAL FIX: Update only the deduplicated group indices, not all original group indices
-        df.loc[group_deduplicated.index, 'Exam Date'] = date_str
-        df.loc[group_deduplicated.index, 'Time Slot'] = slot_str
+        # Update ALL rows in the group (including duplicates) to maintain consistency
+        df.loc[group.index, 'Exam Date'] = date_str
+        df.loc[group.index, 'Time Slot'] = slot_str
         
-        # Mark all branches as having an exam on this date
+        # Mark all branches as having an exam on this date (but only once per branch)
         for branch in branches:
             exam_days[branch].add(exam_day.date())
             optimizer.add_exam_to_grid(date_str, slot_str, branch, subject)
@@ -1109,16 +1106,13 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     # FIX: Schedule common ELEC subjects - ensuring one exam per day per branch and NO DUPLICATES
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
-        # CRITICAL FIX: Remove duplicates based on Branch and ModuleCode combination
-        group_deduplicated = group.drop_duplicates(subset=['Branch', 'ModuleCode'])
-        
-        branches = group_deduplicated['Branch'].unique()
-        subject = group_deduplicated['Subject'].iloc[0]
+        branches = group['Branch'].unique()
+        subject = group['Subject'].iloc[0]
         
         # Find a day when ALL branches are free
         exam_day = find_earliest_available_slot_with_one_exam_per_day(base_date, branches, subject)
         
-        min_sem = group_deduplicated['Semester'].min()
+        min_sem = group['Semester'].min()
         if min_sem % 2 != 0:
             odd_sem_position = (min_sem + 1) // 2
             slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -1128,11 +1122,11 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         
         date_str = exam_day.strftime("%d-%m-%Y")
         
-        # CRITICAL FIX: Update only the deduplicated group indices, not all original group indices
-        df.loc[group_deduplicated.index, 'Exam Date'] = date_str
-        df.loc[group_deduplicated.index, 'Time Slot'] = slot_str
+        # Update ALL rows in the group (including duplicates) to maintain consistency
+        df.loc[group.index, 'Exam Date'] = date_str
+        df.loc[group.index, 'Time Slot'] = slot_str
         
-        # Mark all branches as having an exam on this date
+        # Mark all branches as having an exam on this date (but only once per branch)
         for branch in branches:
             exam_days[branch].add(exam_day.date())
             optimizer.add_exam_to_grid(date_str, slot_str, branch, subject)
