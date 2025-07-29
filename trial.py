@@ -1241,6 +1241,39 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     # Combine all data to analyze the schedule
     all_data = pd.concat(sem_dict.values(), ignore_index=True)
     
+    # CRITICAL FIX: Ensure all dates are in DD-MM-YYYY string format BEFORE any processing
+    def normalize_date_to_ddmmyyyy(date_val):
+        """Convert any date format to DD-MM-YYYY string format"""
+        if pd.isna(date_val) or date_val == "":
+            return ""
+        
+        if isinstance(date_val, pd.Timestamp):
+            return date_val.strftime("%d-%m-%Y")
+        elif isinstance(date_val, str):
+            # Try to parse with DD-MM-YYYY first
+            try:
+                parsed = pd.to_datetime(date_val, format="%d-%m-%Y", errors='raise')
+                return parsed.strftime("%d-%m-%Y")
+            except:
+                try:
+                    # Use dayfirst=True to ensure DD-MM-YYYY interpretation
+                    parsed = pd.to_datetime(date_val, dayfirst=True, errors='raise')
+                    return parsed.strftime("%d-%m-%Y")
+                except:
+                    return str(date_val)
+        else:
+            try:
+                parsed = pd.to_datetime(date_val, errors='coerce')
+                if pd.notna(parsed):
+                    return parsed.strftime("%d-%m-%Y")
+                else:
+                    return str(date_val)
+            except:
+                return str(date_val)
+    
+    # Apply date normalization to all data
+    all_data['Exam Date'] = all_data['Exam Date'].apply(normalize_date_to_ddmmyyyy)
+    
     # Separate OE and non-OE data
     oe_data = all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != "")]
     non_oe_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
@@ -1255,22 +1288,8 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     
     # First, populate with all scheduled exams
     for _, row in all_data.iterrows():
-        if pd.notna(row['Exam Date']):
-            # FIXED: Ensure consistent date format parsing
-            if isinstance(row['Exam Date'], pd.Timestamp):
-                date_str = row['Exam Date'].strftime("%d-%m-%Y")
-            elif isinstance(row['Exam Date'], str):
-                # Parse the string date and reformat to ensure DD-MM-YYYY
-                try:
-                    parsed_date = pd.to_datetime(row['Exam Date'], format="%d-%m-%Y", errors='coerce')
-                    if pd.isna(parsed_date):
-                        # Try alternative format if first attempt fails
-                        parsed_date = pd.to_datetime(row['Exam Date'], dayfirst=True, errors='coerce')
-                    date_str = parsed_date.strftime("%d-%m-%Y")
-                except:
-                    date_str = str(row['Exam Date'])
-            else:
-                date_str = str(row['Exam Date'])
+        if pd.notna(row['Exam Date']) and row['Exam Date'].strip() != "":
+            date_str = row['Exam Date']  # Already normalized above
             
             if date_str not in schedule_grid:
                 schedule_grid[date_str] = {}
@@ -1301,12 +1320,8 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
                     schedule_grid[date_str][time_slot] = {branch: None for branch in branches}
         current_date += timedelta(days=1)
     
-    # Group OE subjects by type and date
-    # First, ensure Exam Date is in string format for grouping
+    # Group OE subjects by type and date - dates are already normalized
     oe_data_copy = oe_data.copy()
-    oe_data_copy['Exam Date'] = oe_data_copy['Exam Date'].apply(
-        lambda x: x.strftime("%d-%m-%Y") if isinstance(x, pd.Timestamp) else str(x)
-    )
     
     # Get current OE1/OE5 and OE2 dates
     oe1_oe5_data = oe_data_copy[oe_data_copy['OE'].isin(['OE1', 'OE5'])]
@@ -1405,7 +1420,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
                 branch = all_data.at[idx, 'Branch']
                 subject = all_data.at[idx, 'Subject']
                 
-                # Update in the semester dictionary
+                # Update in the semester dictionary - ENSURE DD-MM-YYYY format
                 mask = (sem_dict[sem]['Subject'] == subject) & \
                        (sem_dict[sem]['Branch'] == branch)
                 sem_dict[sem].loc[mask, 'Exam Date'] = best_oe1_oe5_date
@@ -1435,7 +1450,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
                     branch = all_data.at[idx, 'Branch']
                     subject = all_data.at[idx, 'Subject']
                     
-                    # Update in the semester dictionary
+                    # Update in the semester dictionary - ENSURE DD-MM-YYYY format
                     mask = (sem_dict[sem]['Subject'] == subject) & \
                            (sem_dict[sem]['Branch'] == branch)
                     sem_dict[sem].loc[mask, 'Exam Date'] = best_oe2_date
@@ -1464,13 +1479,70 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
                     f"Moved OE2 to {best_oe2_date} (day immediately after OE1/OE5)"
                 )
     
+    # CRITICAL: After OE optimization, ensure all dates in sem_dict are properly formatted
+    for sem in sem_dict:
+        sem_dict[sem]['Exam Date'] = sem_dict[sem]['Exam Date'].apply(normalize_date_to_ddmmyyyy)
+    
     if moves_made > 0:
         st.success(f"✅ OE Optimization: Moved {moves_made} OE groups with OE2 immediately after OE1/OE5!")
+        
+        # Add debug information AFTER optimization
+        combined_data_after = pd.concat(sem_dict.values(), ignore_index=True)
+        oe_data_after = combined_data_after[combined_data_after['OE'].notna() & (combined_data_after['OE'].str.strip() != "")]
+        
+        if not oe_data_after.empty:
+            oe1_oe5_after = oe_data_after[oe_data_after['OE'].isin(['OE1', 'OE5'])]
+            oe2_after = oe_data_after[oe_data_after['OE'] == 'OE2']
+            
+            if not oe1_oe5_after.empty:
+                oe1_oe5_date_after = oe1_oe5_after['Exam Date'].iloc[0]
+                try:
+                    parsed_date = datetime.strptime(oe1_oe5_date_after, "%d-%m-%Y")
+                    readable_date = parsed_date.strftime("%d %B %Y")
+                    st.write(f"🔍 Debug - OE1/OE5 final date: {oe1_oe5_date_after} (should be {readable_date})")
+                except:
+                    st.write(f"🔍 Debug - OE1/OE5 final date: {oe1_oe5_date_after} (parsing failed)")
+            
+            if not oe2_after.empty:
+                oe2_date_after = oe2_after['Exam Date'].iloc[0]
+                try:
+                    parsed_date = datetime.strptime(oe2_date_after, "%d-%m-%Y")
+                    readable_date = parsed_date.strftime("%d %B %Y")
+                    st.write(f"🔍 Debug - OE2 final date: {oe2_date_after} (should be {readable_date})")
+                except:
+                    st.write(f"🔍 Debug - OE2 final date: {oe2_date_after} (parsing failed)")
+        
         with st.expander("📝 OE Optimization Details"):
             for log in optimization_log:
                 st.write(f"• {log}")
     else:
         st.info("ℹ️ OE subjects are already optimally placed")
+        
+        # Still show debug info even if no moves were made
+        combined_data_after = pd.concat(sem_dict.values(), ignore_index=True)
+        oe_data_after = combined_data_after[combined_data_after['OE'].notna() & (combined_data_after['OE'].str.strip() != "")]
+        
+        if not oe_data_after.empty:
+            oe1_oe5_after = oe_data_after[oe_data_after['OE'].isin(['OE1', 'OE5'])]
+            oe2_after = oe_data_after[oe_data_after['OE'] == 'OE2']
+            
+            if not oe1_oe5_after.empty:
+                oe1_oe5_date_after = oe1_oe5_after['Exam Date'].iloc[0]
+                try:
+                    parsed_date = datetime.strptime(oe1_oe5_date_after, "%d-%m-%Y")
+                    readable_date = parsed_date.strftime("%d %B %Y")
+                    st.write(f"🔍 Debug - OE1/OE5 current date: {oe1_oe5_date_after} (should be {readable_date})")
+                except:
+                    st.write(f"🔍 Debug - OE1/OE5 current date: {oe1_oe5_date_after} (parsing failed)")
+            
+            if not oe2_after.empty:
+                oe2_date_after = oe2_after['Exam Date'].iloc[0]
+                try:
+                    parsed_date = datetime.strptime(oe2_date_after, "%d-%m-%Y")
+                    readable_date = parsed_date.strftime("%d %B %Y")
+                    st.write(f"🔍 Debug - OE2 current date: {oe2_date_after} (should be {readable_date})")
+                except:
+                    st.write(f"🔍 Debug - OE2 current date: {oe2_date_after} (parsing failed)")
     
     return sem_dict
 
@@ -1801,10 +1873,27 @@ def main():
                             final_df = non_elec_df
                             st.write("No electives to schedule.")
 
-                        # FIXED: Ensure consistent date parsing throughout
-                        final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
-                        final_df = final_df.sort_values(["Exam Date", "Semester", "MainBranch"], ascending=True, na_position='last')
-                        sem_dict = {s: final_df[final_df["Semester"] == s].copy() for s in sorted(final_df["Semester"].unique())}
+                        final_df = final_df.sort_values(["Semester", "MainBranch"], ascending=True, na_position='last')
+                        # Create semester dictionary while keeping dates as strings
+                        sem_dict = {}
+                        for s in sorted(final_df["Semester"].unique()):
+                            sem_data = final_df[final_df["Semester"] == s].copy()
+                            # Sort by date for display purposes only
+                            sem_data_with_dates = sem_data.copy()
+    
+                            # Convert dates to datetime for sorting, but keep original string format in sem_dict
+                            sem_data_with_dates["Exam Date Parsed"] = pd.to_datetime(
+                            sem_data_with_dates["Exam Date"], 
+                            format="%d-%m-%Y", 
+                            dayfirst=True, 
+                            errors='coerce'
+                            )
+                            sem_data_with_dates = sem_data_with_dates.sort_values(["Exam Date Parsed", "MainBranch"], ascending=True, na_position='last')
+    
+                            # Store in sem_dict without the parsed date column
+                            sem_dict[s] = sem_data_with_dates.drop('Exam Date Parsed', axis=1, errors='ignore').copy()
+
+                        # Now optimize OE subjects - this will handle date normalization internally
                         sem_dict = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)
                         st.write(f"Semesters in sem_dict: {list(sem_dict.keys())}")
 
