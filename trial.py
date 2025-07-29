@@ -1224,7 +1224,6 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
 
     return sem_dict
 
-
 def find_next_valid_day_for_electives(start_day, holidays):
     """Find the next valid day for scheduling electives (skip weekends and holidays)"""
     day = start_day
