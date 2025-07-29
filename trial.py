@@ -1048,7 +1048,7 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
             if date_str in optimizer.schedule_grid and preferred_slot in optimizer.schedule_grid[date_str]:
                 if branch in optimizer.schedule_grid[date_str][preferred_slot]:
                     if optimizer.schedule_grid[date_str][preferred_slot][branch] is not None:
-                        grid_conflict = process_constraints_with_real_time_optimization(df, holidays, base_date, schedule_by_difficulty=False):
+                        grid_conflict = process_constraints_with_real_time_optimization(df, holidays, base_date, schedule_by_difficulty=False)
     """
     Enhanced process_constraints that ensures only one exam per day per subbranch
     and eliminates duplicate scheduling of common subjects
