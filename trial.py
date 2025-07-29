@@ -902,6 +902,29 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
 
+def parse_date_safely(date_input, input_format="%d-%m-%Y"):
+    """
+    Safely parse date input ensuring DD-MM-YYYY format interpretation
+    """
+    if pd.isna(date_input):
+        return None
+        
+    if isinstance(date_input, pd.Timestamp):
+        return date_input
+    
+    if isinstance(date_input, str):
+        try:
+            # First try with the specified format
+            return pd.to_datetime(date_input, format=input_format, errors='raise')
+        except:
+            try:
+                # Fallback: use dayfirst=True to ensure DD-MM-YYYY interpretation
+                return pd.to_datetime(date_input, dayfirst=True, errors='raise')
+            except:
+                return None
+    
+    return pd.to_datetime(date_input, errors='coerce')
+
 def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_date, exam_days, optimizer, schedule_by_difficulty=False):
     """Enhanced scheduling that ensures only one exam per day per branch (subbranch)"""
     
@@ -1111,7 +1134,8 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         df_sem = df[df["Semester"] == sem].copy()
         if df_sem.empty:
             continue
-            
+
+        df_sem['Exam Date'] = df_sem['Exam Date'].apply(lambda x: parse_date_safely(x) if pd.notna(x) and str(x).strip() != "" else x)
         # Count unscheduled subjects before processing
         unscheduled_before = len(df_sem[df_sem['Exam Date'] == ""])
         
@@ -1232,9 +1256,19 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     # First, populate with all scheduled exams
     for _, row in all_data.iterrows():
         if pd.notna(row['Exam Date']):
-            # Handle both string and Timestamp types for Exam Date
+            # FIXED: Ensure consistent date format parsing
             if isinstance(row['Exam Date'], pd.Timestamp):
                 date_str = row['Exam Date'].strftime("%d-%m-%Y")
+            elif isinstance(row['Exam Date'], str):
+                # Parse the string date and reformat to ensure DD-MM-YYYY
+                try:
+                    parsed_date = pd.to_datetime(row['Exam Date'], format="%d-%m-%Y", errors='coerce')
+                    if pd.isna(parsed_date):
+                        # Try alternative format if first attempt fails
+                        parsed_date = pd.to_datetime(row['Exam Date'], dayfirst=True, errors='coerce')
+                    date_str = parsed_date.strftime("%d-%m-%Y")
+                except:
+                    date_str = str(row['Exam Date'])
             else:
                 date_str = str(row['Exam Date'])
             
@@ -1475,9 +1509,7 @@ def save_to_excel(semester_wise_timetable):
                     duration_suffix = df_non_elec.apply(
                         lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
                     df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
-                    df_non_elec["Exam Date"] = pd.to_datetime(
-                        df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce'
-                    )
+                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
                     pivot_df = df_non_elec.pivot_table(
                         index=["Exam Date", "Time Slot"],
@@ -1743,18 +1775,25 @@ def main():
                             st.write("Scheduling electives...")
                             elective_day1 = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1))
                             elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1))
-    
-                            # CRITICAL FIX: OE1 and OE5 must be scheduled together on the same date/time
+
+                            # FIXED: Ensure proper date format assignment
+                            elective_day1_str = elective_day1.strftime("%d-%m-%Y")
+                            elective_day2_str = elective_day2.strftime("%d-%m-%Y")
+                        
                             # Schedule OE1 and OE5 together on the first elective day
-                            df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1.strftime("%d-%m-%Y")
+                            df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1_str
                             df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
-    
+
                             # Schedule OE2 on the second elective day (afternoon slot)
-                            df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2.strftime("%d-%m-%Y")
+                            df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2_str
                             df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"
-    
-                            st.write(f"✅ OE1 and OE5 scheduled together on {elective_day1.strftime('%d-%m-%Y')} at 10:00 AM - 1:00 PM")
-                            st.write(f"✅ OE2 scheduled on {elective_day2.strftime('%d-%m-%Y')} at 2:00 PM - 5:00 PM")
+
+                            st.write(f"✅ OE1 and OE5 scheduled together on {elective_day1_str} at 10:00 AM - 1:00 PM")
+                            st.write(f"✅ OE2 scheduled on {elective_day2_str} at 2:00 PM - 5:00 PM")
+                        
+                            # Debug: Show the actual dates being assigned
+                            st.write(f"🔍 Debug - OE1/OE5 date: {elective_day1_str} (should be {elective_day1.strftime('%d %B %Y')})")
+                            st.write(f"🔍 Debug - OE2 date: {elective_day2_str} (should be {elective_day2.strftime('%d %B %Y')})")
 
                             # Combine non-electives and electives
                             final_df = pd.concat([non_elec_df, df_ele], ignore_index=True)
@@ -1762,7 +1801,8 @@ def main():
                             final_df = non_elec_df
                             st.write("No electives to schedule.")
 
-                        final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                        # FIXED: Ensure consistent date parsing throughout
+                        final_df["Exam Date"] = pd.to_datetime(final_df["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
                         final_df = final_df.sort_values(["Exam Date", "Semester", "MainBranch"], ascending=True, na_position='last')
                         sem_dict = {s: final_df[final_df["Semester"] == s].copy() for s in sorted(final_df["Semester"].unique())}
                         sem_dict = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)
