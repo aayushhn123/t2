@@ -275,81 +275,23 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 # Cache for text wrapping results
 wrap_text_cache = {}
 
-class RealTimeOptimizer:
-    """Handles real-time optimization during scheduling"""
+class EnhancedRealTimeOptimizer:
+    """Enhanced optimizer with better gap detection and filling capabilities"""
     
     def __init__(self, branches, holidays, time_slots=None):
         self.branches = branches
         self.holidays = holidays
         self.time_slots = time_slots or ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
-        self.schedule_grid = {}  # date -> time_slot -> branch -> subject/None
+        self.schedule_grid = {}
         self.optimization_log = []
         self.moves_made = 0
         
-    def add_exam_to_grid(self, date_str, time_slot, branch, subject):
-        """Add an exam to the schedule grid"""
-        if date_str not in self.schedule_grid:
-            self.schedule_grid[date_str] = {}
-        if time_slot not in self.schedule_grid[date_str]:
-            self.schedule_grid[date_str][time_slot] = {}
-        self.schedule_grid[date_str][time_slot][branch] = subject
-    
-    def find_earliest_empty_slot(self, branch, start_date, preferred_time_slot=None):
-        """Find the earliest empty slot for a branch - ensuring only one exam per day per branch"""
-        # Sort dates chronologically
-        sorted_dates = sorted(self.schedule_grid.keys(), 
-                            key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
-        
-        for date_str in sorted_dates:
-            date_obj = datetime.strptime(date_str, "%d-%m-%Y")
-            
-            # Skip dates before start_date
-            if date_obj < start_date:
-                continue
-            
-            # Skip weekends and holidays
-            if date_obj.weekday() == 6 or date_obj.date() in self.holidays:
-                continue
-            
-            # CRITICAL FIX: Check if this branch already has ANY exam on this date
-            branch_has_exam_today = False
-            if date_str in self.schedule_grid:
-                for time_slot in self.time_slots:
-                    if (time_slot in self.schedule_grid[date_str] and
-                        branch in self.schedule_grid[date_str][time_slot] and
-                        self.schedule_grid[date_str][time_slot][branch] is not None):
-                        branch_has_exam_today = True
-                        break
-            
-            # If branch already has an exam today, skip this date entirely
-            if branch_has_exam_today:
-                continue
-            
-            # Now check for available slots on this date (branch has no exams today)
-            # Check preferred time slot first
-            if preferred_time_slot:
-                if (date_str in self.schedule_grid and 
-                    preferred_time_slot in self.schedule_grid[date_str]):
-                    if self.schedule_grid[date_str][preferred_time_slot].get(branch) is None:
-                        return date_str, preferred_time_slot
-            
-            # Check all time slots if preferred slot wasn't available
-            for time_slot in self.time_slots:
-                if date_str not in self.schedule_grid:
-                    return date_str, time_slot
-                    
-                if time_slot not in self.schedule_grid[date_str]:
-                    return date_str, time_slot
-                    
-                if self.schedule_grid[date_str][time_slot].get(branch) is None:
-                    return date_str, time_slot
-        
-        return None, None
-    
-    def initialize_grid_with_empty_days(self, start_date, num_days=40):
-        """Pre-populate grid with empty days"""
+    def initialize_comprehensive_grid(self, start_date, num_days=60):
+        """Initialize a comprehensive grid starting from start_date"""
         current_date = start_date
-        for _ in range(num_days):
+        days_added = 0
+        
+        while days_added < num_days:
             if current_date.weekday() != 6 and current_date.date() not in self.holidays:
                 date_str = current_date.strftime("%d-%m-%Y")
                 if date_str not in self.schedule_grid:
@@ -357,7 +299,17 @@ class RealTimeOptimizer:
                 for time_slot in self.time_slots:
                     if time_slot not in self.schedule_grid[date_str]:
                         self.schedule_grid[date_str][time_slot] = {branch: None for branch in self.branches}
+                days_added += 1
             current_date += timedelta(days=1)
+    
+    def add_exam_to_grid(self, date_str, time_slot, branch, subject):
+        """Add an exam to the schedule grid"""
+        if date_str not in self.schedule_grid:
+            self.schedule_grid[date_str] = {}
+        if time_slot not in self.schedule_grid[date_str]:
+            self.schedule_grid[date_str][time_slot] = {}
+        self.schedule_grid[date_str][time_slot][branch] = subject
+        self.moves_made += 1
     
     def get_schedule_summary(self):
         """Get a summary of the current schedule"""
@@ -377,6 +329,7 @@ class RealTimeOptimizer:
             'empty_slots': total_slots - filled_slots,
             'utilization': (filled_slots / total_slots * 100) if total_slots > 0 else 0
         }
+        
 
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
@@ -925,10 +878,12 @@ def parse_date_safely(date_input, input_format="%d-%m-%Y"):
     
     return pd.to_datetime(date_input, errors='coerce')
 
-def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_date, exam_days, optimizer, schedule_by_difficulty=False):
-    """Enhanced scheduling that ensures only one exam per day per branch (subbranch)"""
+def schedule_semester_with_gap_filling(df_sem, holidays, base_date, exam_days, optimizer, schedule_by_difficulty=False):
+    """
+    Enhanced semester scheduling that aggressively fills gaps and starts from base_date
+    """
     
-    # Get semester time slot
+    # Get semester time slot preference
     sem = df_sem["Semester"].iloc[0]
     if sem % 2 != 0:
         odd_sem_position = (sem + 1) // 2
@@ -939,210 +894,93 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
     
     st.write(f"📋 Semester {sem} - Preferred slot: {preferred_slot}")
     
-    # CRITICAL DEBUG: Show exam_days state at start of semester processing
-    st.write(f"🔍 DEBUG: exam_days state at start of Semester {sem}:")
-    for branch in df_sem['Branch'].unique():
-        if branch in exam_days and exam_days[branch]:
-            date_strs = [d.strftime("%d-%m-%Y") for d in sorted(exam_days[branch])]
-            st.write(f"  {branch}: {', '.join(date_strs)}")
-        else:
-            st.write(f"  {branch}: No exams scheduled yet")
-    
-    # Schedule COMP subjects
+    def find_earliest_gap_or_slot(branch, start_from=None):
+        """Find the earliest available slot for a branch, prioritizing gaps"""
+        search_start = start_from if start_from else base_date
+        
+        # Get all dates in chronological order
+        all_dates = sorted(optimizer.schedule_grid.keys(), 
+                         key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+        
+        # First pass: Look for gaps in early dates
+        for date_str in all_dates:
+            date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+            
+            if date_obj < search_start:
+                continue
+                
+            if date_obj.weekday() == 6 or date_obj.date() in holidays:
+                continue
+            
+            # Check if this branch has no exam on this date
+            if date_obj.date() not in exam_days[branch]:
+                # Additional check in the grid
+                if (date_str in optimizer.schedule_grid and 
+                    preferred_slot in optimizer.schedule_grid[date_str] and
+                    branch in optimizer.schedule_grid[date_str][preferred_slot] and
+                    optimizer.schedule_grid[date_str][preferred_slot][branch] is None):
+                    return date_str, preferred_slot
+        
+        # Second pass: Extend beyond current grid if needed
+        current_date = search_start
+        max_attempts = 100
+        attempts = 0
+        
+        while attempts < max_attempts:
+            attempts += 1
+            if current_date.weekday() != 6 and current_date.date() not in holidays:
+                if current_date.date() not in exam_days[branch]:
+                    date_str = current_date.strftime("%d-%m-%Y")
+                    return date_str, preferred_slot
+            current_date += timedelta(days=1)
+        
+        return None, None
+
+    # Schedule COMP individual subjects with gap-filling
     comp_subjects = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     
-    st.write(f"🔧 Scheduling {len(comp_subjects)} individual COMP subjects...")
+    st.write(f"🔧 Gap-filling scheduling for {len(comp_subjects)} individual COMP subjects...")
     
     for idx, row in comp_subjects.iterrows():
-        branch = row['Branch']  # This is MainBranch-SubBranch
+        branch = row['Branch']
         subject = row['Subject']
         
-        st.write(f"  📝 Processing: {subject} for {branch}")
+        date_str, time_slot = find_earliest_gap_or_slot(branch, base_date)
         
-        # Find next available day where this branch has NO exam
-        current_date = base_date
-        scheduled = False
-        attempts = 0
-        max_attempts = 100  # Prevent infinite loops
-        
-        while not scheduled and attempts < max_attempts:
-            attempts += 1
-            date_str = current_date.strftime("%d-%m-%Y")
-            
-            # Skip weekends and holidays
-            if current_date.weekday() == 6 or current_date.date() in holidays:
-                current_date += timedelta(days=1)
-                continue
-            
-            # CRITICAL: Check if this branch already has an exam on this date
-            branch_has_exam_today = current_date.date() in exam_days[branch]
-            
-            # Additional check: verify the optimizer grid is also free for this specific branch and time slot
-            grid_conflict = False
-            if date_str in optimizer.schedule_grid and preferred_slot in optimizer.schedule_grid[date_str]:
-                if branch in optimizer.schedule_grid[date_str][preferred_slot]:
-                    if optimizer.schedule_grid[date_str][preferred_slot][branch] is not None:
-                        grid_conflict = True
-                        existing_subject = optimizer.schedule_grid[date_str][preferred_slot][branch]
-                        st.write(f"    ⚠️ Grid conflict: {existing_subject} already scheduled for {branch} on {date_str}")
-            
-            # ENHANCED CHECK: Also verify no other subject is already scheduled for this branch on this date in the current dataframe
-            df_conflict = False
-            already_scheduled_mask = (df_sem['Branch'] == branch) & (df_sem['Exam Date'] == date_str)
-            if already_scheduled_mask.any():
-                existing_subjects = df_sem[already_scheduled_mask]['Subject'].tolist()
-                if existing_subjects and existing_subjects[0] != subject:  # Different subject already scheduled
-                    df_conflict = True
-                    st.write(f"    ⚠️ DataFrame conflict: {existing_subjects[0]} already scheduled for {branch} on {date_str}")
-            
-            if not branch_has_exam_today and not grid_conflict and not df_conflict:
-                # This branch has no exam on this date - schedule it
-                df_sem.at[idx, 'Exam Date'] = date_str
-                df_sem.at[idx, 'Time Slot'] = preferred_slot
-                optimizer.add_exam_to_grid(date_str, preferred_slot, branch, subject)
-                exam_days[branch].add(current_date.date())
-                scheduled = True
-                st.write(f"    ✅ Scheduled {subject} for {branch} on {date_str}")
-                optimizer.optimization_log.append(f"✅ Scheduled COMP {subject} for {branch} on {date_str}")
-                optimizer.moves_made += 1
-            else:
-                # Conflict detected - try next day
-                if branch_has_exam_today:
-                    st.write(f"    ⏭️ {branch} already has exam on {date_str} (exam_days check)")
-                current_date += timedelta(days=1)
-        
-        if not scheduled:
-            st.error(f"❌ Could not schedule COMP subject {subject} for {branch} after {max_attempts} attempts")
-    
-    # Schedule ELEC subjects - SAME ENHANCED LOGIC
+        if date_str and time_slot:
+            df_sem.at[idx, 'Exam Date'] = date_str
+            df_sem.at[idx, 'Time Slot'] = time_slot
+            optimizer.add_exam_to_grid(date_str, time_slot, branch, subject)
+            exam_days[branch].add(datetime.strptime(date_str, "%d-%m-%Y").date())
+            st.write(f"    ✅ {subject} → {branch} on {date_str}")
+        else:
+            st.error(f"    ❌ Could not schedule {subject} for {branch}")
+
+    # Schedule ELEC individual subjects with gap-filling
     elec_subjects = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     
-    st.write(f"🔧 Scheduling {len(elec_subjects)} individual ELEC subjects...")
+    st.write(f"🔧 Gap-filling scheduling for {len(elec_subjects)} individual ELEC subjects...")
     
     for idx, row in elec_subjects.iterrows():
-        branch = row['Branch']  # This is MainBranch-SubBranch
+        branch = row['Branch']
         subject = row['Subject']
         
-        st.write(f"  📝 Processing: {subject} for {branch}")
+        date_str, time_slot = find_earliest_gap_or_slot(branch, base_date)
         
-        # Find next available day where this branch has NO exam
-        current_date = base_date
-        scheduled = False
-        attempts = 0
-        max_attempts = 100  # Prevent infinite loops
-        
-        while not scheduled and attempts < max_attempts:
-            attempts += 1
-            date_str = current_date.strftime("%d-%m-%Y")
-            
-            # Skip weekends and holidays
-            if current_date.weekday() == 6 or current_date.date() in holidays:
-                current_date += timedelta(days=1)
-                continue
-            
-            # CRITICAL: Check if this branch already has an exam on this date
-            branch_has_exam_today = current_date.date() in exam_days[branch]
-            
-            # Additional check: verify the optimizer grid is also free for this specific branch and time slot
-            grid_conflict = False
-            if date_str in optimizer.schedule_grid and preferred_slot in optimizer.schedule_grid[date_str]:
-                if branch in optimizer.schedule_grid[date_str][preferred_slot]:
-                    if optimizer.schedule_grid[date_str][preferred_slot][branch] is not None:
-                        grid_conflict = True
-                        existing_subject = optimizer.schedule_grid[date_str][preferred_slot][branch]
-                        st.write(f"    ⚠️ Grid conflict: {existing_subject} already scheduled for {branch} on {date_str}")
-            
-            # ENHANCED CHECK: Also verify no other subject is already scheduled for this branch on this date in the current dataframe
-            df_conflict = False
-            already_scheduled_mask = (df_sem['Branch'] == branch) & (df_sem['Exam Date'] == date_str)
-            if already_scheduled_mask.any():
-                existing_subjects = df_sem[already_scheduled_mask]['Subject'].tolist()
-                if existing_subjects and existing_subjects[0] != subject:  # Different subject already scheduled
-                    df_conflict = True
-                    st.write(f"    ⚠️ DataFrame conflict: {existing_subjects[0]} already scheduled for {branch} on {date_str}")
-            
-            if not branch_has_exam_today and not grid_conflict and not df_conflict:
-                # This branch has no exam on this date - schedule it
-                df_sem.at[idx, 'Exam Date'] = date_str
-                df_sem.at[idx, 'Time Slot'] = preferred_slot
-                optimizer.add_exam_to_grid(date_str, preferred_slot, branch, subject)
-                exam_days[branch].add(current_date.date())
-                scheduled = True
-                st.write(f"    ✅ Scheduled {subject} for {branch} on {date_str}")
-                optimizer.optimization_log.append(f"✅ Scheduled ELEC {subject} for {branch} on {date_str}")
-                optimizer.moves_made += 1
-            else:
-                # Conflict detected - try next day
-                if branch_has_exam_today:
-                    st.write(f"    ⏭️ {branch} already has exam on {date_str} (exam_days check)")
-                current_date += timedelta(days=1)
-        
-        if not scheduled:
-            st.error(f"❌ Could not schedule ELEC subject {subject} for {branch} after {max_attempts} attempts")
-    
-    # Assign time slot to any remaining exams (safety net)
+        if date_str and time_slot:
+            df_sem.at[idx, 'Exam Date'] = date_str
+            df_sem.at[idx, 'Time Slot'] = time_slot
+            optimizer.add_exam_to_grid(date_str, time_slot, branch, subject)
+            exam_days[branch].add(datetime.strptime(date_str, "%d-%m-%Y").date())
+            st.write(f"    ✅ {subject} → {branch} on {date_str}")
+        else:
+            st.error(f"    ❌ Could not schedule {subject} for {branch}")
+
+    # Assign time slot to any remaining exams
     df_sem.loc[df_sem['Time Slot'] == "", 'Time Slot'] = preferred_slot
     
-    # Final check - ensure no exam is left unscheduled
-    unscheduled = df_sem[df_sem['Exam Date'] == ""]
-    if not unscheduled.empty:
-        st.warning(f"⚠️ {len(unscheduled)} subjects remain unscheduled in semester {sem}")
-        # Force schedule them on empty days
-        for idx, row in unscheduled.iterrows():
-            branch = row['Branch']
-            subject = row['Subject']
-            current_date = base_date
-            
-            force_attempts = 0
-            max_force_attempts = 200
-            force_scheduled = False
-            
-            st.write(f"🔧 Force scheduling: {subject} for {branch}")
-            
-            while force_attempts < max_force_attempts and not force_scheduled:
-                force_attempts += 1
-                date_str = current_date.strftime("%d-%m-%Y")
-                if current_date.weekday() != 6 and current_date.date() not in holidays:
-                    # CRITICAL: Force schedule only on days with no exams for this branch
-                    branch_has_exam_today = current_date.date() in exam_days[branch]
-                    
-                    # Double check the grid
-                    grid_conflict = False
-                    if date_str in optimizer.schedule_grid and preferred_slot in optimizer.schedule_grid[date_str]:
-                        if branch in optimizer.schedule_grid[date_str][preferred_slot]:
-                            if optimizer.schedule_grid[date_str][preferred_slot][branch] is not None:
-                                grid_conflict = True
-                    
-                    # Check dataframe for existing scheduled subjects
-                    df_conflict = False
-                    already_scheduled_mask = (df_sem['Branch'] == branch) & (df_sem['Exam Date'] == date_str)
-                    if already_scheduled_mask.any():
-                        existing_subjects = df_sem[already_scheduled_mask]['Subject'].tolist()
-                        if existing_subjects and existing_subjects[0] != subject:
-                            df_conflict = True
-                    
-                    if not branch_has_exam_today and not grid_conflict and not df_conflict:
-                        df_sem.at[idx, 'Exam Date'] = date_str
-                        df_sem.at[idx, 'Time Slot'] = preferred_slot
-                        optimizer.add_exam_to_grid(date_str, preferred_slot, branch, subject)
-                        exam_days[branch].add(current_date.date())
-                        optimizer.optimization_log.append(f"🔧 Force scheduled {subject} for {branch} on {date_str}")
-                        st.write(f"    ✅ Force scheduled {subject} for {branch} on {date_str}")
-                        force_scheduled = True
-                
-                if not force_scheduled:
-                    current_date += timedelta(days=1)
-            
-            if not force_scheduled:
-                st.error(f"❌ Failed to force schedule {subject} for {branch} after {max_force_attempts} attempts")
-    
-    # FINAL DEBUG: Show final schedule for this semester
-    st.write(f"🏁 Final schedule for Semester {sem}:")
-    scheduled_subjects = df_sem[df_sem['Exam Date'] != ""]
-    for _, row in scheduled_subjects.iterrows():
-        st.write(f"  {row['Branch']}: {row['Subject']} on {row['Exam Date']} at {row['Time Slot']}")
-    
     return df_sem
+
 
 
 def process_constraints_with_real_time_optimization(df, holidays, base_date, schedule_by_difficulty=False):
@@ -1408,325 +1246,283 @@ def find_next_valid_day_for_electives(start_day, holidays):
         return day
 
 
-def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
+def process_constraints_with_optimized_scheduling(df, holidays, base_date, schedule_by_difficulty=False):
     """
-    After main scheduling, check if OE subjects can be moved to earlier empty slots.
-    CRITICAL: OE2 must be scheduled on the day immediately after OE1/OE5.
+    Enhanced scheduling that starts from base_date and minimizes gaps between exam days
     """
-    if not sem_dict:
-        return sem_dict
+    # Initialize exam_days for all branches
+    all_branches = df['Branch'].unique()
+    exam_days = {branch: set() for branch in all_branches}
     
-    st.info("🎯 Optimizing Open Elective (OE) placement...")
+    # Enhanced optimizer with better gap-filling capabilities
+    optimizer = EnhancedRealTimeOptimizer(all_branches, holidays)
+    optimizer.initialize_comprehensive_grid(base_date, num_days=60)
     
-    # Combine all data to analyze the schedule
-    all_data = pd.concat(sem_dict.values(), ignore_index=True)
+    st.info(f"🔧 Optimized scheduling {len(df)} subjects across {len(all_branches)} branches from {base_date.strftime('%d-%m-%Y')}...")
     
-    # CRITICAL FIX: Ensure all dates are in DD-MM-YYYY string format BEFORE any processing
-    def normalize_date_to_ddmmyyyy(date_val):
-        """Convert any date format to DD-MM-YYYY string format"""
-        if pd.isna(date_val) or date_val == "":
-            return ""
+    # Helper function to find the absolute earliest available slot
+    def find_earliest_possible_slot(branches_list, start_from_date=None):
+        """Find the earliest possible slot for given branches, starting from base_date or specified date"""
+        search_start = start_from_date if start_from_date else base_date
         
-        if isinstance(date_val, pd.Timestamp):
-            return date_val.strftime("%d-%m-%Y")
-        elif isinstance(date_val, str):
-            # Try to parse with DD-MM-YYYY first
-            try:
-                parsed = pd.to_datetime(date_val, format="%d-%m-%Y", errors='raise')
-                return parsed.strftime("%d-%m-%Y")
-            except:
-                try:
-                    # Use dayfirst=True to ensure DD-MM-YYYY interpretation
-                    parsed = pd.to_datetime(date_val, dayfirst=True, errors='raise')
-                    return parsed.strftime("%d-%m-%Y")
-                except:
-                    return str(date_val)
-        else:
-            try:
-                parsed = pd.to_datetime(date_val, errors='coerce')
-                if pd.notna(parsed):
-                    return parsed.strftime("%d-%m-%Y")
-                else:
-                    return str(date_val)
-            except:
-                return str(date_val)
-    
-    # Apply date normalization to all data
-    all_data['Exam Date'] = all_data['Exam Date'].apply(normalize_date_to_ddmmyyyy)
-    
-    # Separate OE and non-OE data
-    oe_data = all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != "")]
-    non_oe_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
-    
-    if oe_data.empty:
-        st.info("No OE subjects to optimize")
-        return sem_dict
-    
-    # Build complete schedule grid from current state
-    schedule_grid = {}
-    branches = all_data['Branch'].unique()
-    
-    # First, populate with all scheduled exams
-    for _, row in all_data.iterrows():
-        if pd.notna(row['Exam Date']) and row['Exam Date'].strip() != "":
-            date_str = row['Exam Date']  # Already normalized above
+        # Get all available dates from the grid, sorted chronologically
+        available_dates = sorted(optimizer.schedule_grid.keys(), 
+                               key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+        
+        for date_str in available_dates:
+            date_obj = datetime.strptime(date_str, "%d-%m-%Y")
             
-            if date_str not in schedule_grid:
-                schedule_grid[date_str] = {}
-            if row['Time Slot'] not in schedule_grid[date_str]:
-                schedule_grid[date_str][row['Time Slot']] = {}
-            schedule_grid[date_str][row['Time Slot']][row['Branch']] = row['Subject']
-    
-    # Find all dates in the schedule
-    all_dates = sorted(schedule_grid.keys(), 
-                      key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
-    
-    if not all_dates:
-        return sem_dict
-    
-    # Get date range
-    start_date = datetime.strptime(all_dates[0], "%d-%m-%Y")
-    end_date = datetime.strptime(all_dates[-1], "%d-%m-%Y")
-    
-    # Fill in empty days in the grid
-    current_date = start_date
-    while current_date <= end_date:
-        if current_date.weekday() != 6 and current_date.date() not in holidays:
-            date_str = current_date.strftime("%d-%m-%Y")
-            if date_str not in schedule_grid:
-                schedule_grid[date_str] = {}
-            for time_slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
-                if time_slot not in schedule_grid[date_str]:
-                    schedule_grid[date_str][time_slot] = {branch: None for branch in branches}
-        current_date += timedelta(days=1)
-    
-    # Group OE subjects by type and date - dates are already normalized
-    oe_data_copy = oe_data.copy()
-    
-    # Get current OE1/OE5 and OE2 dates
-    oe1_oe5_data = oe_data_copy[oe_data_copy['OE'].isin(['OE1', 'OE5'])]
-    oe2_data = oe_data_copy[oe_data_copy['OE'] == 'OE2']
-    
-    moves_made = 0
-    optimization_log = []
-    
-    # Process OE1/OE5 together (they should always be on the same date/time)
-    if not oe1_oe5_data.empty:
-        # Get current OE1/OE5 date
-        current_oe1_oe5_date = oe1_oe5_data['Exam Date'].iloc[0]
-        current_oe1_oe5_slot = oe1_oe5_data['Time Slot'].iloc[0]
-        current_oe1_oe5_date_obj = datetime.strptime(current_oe1_oe5_date, "%d-%m-%Y")
-        
-        affected_branches = oe1_oe5_data['Branch'].unique()
-        
-        # Find earlier slots that are empty for ALL branches with OE1/OE5
-        best_oe1_oe5_date = None
-        best_oe1_oe5_slot = None
-        
-        sorted_dates = sorted(schedule_grid.keys(), 
-                            key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
-        
-        for check_date_str in sorted_dates:
-            check_date_obj = datetime.strptime(check_date_str, "%d-%m-%Y")
-            
-            # Only look for earlier dates
-            if check_date_obj >= current_oe1_oe5_date_obj:
-                break
-            
+            # Only consider dates from our search start date
+            if date_obj < search_start:
+                continue
+                
             # Skip weekends and holidays
-            if check_date_obj.weekday() == 6 or check_date_obj.date() in holidays:
+            if date_obj.weekday() == 6 or date_obj.date() in holidays:
                 continue
             
-            # Check if the day immediately after this date is also valid for OE2
-            next_day = find_next_valid_day_for_electives(check_date_obj + timedelta(days=1), holidays)
-            next_day_str = next_day.strftime("%d-%m-%Y")
+            # Check if ALL required branches are free on this date
+            all_branches_free = True
+            for branch in branches_list:
+                if date_obj.date() in exam_days[branch]:
+                    all_branches_free = False
+                    break
             
-            # Check both time slots for OE1/OE5
-            for time_slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
-                can_move_oe1_oe5 = True
-                
-                # Check if this slot is empty for all OE1/OE5 branches
-                for branch in affected_branches:
-                    if (check_date_str in schedule_grid and 
-                        time_slot in schedule_grid[check_date_str] and
-                        branch in schedule_grid[check_date_str][time_slot] and
-                        schedule_grid[check_date_str][time_slot][branch] is not None):
-                        can_move_oe1_oe5 = False
-                        break
-                
-                if can_move_oe1_oe5:
-                    # Now check if OE2 can be scheduled on the next day
-                    if not oe2_data.empty:
-                        oe2_branches = oe2_data['Branch'].unique()
-                        can_move_oe2 = False
-                        
-                        # Check both time slots for OE2 on the next day
-                        for oe2_slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
-                            oe2_can_fit = True
-                            for oe2_branch in oe2_branches:
-                                if (next_day_str in schedule_grid and 
-                                    oe2_slot in schedule_grid[next_day_str] and
-                                    oe2_branch in schedule_grid[next_day_str][oe2_slot] and
-                                    schedule_grid[next_day_str][oe2_slot][oe2_branch] is not None):
-                                    oe2_can_fit = False
-                                    break
-                            
-                            if oe2_can_fit:
-                                can_move_oe2 = True
-                                best_oe2_slot = oe2_slot
-                                break
-                        
-                        if can_move_oe2:
-                            best_oe1_oe5_date = check_date_str
-                            best_oe1_oe5_slot = time_slot
-                            best_oe2_date = next_day_str
-                            break
-                    else:
-                        # No OE2 to worry about
-                        best_oe1_oe5_date = check_date_str
-                        best_oe1_oe5_slot = time_slot
-                        break
-            
-            if best_oe1_oe5_date:
-                break
+            if all_branches_free:
+                return date_obj
         
-        # If we found a better slot for OE1/OE5, move them and OE2
-        if best_oe1_oe5_date and best_oe1_oe5_date != current_oe1_oe5_date:
-            days_saved = (current_oe1_oe5_date_obj - datetime.strptime(best_oe1_oe5_date, "%d-%m-%Y")).days
-            
-            # Update all OE1/OE5 exams
-            for idx in oe1_oe5_data.index:
-                sem = all_data.at[idx, 'Semester']
-                branch = all_data.at[idx, 'Branch']
-                subject = all_data.at[idx, 'Subject']
-                
-                # Update in the semester dictionary - ENSURE DD-MM-YYYY format
-                mask = (sem_dict[sem]['Subject'] == subject) & \
-                       (sem_dict[sem]['Branch'] == branch)
-                sem_dict[sem].loc[mask, 'Exam Date'] = best_oe1_oe5_date
-                sem_dict[sem].loc[mask, 'Time Slot'] = best_oe1_oe5_slot
-                
-                # Update schedule grid
-                # Remove from old position
-                if (current_oe1_oe5_date in schedule_grid and 
-                    current_oe1_oe5_slot in schedule_grid[current_oe1_oe5_date] and
-                    branch in schedule_grid[current_oe1_oe5_date][current_oe1_oe5_slot]):
-                    schedule_grid[current_oe1_oe5_date][current_oe1_oe5_slot][branch] = None
-                
-                # Add to new position
-                if best_oe1_oe5_date not in schedule_grid:
-                    schedule_grid[best_oe1_oe5_date] = {}
-                if best_oe1_oe5_slot not in schedule_grid[best_oe1_oe5_date]:
-                    schedule_grid[best_oe1_oe5_date][best_oe1_oe5_slot] = {}
-                schedule_grid[best_oe1_oe5_date][best_oe1_oe5_slot][branch] = subject
-            
-            # Update all OE2 exams to the day immediately after OE1/OE5
-            if not oe2_data.empty:
-                current_oe2_date = oe2_data['Exam Date'].iloc[0]
-                current_oe2_slot = oe2_data['Time Slot'].iloc[0]
-                
-                for idx in oe2_data.index:
-                    sem = all_data.at[idx, 'Semester']
-                    branch = all_data.at[idx, 'Branch']
-                    subject = all_data.at[idx, 'Subject']
-                    
-                    # Update in the semester dictionary - ENSURE DD-MM-YYYY format
-                    mask = (sem_dict[sem]['Subject'] == subject) & \
-                           (sem_dict[sem]['Branch'] == branch)
-                    sem_dict[sem].loc[mask, 'Exam Date'] = best_oe2_date
-                    sem_dict[sem].loc[mask, 'Time Slot'] = best_oe2_slot
-                    
-                    # Update schedule grid
-                    # Remove from old position
-                    if (current_oe2_date in schedule_grid and 
-                        current_oe2_slot in schedule_grid[current_oe2_date] and
-                        branch in schedule_grid[current_oe2_date][current_oe2_slot]):
-                        schedule_grid[current_oe2_date][current_oe2_slot][branch] = None
-                    
-                    # Add to new position
-                    if best_oe2_date not in schedule_grid:
-                        schedule_grid[best_oe2_date] = {}
-                    if best_oe2_slot not in schedule_grid[best_oe2_date]:
-                        schedule_grid[best_oe2_date][best_oe2_slot] = {}
-                    schedule_grid[best_oe2_date][best_oe2_slot][branch] = subject
-            
-            moves_made += 1
-            optimization_log.append(
-                f"Moved OE1/OE5 from {current_oe1_oe5_date} to {best_oe1_oe5_date} (saved {days_saved} days)"
-            )
-            if not oe2_data.empty:
-                optimization_log.append(
-                    f"Moved OE2 to {best_oe2_date} (day immediately after OE1/OE5)"
-                )
+        # If no slot found in existing grid, extend the search
+        current_date = search_start
+        max_attempts = 100
+        attempts = 0
+        
+        while attempts < max_attempts:
+            attempts += 1
+            if current_date.weekday() != 6 and current_date.date() not in holidays:
+                # Check if all branches are free
+                all_free = all(current_date.date() not in exam_days[branch] for branch in branches_list)
+                if all_free:
+                    return current_date
+            current_date += timedelta(days=1)
+        
+        return None
+
+    # Count subjects by category for progress tracking
+    comp_common = len(df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')])
+    comp_individual = len(df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'NO')])
+    elec_common = len(df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')])
+    elec_individual = len(df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'NO')])
     
-    # CRITICAL: After OE optimization, ensure all dates in sem_dict are properly formatted
-    for sem in sem_dict:
-        sem_dict[sem]['Exam Date'] = sem_dict[sem]['Exam Date'].apply(normalize_date_to_ddmmyyyy)
+    st.write(f"📊 Subject distribution: COMP (Common: {comp_common}, Individual: {comp_individual}), ELEC (Common: {elec_common}, Individual: {elec_individual})")
+
+    # PHASE 1: Schedule common COMP subjects - START FROM BASE DATE
+    st.write("🚀 PHASE 1: Scheduling common COMP subjects from base date...")
+    common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     
-    if moves_made > 0:
-        st.success(f"✅ OE Optimization: Moved {moves_made} OE groups with OE2 immediately after OE1/OE5!")
+    for module_code, group in common_comp.groupby('ModuleCode'):
+        branches = group['Branch'].unique()
+        subject = group['Subject'].iloc[0]
         
-        # Add debug information AFTER optimization
-        combined_data_after = pd.concat(sem_dict.values(), ignore_index=True)
-        oe_data_after = combined_data_after[combined_data_after['OE'].notna() & (combined_data_after['OE'].str.strip() != "")]
+        # Find the earliest possible slot from base_date
+        exam_day = find_earliest_possible_slot(branches, base_date)
         
-        if not oe_data_after.empty:
-            oe1_oe5_after = oe_data_after[oe_data_after['OE'].isin(['OE1', 'OE5'])]
-            oe2_after = oe_data_after[oe_data_after['OE'] == 'OE2']
-            
-            if not oe1_oe5_after.empty:
-                oe1_oe5_date_after = oe1_oe5_after['Exam Date'].iloc[0]
-                try:
-                    parsed_date = datetime.strptime(oe1_oe5_date_after, "%d-%m-%Y")
-                    readable_date = parsed_date.strftime("%d %B %Y")
-                    st.write(f"🔍 Debug - OE1/OE5 final date: {oe1_oe5_date_after} (should be {readable_date})")
-                except:
-                    st.write(f"🔍 Debug - OE1/OE5 final date: {oe1_oe5_date_after} (parsing failed)")
-            
-            if not oe2_after.empty:
-                oe2_date_after = oe2_after['Exam Date'].iloc[0]
-                try:
-                    parsed_date = datetime.strptime(oe2_date_after, "%d-%m-%Y")
-                    readable_date = parsed_date.strftime("%d %B %Y")
-                    st.write(f"🔍 Debug - OE2 final date: {oe2_date_after} (should be {readable_date})")
-                except:
-                    st.write(f"🔍 Debug - OE2 final date: {oe2_date_after} (parsing failed)")
+        if exam_day is None:
+            st.error(f"❌ Could not schedule common COMP {subject}")
+            continue
         
-        with st.expander("📝 OE Optimization Details"):
-            for log in optimization_log:
-                st.write(f"• {log}")
-    else:
-        st.info("ℹ️ OE subjects are already optimally placed")
+        # Determine time slot based on semester
+        min_sem = group['Semester'].min()
+        if min_sem % 2 != 0:
+            odd_sem_position = (min_sem + 1) // 2
+            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        else:
+            even_sem_position = min_sem // 2
+            slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         
-        # Still show debug info even if no moves were made
-        combined_data_after = pd.concat(sem_dict.values(), ignore_index=True)
-        oe_data_after = combined_data_after[combined_data_after['OE'].notna() & (combined_data_after['OE'].str.strip() != "")]
+        date_str = exam_day.strftime("%d-%m-%Y")
         
-        if not oe_data_after.empty:
-            oe1_oe5_after = oe_data_after[oe_data_after['OE'].isin(['OE1', 'OE5'])]
-            oe2_after = oe_data_after[oe_data_after['OE'] == 'OE2']
-            
-            if not oe1_oe5_after.empty:
-                oe1_oe5_date_after = oe1_oe5_after['Exam Date'].iloc[0]
-                try:
-                    parsed_date = datetime.strptime(oe1_oe5_date_after, "%d-%m-%Y")
-                    readable_date = parsed_date.strftime("%d %B %Y")
-                    st.write(f"🔍 Debug - OE1/OE5 current date: {oe1_oe5_date_after} (should be {readable_date})")
-                except:
-                    st.write(f"🔍 Debug - OE1/OE5 current date: {oe1_oe5_date_after} (parsing failed)")
-            
-            if not oe2_after.empty:
-                oe2_date_after = oe2_after['Exam Date'].iloc[0]
-                try:
-                    parsed_date = datetime.strptime(oe2_date_after, "%d-%m-%Y")
-                    readable_date = parsed_date.strftime("%d %B %Y")
-                    st.write(f"🔍 Debug - OE2 current date: {oe2_date_after} (should be {readable_date})")
-                except:
-                    st.write(f"🔍 Debug - OE2 current date: {oe2_date_after} (parsing failed)")
+        # Update ALL rows in the group
+        df.loc[group.index, 'Exam Date'] = date_str
+        df.loc[group.index, 'Time Slot'] = slot_str
+        
+        # Mark all branches as having an exam on this date
+        for branch in branches:
+            exam_days[branch].add(exam_day.date())
+            optimizer.add_exam_to_grid(date_str, slot_str, branch, subject)
+        
+        st.write(f"✅ Scheduled common COMP {subject} on {date_str} ({exam_day.strftime('%A')}) for {len(branches)} branches")
+
+    # PHASE 2: Schedule common ELEC subjects - CONTINUE FROM NEXT AVAILABLE
+    st.write("🚀 PHASE 2: Scheduling common ELEC subjects...")
+    common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     
+    for module_code, group in common_elec.groupby('ModuleCode'):
+        branches = group['Branch'].unique()
+        subject = group['Subject'].iloc[0]
+        
+        # Find the earliest possible slot from base_date
+        exam_day = find_earliest_possible_slot(branches, base_date)
+        
+        if exam_day is None:
+            st.error(f"❌ Could not schedule common ELEC {subject}")
+            continue
+        
+        # Determine time slot based on semester
+        min_sem = group['Semester'].min()
+        if min_sem % 2 != 0:
+            odd_sem_position = (min_sem + 1) // 2
+            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        else:
+            even_sem_position = min_sem // 2
+            slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        
+        date_str = exam_day.strftime("%d-%m-%Y")
+        
+        # Update ALL rows in the group
+        df.loc[group.index, 'Exam Date'] = date_str
+        df.loc[group.index, 'Time Slot'] = slot_str
+        
+        # Mark all branches as having an exam on this date
+        for branch in branches:
+            exam_days[branch].add(exam_day.date())
+            optimizer.add_exam_to_grid(date_str, slot_str, branch, subject)
+        
+        st.write(f"✅ Scheduled common ELEC {subject} on {date_str} ({exam_day.strftime('%A')}) for {len(branches)} branches")
+
+    # PHASE 3: Schedule individual subjects per semester with gap-filling optimization
+    st.write("🚀 PHASE 3: Scheduling individual subjects with gap-filling optimization...")
+    
+    final_list = []
+    for sem in sorted(df["Semester"].unique()):
+        if sem == 0:
+            continue
+        df_sem = df[df["Semester"] == sem].copy()
+        if df_sem.empty:
+            continue
+
+        st.write(f"\n🔄 Processing Semester {sem} with optimized scheduling...")
+        
+        # Schedule semester with enhanced optimization
+        scheduled_sem = schedule_semester_with_gap_filling(
+            df_sem, holidays, base_date, exam_days, optimizer, schedule_by_difficulty
+        )
+        
+        # Validate scheduling
+        unscheduled_after = len(scheduled_sem[scheduled_sem['Exam Date'] == ""])
+        if unscheduled_after > 0:
+            st.warning(f"⚠️ Semester {sem}: {unscheduled_after} subjects remain unscheduled")
+        else:
+            st.success(f"✅ Semester {sem}: All subjects scheduled successfully")
+        
+        final_list.append(scheduled_sem)
+
+    if not final_list:
+        return {}
+
+    df_combined = pd.concat(final_list, ignore_index=True)
+    
+    # Remove duplicates and validate
+    df_combined_clean = df_combined.drop_duplicates(subset=['Branch', 'Exam Date', 'Subject', 'ModuleCode', 'Semester'])
+    
+    # Enhanced validation with gap analysis
+    validate_schedule_and_gaps(df_combined_clean, base_date, holidays)
+    
+    # Create semester dictionary
+    sem_dict = {}
+    for sem in sorted(df_combined_clean["Semester"].unique()):
+        sem_dict[sem] = df_combined_clean[df_combined_clean["Semester"] == sem].copy()
+
+    # Calculate and display optimization results
+    all_dates = pd.to_datetime(df_combined_clean['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+    if not all_dates.empty:
+        start_date = min(all_dates)
+        end_date = max(all_dates)
+        total_span = (end_date - start_date).days + 1
+        days_from_base = (start_date.date() - base_date.date()).days
+        
+        st.success(f"🎯 OPTIMIZATION RESULTS:")
+        st.write(f"   • First exam: {start_date.strftime('%d-%m-%Y')} ({days_from_base} days from base date)")
+        st.write(f"   • Last exam: {end_date.strftime('%d-%m-%Y')}")
+        st.write(f"   • Total span: {total_span} days")
+        
+        if days_from_base <= 2:
+            st.success(f"✅ Excellent! Scheduling starts within {days_from_base} days of base date")
+        elif days_from_base <= 5:
+            st.info(f"ℹ️ Good! Scheduling starts within {days_from_base} days of base date")
+        else:
+            st.warning(f"⚠️ Scheduling starts {days_from_base} days after base date - room for improvement")
+
     return sem_dict
 
+
+def validate_schedule_and_gaps(df_combined_clean, base_date, holidays):
+    """Enhanced validation that checks for gaps and scheduling efficiency"""
     
+    # Check for conflicts (multiple exams same day same branch same semester)
+    total_conflicts = 0
+    for sem in sorted(df_combined_clean['Semester'].unique()):
+        sem_data = df_combined_clean[df_combined_clean['Semester'] == sem]
+        validation_check = sem_data.groupby(['Branch', 'Exam Date']).size()
+        multiple_exams_same_day = validation_check[validation_check > 1]
+        
+        if not multiple_exams_same_day.empty:
+            total_conflicts += len(multiple_exams_same_day)
+    
+    if total_conflicts > 0:
+        st.error(f"❌ VALIDATION FAILED: Found {total_conflicts} scheduling conflicts!")
+    else:
+        st.success("✅ VALIDATION PASSED: No scheduling conflicts!")
+    
+    # Analyze gaps and efficiency
+    all_dates = pd.to_datetime(df_combined_clean['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+    if not all_dates.empty:
+        unique_exam_dates = sorted(all_dates.dt.date.unique())
+        
+        # Calculate gaps
+        gaps = []
+        gap_days = 0
+        
+        for i in range(len(unique_exam_dates) - 1):
+            current_date = unique_exam_dates[i]
+            next_date = unique_exam_dates[i + 1]
+            
+            # Count working days between (excluding weekends and holidays)
+            temp_date = current_date + timedelta(days=1)
+            gap_count = 0
+            
+            while temp_date < next_date:
+                if temp_date.weekday() != 6 and temp_date not in holidays:
+                    gap_count += 1
+                temp_date += timedelta(days=1)
+            
+            if gap_count > 0:
+                gaps.append((current_date.strftime('%d-%m-%Y'), next_date.strftime('%d-%m-%Y'), gap_count))
+                gap_days += gap_count
+        
+        # Display gap analysis
+        if gaps:
+            st.warning(f"⚠️ GAP ANALYSIS: Found {len(gaps)} gaps totaling {gap_days} working days")
+            with st.expander("View detailed gap analysis"):
+                for gap in gaps:
+                    st.write(f"• Gap between {gap[0]} and {gap[1]}: {gap[2]} working day(s)")
+        else:
+            st.success("✅ EXCELLENT: No gaps found between exam dates!")
+        
+        # Overall efficiency metrics
+        first_exam_date = min(all_dates).date()
+        last_exam_date = max(all_dates).date()
+        total_span = (last_exam_date - first_exam_date).days + 1
+        working_days_in_span = sum(1 for i in range(total_span) 
+                                 if (first_exam_date + timedelta(days=i)).weekday() != 6 
+                                 and (first_exam_date + timedelta(days=i)) not in holidays)
+        exam_days_count = len(unique_exam_dates)
+        efficiency = (exam_days_count / working_days_in_span * 100) if working_days_in_span > 0 else 0
+        
+        st.info(f"📊 EFFICIENCY METRICS:")
+        st.write(f"   • Exam days: {exam_days_count}")
+        st.write(f"   • Working days in span: {working_days_in_span}")
+        st.write(f"   • Schedule efficiency: {efficiency:.1f}%")
+        st.write(f"   • Gap days: {gap_days}")
+
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
@@ -2003,7 +1799,7 @@ def main():
 
                     if df_non_elec is not None and df_ele is not None:
                         st.write("Processing constraints...")
-                        non_elec_sched = process_constraints_with_real_time_optimization(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
+                        non_elec_sched = process_constraints_with_optimized_scheduling(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
                         st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
 
                         # Find the maximum date from non-elective exams
