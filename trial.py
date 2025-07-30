@@ -1523,6 +1523,324 @@ def validate_schedule_and_gaps(df_combined_clean, base_date, holidays):
         st.write(f"   • Schedule efficiency: {efficiency:.1f}%")
         st.write(f"   • Gap days: {gap_days}")
 
+def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
+    """
+    After main scheduling, check if OE subjects can be moved to earlier empty slots.
+    CRITICAL: OE2 must be scheduled on the day immediately after OE1/OE5.
+    """
+    if not sem_dict:
+        return sem_dict
+    
+    st.info("🎯 Optimizing Open Elective (OE) placement...")
+    
+    # Combine all data to analyze the schedule
+    all_data = pd.concat(sem_dict.values(), ignore_index=True)
+    
+    # CRITICAL FIX: Ensure all dates are in DD-MM-YYYY string format BEFORE any processing
+    def normalize_date_to_ddmmyyyy(date_val):
+        """Convert any date format to DD-MM-YYYY string format"""
+        if pd.isna(date_val) or date_val == "":
+            return ""
+        
+        if isinstance(date_val, pd.Timestamp):
+            return date_val.strftime("%d-%m-%Y")
+        elif isinstance(date_val, str):
+            # Try to parse with DD-MM-YYYY first
+            try:
+                parsed = pd.to_datetime(date_val, format="%d-%m-%Y", errors='raise')
+                return parsed.strftime("%d-%m-%Y")
+            except:
+                try:
+                    # Use dayfirst=True to ensure DD-MM-YYYY interpretation
+                    parsed = pd.to_datetime(date_val, dayfirst=True, errors='raise')
+                    return parsed.strftime("%d-%m-%Y")
+                except:
+                    return str(date_val)
+        else:
+            try:
+                parsed = pd.to_datetime(date_val, errors='coerce')
+                if pd.notna(parsed):
+                    return parsed.strftime("%d-%m-%Y")
+                else:
+                    return str(date_val)
+            except:
+                return str(date_val)
+    
+    # Apply date normalization to all data
+    all_data['Exam Date'] = all_data['Exam Date'].apply(normalize_date_to_ddmmyyyy)
+    
+    # Separate OE and non-OE data
+    oe_data = all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != "")]
+    non_oe_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
+    
+    if oe_data.empty:
+        st.info("No OE subjects to optimize")
+        return sem_dict
+    
+    # Build complete schedule grid from current state
+    schedule_grid = {}
+    branches = all_data['Branch'].unique()
+    
+    # First, populate with all scheduled exams
+    for _, row in all_data.iterrows():
+        if pd.notna(row['Exam Date']) and row['Exam Date'].strip() != "":
+            date_str = row['Exam Date']  # Already normalized above
+            
+            if date_str not in schedule_grid:
+                schedule_grid[date_str] = {}
+            if row['Time Slot'] not in schedule_grid[date_str]:
+                schedule_grid[date_str][row['Time Slot']] = {}
+            schedule_grid[date_str][row['Time Slot']][row['Branch']] = row['Subject']
+    
+    # Find all dates in the schedule
+    all_dates = sorted(schedule_grid.keys(), 
+                      key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+    
+    if not all_dates:
+        return sem_dict
+    
+    # Get date range
+    start_date = datetime.strptime(all_dates[0], "%d-%m-%Y")
+    end_date = datetime.strptime(all_dates[-1], "%d-%m-%Y")
+    
+    # Fill in empty days in the grid
+    current_date = start_date
+    while current_date <= end_date:
+        if current_date.weekday() != 6 and current_date.date() not in holidays:
+            date_str = current_date.strftime("%d-%m-%Y")
+            if date_str not in schedule_grid:
+                schedule_grid[date_str] = {}
+            for time_slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
+                if time_slot not in schedule_grid[date_str]:
+                    schedule_grid[date_str][time_slot] = {branch: None for branch in branches}
+        current_date += timedelta(days=1)
+    
+    # Group OE subjects by type and date - dates are already normalized
+    oe_data_copy = oe_data.copy()
+    
+    # Get current OE1/OE5 and OE2 dates
+    oe1_oe5_data = oe_data_copy[oe_data_copy['OE'].isin(['OE1', 'OE5'])]
+    oe2_data = oe_data_copy[oe_data_copy['OE'] == 'OE2']
+    
+    moves_made = 0
+    optimization_log = []
+    
+    # Process OE1/OE5 together (they should always be on the same date/time)
+    if not oe1_oe5_data.empty:
+        # Get current OE1/OE5 date
+        current_oe1_oe5_date = oe1_oe5_data['Exam Date'].iloc[0]
+        current_oe1_oe5_slot = oe1_oe5_data['Time Slot'].iloc[0]
+        current_oe1_oe5_date_obj = datetime.strptime(current_oe1_oe5_date, "%d-%m-%Y")
+        
+        affected_branches = oe1_oe5_data['Branch'].unique()
+        
+        # Find earlier slots that are empty for ALL branches with OE1/OE5
+        best_oe1_oe5_date = None
+        best_oe1_oe5_slot = None
+        
+        sorted_dates = sorted(schedule_grid.keys(), 
+                            key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+        
+        for check_date_str in sorted_dates:
+            check_date_obj = datetime.strptime(check_date_str, "%d-%m-%Y")
+            
+            # Only look for earlier dates
+            if check_date_obj >= current_oe1_oe5_date_obj:
+                break
+            
+            # Skip weekends and holidays
+            if check_date_obj.weekday() == 6 or check_date_obj.date() in holidays:
+                continue
+            
+            # Check if the day immediately after this date is also valid for OE2
+            next_day = find_next_valid_day_for_electives(check_date_obj + timedelta(days=1), holidays)
+            next_day_str = next_day.strftime("%d-%m-%Y")
+            
+            # Check both time slots for OE1/OE5
+            for time_slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
+                can_move_oe1_oe5 = True
+                
+                # Check if this slot is empty for all OE1/OE5 branches
+                for branch in affected_branches:
+                    if (check_date_str in schedule_grid and 
+                        time_slot in schedule_grid[check_date_str] and
+                        branch in schedule_grid[check_date_str][time_slot] and
+                        schedule_grid[check_date_str][time_slot][branch] is not None):
+                        can_move_oe1_oe5 = False
+                        break
+                
+                if can_move_oe1_oe5:
+                    # Now check if OE2 can be scheduled on the next day
+                    if not oe2_data.empty:
+                        oe2_branches = oe2_data['Branch'].unique()
+                        can_move_oe2 = False
+                        
+                        # Check both time slots for OE2 on the next day
+                        for oe2_slot in ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]:
+                            oe2_can_fit = True
+                            for oe2_branch in oe2_branches:
+                                if (next_day_str in schedule_grid and 
+                                    oe2_slot in schedule_grid[next_day_str] and
+                                    oe2_branch in schedule_grid[next_day_str][oe2_slot] and
+                                    schedule_grid[next_day_str][oe2_slot][oe2_branch] is not None):
+                                    oe2_can_fit = False
+                                    break
+                            
+                            if oe2_can_fit:
+                                can_move_oe2 = True
+                                best_oe2_slot = oe2_slot
+                                break
+                        
+                        if can_move_oe2:
+                            best_oe1_oe5_date = check_date_str
+                            best_oe1_oe5_slot = time_slot
+                            best_oe2_date = next_day_str
+                            break
+                    else:
+                        # No OE2 to worry about
+                        best_oe1_oe5_date = check_date_str
+                        best_oe1_oe5_slot = time_slot
+                        break
+            
+            if best_oe1_oe5_date:
+                break
+        
+        # If we found a better slot for OE1/OE5, move them and OE2
+        if best_oe1_oe5_date and best_oe1_oe5_date != current_oe1_oe5_date:
+            days_saved = (current_oe1_oe5_date_obj - datetime.strptime(best_oe1_oe5_date, "%d-%m-%Y")).days
+            
+            # Update all OE1/OE5 exams
+            for idx in oe1_oe5_data.index:
+                sem = all_data.at[idx, 'Semester']
+                branch = all_data.at[idx, 'Branch']
+                subject = all_data.at[idx, 'Subject']
+                
+                # Update in the semester dictionary - ENSURE DD-MM-YYYY format
+                mask = (sem_dict[sem]['Subject'] == subject) & \
+                       (sem_dict[sem]['Branch'] == branch)
+                sem_dict[sem].loc[mask, 'Exam Date'] = best_oe1_oe5_date
+                sem_dict[sem].loc[mask, 'Time Slot'] = best_oe1_oe5_slot
+                
+                # Update schedule grid
+                # Remove from old position
+                if (current_oe1_oe5_date in schedule_grid and 
+                    current_oe1_oe5_slot in schedule_grid[current_oe1_oe5_date] and
+                    branch in schedule_grid[current_oe1_oe5_date][current_oe1_oe5_slot]):
+                    schedule_grid[current_oe1_oe5_date][current_oe1_oe5_slot][branch] = None
+                
+                # Add to new position
+                if best_oe1_oe5_date not in schedule_grid:
+                    schedule_grid[best_oe1_oe5_date] = {}
+                if best_oe1_oe5_slot not in schedule_grid[best_oe1_oe5_date]:
+                    schedule_grid[best_oe1_oe5_date][best_oe1_oe5_slot] = {}
+                schedule_grid[best_oe1_oe5_date][best_oe1_oe5_slot][branch] = subject
+            
+            # Update all OE2 exams to the day immediately after OE1/OE5
+            if not oe2_data.empty:
+                current_oe2_date = oe2_data['Exam Date'].iloc[0]
+                current_oe2_slot = oe2_data['Time Slot'].iloc[0]
+                
+                for idx in oe2_data.index:
+                    sem = all_data.at[idx, 'Semester']
+                    branch = all_data.at[idx, 'Branch']
+                    subject = all_data.at[idx, 'Subject']
+                    
+                    # Update in the semester dictionary - ENSURE DD-MM-YYYY format
+                    mask = (sem_dict[sem]['Subject'] == subject) & \
+                           (sem_dict[sem]['Branch'] == branch)
+                    sem_dict[sem].loc[mask, 'Exam Date'] = best_oe2_date
+                    sem_dict[sem].loc[mask, 'Time Slot'] = best_oe2_slot
+                    
+                    # Update schedule grid
+                    # Remove from old position
+                    if (current_oe2_date in schedule_grid and 
+                        current_oe2_slot in schedule_grid[current_oe2_date] and
+                        branch in schedule_grid[current_oe2_date][current_oe2_slot]):
+                        schedule_grid[current_oe2_date][current_oe2_slot][branch] = None
+                    
+                    # Add to new position
+                    if best_oe2_date not in schedule_grid:
+                        schedule_grid[best_oe2_date] = {}
+                    if best_oe2_slot not in schedule_grid[best_oe2_date]:
+                        schedule_grid[best_oe2_date][best_oe2_slot] = {}
+                    schedule_grid[best_oe2_date][best_oe2_slot][branch] = subject
+            
+            moves_made += 1
+            optimization_log.append(
+                f"Moved OE1/OE5 from {current_oe1_oe5_date} to {best_oe1_oe5_date} (saved {days_saved} days)"
+            )
+            if not oe2_data.empty:
+                optimization_log.append(
+                    f"Moved OE2 to {best_oe2_date} (day immediately after OE1/OE5)"
+                )
+    
+    # CRITICAL: After OE optimization, ensure all dates in sem_dict are properly formatted
+    for sem in sem_dict:
+        sem_dict[sem]['Exam Date'] = sem_dict[sem]['Exam Date'].apply(normalize_date_to_ddmmyyyy)
+    
+    if moves_made > 0:
+        st.success(f"✅ OE Optimization: Moved {moves_made} OE groups with OE2 immediately after OE1/OE5!")
+        
+        # Add debug information AFTER optimization
+        combined_data_after = pd.concat(sem_dict.values(), ignore_index=True)
+        oe_data_after = combined_data_after[combined_data_after['OE'].notna() & (combined_data_after['OE'].str.strip() != "")]
+        
+        if not oe_data_after.empty:
+            oe1_oe5_after = oe_data_after[oe_data_after['OE'].isin(['OE1', 'OE5'])]
+            oe2_after = oe_data_after[oe_data_after['OE'] == 'OE2']
+            
+            if not oe1_oe5_after.empty:
+                oe1_oe5_date_after = oe1_oe5_after['Exam Date'].iloc[0]
+                try:
+                    parsed_date = datetime.strptime(oe1_oe5_date_after, "%d-%m-%Y")
+                    readable_date = parsed_date.strftime("%d %B %Y")
+                    st.write(f"🔍 Debug - OE1/OE5 final date: {oe1_oe5_date_after} (should be {readable_date})")
+                except:
+                    st.write(f"🔍 Debug - OE1/OE5 final date: {oe1_oe5_date_after} (parsing failed)")
+            
+            if not oe2_after.empty:
+                oe2_date_after = oe2_after['Exam Date'].iloc[0]
+                try:
+                    parsed_date = datetime.strptime(oe2_date_after, "%d-%m-%Y")
+                    readable_date = parsed_date.strftime("%d %B %Y")
+                    st.write(f"🔍 Debug - OE2 final date: {oe2_date_after} (should be {readable_date})")
+                except:
+                    st.write(f"🔍 Debug - OE2 final date: {oe2_date_after} (parsing failed)")
+        
+        with st.expander("📝 OE Optimization Details"):
+            for log in optimization_log:
+                st.write(f"• {log}")
+    else:
+        st.info("ℹ️ OE subjects are already optimally placed")
+        
+        # Still show debug info even if no moves were made
+        combined_data_after = pd.concat(sem_dict.values(), ignore_index=True)
+        oe_data_after = combined_data_after[combined_data_after['OE'].notna() & (combined_data_after['OE'].str.strip() != "")]
+        
+        if not oe_data_after.empty:
+            oe1_oe5_after = oe_data_after[oe_data_after['OE'].isin(['OE1', 'OE5'])]
+            oe2_after = oe_data_after[oe_data_after['OE'] == 'OE2']
+            
+            if not oe1_oe5_after.empty:
+                oe1_oe5_date_after = oe1_oe5_after['Exam Date'].iloc[0]
+                try:
+                    parsed_date = datetime.strptime(oe1_oe5_date_after, "%d-%m-%Y")
+                    readable_date = parsed_date.strftime("%d %B %Y")
+                    st.write(f"🔍 Debug - OE1/OE5 current date: {oe1_oe5_date_after} (should be {readable_date})")
+                except:
+                    st.write(f"🔍 Debug - OE1/OE5 current date: {oe1_oe5_date_after} (parsing failed)")
+            
+            if not oe2_after.empty:
+                oe2_date_after = oe2_after['Exam Date'].iloc[0]
+                try:
+                    parsed_date = datetime.strptime(oe2_date_after, "%d-%m-%Y")
+                    readable_date = parsed_date.strftime("%d %B %Y")
+                    st.write(f"🔍 Debug - OE2 current date: {oe2_date_after} (should be {readable_date})")
+                except:
+                    st.write(f"🔍 Debug - OE2 current date: {oe2_date_after} (parsing failed)")
+    
+    return sem_dict
+
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
