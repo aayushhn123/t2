@@ -1163,13 +1163,35 @@ def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_dat
         
         # Group by date to show utilization
         date_groups = scheduled_subjects.groupby('Exam Date')
-        sorted_dates = sorted(date_groups.groups.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
         
-        for date_str in sorted_dates:
-            group = date_groups.get_group(date_str)
+        # Safe date sorting - handle both string and Timestamp formats
+        def safe_date_sort_key(date_val):
+            try:
+                if isinstance(date_val, pd.Timestamp):
+                    return date_val
+                elif isinstance(date_val, str):
+                    return datetime.strptime(date_val, "%d-%m-%Y")
+                else:
+                    return pd.to_datetime(date_val, dayfirst=True)
+            except:
+                return datetime.now()  # Fallback
+        
+        sorted_dates = sorted(date_groups.groups.keys(), key=safe_date_sort_key)
+        
+        for date_val in sorted_dates:
+            group = date_groups.get_group(date_val)
             subjects_count = len(group)
             branches = group['Branch'].tolist()
-            st.write(f"  📅 {date_str}: {subjects_count} subjects ({', '.join(branches)})")
+            
+            # Format date for display
+            if isinstance(date_val, pd.Timestamp):
+                date_display = date_val.strftime("%d-%m-%Y")
+            elif isinstance(date_val, str):
+                date_display = date_val
+            else:
+                date_display = str(date_val)
+            
+            st.write(f"  📅 {date_display}: {subjects_count} subjects ({', '.join(branches)})")
     
     return df_sem
 
@@ -1331,7 +1353,22 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         if not already_scheduled.empty:
             st.write(f"📋 Already scheduled in Semester {sem}: {len(already_scheduled)} subjects")
 
-        df_sem['Exam Date'] = df_sem['Exam Date'].apply(lambda x: parse_date_safely(x) if pd.notna(x) and str(x).strip() != "" else x)
+        # CRITICAL FIX: Ensure all dates are in string format DD-MM-YYYY
+        def normalize_date_to_string(date_val):
+            if pd.isna(date_val) or date_val == "":
+                return ""
+            if isinstance(date_val, pd.Timestamp):
+                return date_val.strftime("%d-%m-%Y")
+            elif isinstance(date_val, str):
+                return date_val
+            else:
+                try:
+                    parsed = pd.to_datetime(date_val, dayfirst=True)
+                    return parsed.strftime("%d-%m-%Y")
+                except:
+                    return str(date_val)
+        
+        df_sem['Exam Date'] = df_sem['Exam Date'].apply(normalize_date_to_string)
         
         # Count unscheduled subjects before processing
         unscheduled_before = len(df_sem[df_sem['Exam Date'] == ""])
@@ -1447,7 +1484,7 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         sem_dict[sem] = df_combined_clean[df_combined_clean["Semester"] == sem].copy()
 
     return sem_dict
-
+    
 def find_next_valid_day_for_electives(start_day, holidays):
     """Find the next valid day for scheduling electives (skip weekends and holidays)"""
     day = start_day
