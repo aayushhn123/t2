@@ -1767,6 +1767,8 @@ def save_to_excel(semester_wise_timetable):
                 if not df_non_elec.empty:
                     difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    
+                    # FIXED: Only show duration info for Excel, no time slot duplication
                     df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
                     duration_suffix = df_non_elec.apply(
                         lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
@@ -1792,6 +1794,8 @@ def save_to_excel(semester_wise_timetable):
                 if not df_elec.empty:
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    
+                    # FIXED: Only show duration info for Excel, no time slot duplication
                     df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]"
                     duration_suffix = df_elec.apply(
                         lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
@@ -1811,7 +1815,7 @@ def save_to_excel(semester_wise_timetable):
 
     output.seek(0)
     return output
-
+    
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
         return None
@@ -2302,11 +2306,24 @@ def main():
                 if not df_non_elec.empty:
                     difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    time_range_suffix = df_non_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])}"
-                        if row['Exam Duration'] != 3 else '', axis=1
-                    )
-                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + time_range_suffix + difficulty_suffix
+                    
+                    # FIXED: Only show the specific time range if different from 3 hours, don't show both formats
+                    def format_subject_display(row):
+                        subject = row['Subject']
+                        time_slot = row['Time Slot']
+                        duration = row['Exam Duration']
+                        
+                        # If duration is not 3 hours, show the specific time range only
+                        if duration != 3 and time_slot and time_slot.strip():
+                            start_time = time_slot.split(' - ')[0]
+                            end_time = calculate_end_time(start_time, duration)
+                            time_range = f" ({start_time} to {end_time})"
+                        else:
+                            time_range = ""
+                        
+                        return subject + time_range
+                    
+                    df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1) + difficulty_suffix
                     df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
                     df_non_elec = df_non_elec.drop_duplicates(subset=["Exam Date", "Time Slot", "SubBranch", "SubjectDisplay"])
@@ -2329,11 +2346,27 @@ def main():
                 if not df_elec.empty:
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    time_range_suffix = df_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])}"
-                        if row['Exam Duration'] != 3 else '', axis=1
-                    )
-                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]" + time_range_suffix + difficulty_suffix
+                    
+                    # FIXED: Only show the specific time range if different from 3 hours, don't show both formats
+                    def format_elective_display(row):
+                        subject = row['Subject']
+                        oe_type = row['OE']
+                        time_slot = row['Time Slot']
+                        duration = row['Exam Duration']
+                        
+                        base_display = f"{subject} [{oe_type}]"
+                        
+                        # If duration is not 3 hours, show the specific time range only
+                        if duration != 3 and time_slot and time_slot.strip():
+                            start_time = time_slot.split(' - ')[0]
+                            end_time = calculate_end_time(start_time, duration)
+                            time_range = f" ({start_time} to {end_time})"
+                        else:
+                            time_range = ""
+                        
+                        return base_display + time_range
+                    
+                    df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1) + difficulty_suffix
                     df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                     df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
                     elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
