@@ -107,7 +107,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Define RealTimeOptimizer class (adapted from provided code)
+# Define BRANCH_FULL_FORM mapping
+BRANCH_FULL_FORM = {
+    "BTECH": "BACHELOR OF TECHNOLOGY",
+    "BTECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
+    "MTECH": "MASTER OF TECHNOLOGY",
+    "MBA TECH": "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT",
+    "MCA": "MASTER OF COMPUTER APPLICATIONS"
+}
+
+# Define RealTimeOptimizer class
 class RealTimeOptimizer:
     def __init__(self, branches, holidays):
         self.branches = branches
@@ -166,7 +175,9 @@ def extract_roman(semester_str):
     return match.group(1).upper() if match else None
 
 def normalize_time_slot(time_str):
-    return time_str.replace("to", "-").replace("pm", "PM").replace("am", "AM")
+    if pd.isna(time_str):
+        return ""
+    return time_str.replace("to", "-").replace("pm", "PM").replace("am", "AM").strip()
 
 def int_to_roman(num):
     roman_values = [
@@ -182,33 +193,43 @@ def int_to_roman(num):
 # Functions for processing
 def read_final_exam_schedule(final_exam_file):
     required_cols = ['Program', 'Stream', 'Semester', 'SubjectName', 'Exam Date', 'Exam Time', 'Is Common']
-    final_df = pd.read_excel(final_exam_file)
+    try:
+        final_df = pd.read_excel(final_exam_file, engine='openpyxl')
+    except Exception as e:
+        st.error(f"Error reading Final Exam Schedule: {str(e)}")
+        return None, None
     missing_cols = [col for col in required_cols if col not in final_df.columns]
     if missing_cols:
         st.error(f"Missing columns in Final Exam Schedule: {', '.join(missing_cols)}")
         return None, None
-    final_df['Branch'] = final_df['Program'] + '-' + final_df['Stream']
+    final_df['Branch'] = final_df['Program'].astype(str) + '-' + final_df['Stream'].astype(str)
     common_subjects = {}
     non_common_subjects = {}
     for (subject, semester), group in final_df.groupby(['SubjectName', 'Semester']):
         if all(group['Is Common'] == "YES") and group['Exam Date'].nunique() == 1 and group['Exam Time'].nunique() == 1:
-            common_subjects[(subject, semester)] = (group['Exam Date'].iloc[0], group['Exam Time'].iloc[0])
+            common_subjects[(subject, semester)] = (group['Exam Date'].iloc[0], normalize_time_slot(group['Exam Time'].iloc[0]))
         else:
             for _, row in group.iterrows():
                 branch = row['Branch']
-                non_common_subjects[(subject, semester, branch)] = (row['Exam Date'], row['Exam Time'])
+                non_common_subjects[(subject, semester, branch)] = (row['Exam Date'], normalize_time_slot(row['Exam Time']))
     return common_subjects, non_common_subjects
 
 def read_re_exam_data(re_exam_file):
     required_cols = ['Program', 'Stream', 'Semester', 'Subject name']
-    re_exam_df = pd.read_excel(re_exam_file)
+    try:
+        re_exam_df = pd.read_excel(re_exam_file, engine='openpyxl')
+    except Exception as e:
+        st.error(f"Error reading Re-exam Data: {str(e)}")
+        return None
     missing_cols = [col for col in required_cols if col not in re_exam_df.columns]
     if missing_cols:
         st.error(f"Missing columns in Re-exam Data: {', '.join(missing_cols)}")
         return None
-    re_exam_df['Branch'] = re_exam_df['Program'] + '-' + re_exam_df['Stream']
-    re_exam_df['Subject'] = re_exam_df['Subject name']
+    re_exam_df['Branch'] = re_exam_df['Program'].astype(str) + '-' + re_exam_df['Stream'].astype(str)
+    re_exam_df['Subject'] = re_exam_df['Subject name'].astype(str)
     re_exam_df['SemesterInt'] = re_exam_df['Semester'].apply(lambda x: roman_to_int(extract_roman(x)))
+    re_exam_df['Exam Date'] = ""
+    re_exam_df['Exam Time'] = ""
     return re_exam_df
 
 def assign_matched_dates(re_exam_df, common_subjects, non_common_subjects, optimizer):
@@ -219,15 +240,13 @@ def assign_matched_dates(re_exam_df, common_subjects, non_common_subjects, optim
         if (subject, semester) in common_subjects:
             exam_date, exam_time = common_subjects[(subject, semester)]
             re_exam_df.at[idx, 'Exam Date'] = exam_date
-            re_exam_df.at[idx, 'Exam Time'] = normalize_time_slot(exam_time)
-            optimizer.add_exam_to_grid(exam_date, re_exam_df.at[idx, 'Exam Time'], branch, subject)
-            optimizer.log.append(f"Matched {subject} for {branch} on {exam_date} from final schedule: {exam_time}")
+            re_exam_df.at[idx, 'Exam Time'] = exam_time
+            optimizer.add_exam_to_grid(exam_date, exam_time, branch, subject)
         elif (subject, semester, branch) in non_common_subjects:
             exam_date, exam_time = non_common_subjects[(subject, semester, branch)]
             re_exam_df.at[idx, 'Exam Date'] = exam_date
-            re_exam_df.at[idx, 'Exam Time'] = normalize_time_slot(exam_time)
-            optimizer.add_exam_to_grid(exam_date, re_exam_df.at[idx, 'Exam Time'], branch, subject)
-            optimizer.log.append(f"Matched {subject} for {branch} on {exam_date} from final schedule: {exam_time}")
+            re_exam_df.at[idx, 'Exam Time'] = exam_time
+            optimizer.add_exam_to_grid(exam_date, exam_time, branch, subject)
         else:
             re_exam_df.at[idx, 'Exam Date'] = ""
             re_exam_df.at[idx, 'Exam Time'] = ""
@@ -238,10 +257,7 @@ def schedule_unmatched_subjects(re_exam_df, optimizer, base_date):
         branch = row['Branch']
         subject = row['Subject']
         semester = row['SemesterInt']
-        if semester % 2 != 0:
-            preferred_slot = "10:00 AM - 1:00 PM"
-        else:
-            preferred_slot = "2:00 PM - 5:00 PM"
+        preferred_slot = "10:00 AM - 1:00 PM" if semester % 2 != 0 else "2:00 PM - 5:00 PM"
         date_str, time_slot = optimizer.find_earliest_empty_slot(branch, base_date, preferred_slot)
         if date_str:
             re_exam_df.at[idx, 'Exam Date'] = date_str
@@ -267,46 +283,55 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_font("Arial", 'B', 10)
     pdf.cell(0, 10, header_content, 0, 1, 'C')
     pdf.ln(5)
+    pdf.set_fill_color(149, 33, 28)
+    pdf.set_text_color(255, 255, 255)
     for col, width in zip(columns, col_widths):
-        pdf.cell(width, 10, col, 1, 0, 'C')
+        pdf.cell(width, 10, col, 1, 0, 'C', fill=True)
     pdf.ln()
+    pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", size=10)
-    for _, row in df.iterrows():
+    for i, row in df.iterrows():
         for col, width in zip(columns, col_widths):
-            pdf.cell(width, 10, str(row[col]), 1, 0, 'C')
-        pdf.ln()
+            text = str(row[col]) if pd.notna(row[col]) else ""
+            lines = pdf.get_string_width(text) <= width - 4 and [text] or pdf.multi_cell(width - 4, 5, text, dry_run=True)
+            y = pdf.get_y()
+            pdf.multi_cell(width, 10, text, border=1, align='C')
+            pdf.set_y(y)
+            pdf.set_x(pdf.get_x() + width)
+        pdf.ln(10)
 
 def generate_pdf_timetable(re_exam_df):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.add_page()
     pdf.set_auto_page_break(auto=False, margin=15)
     logo_path = "logo.png"
-    if os.path.exists(logo_path):
-        pdf.image(logo_path, x=130, y=10, w=40)
-    pdf.set_font("Arial", 'B', 16)
-    pdf.set_fill_color(149, 33, 28)
-    pdf.set_text_color(255, 255, 255)
-    pdf.rect(10, 30, 277, 14, 'F')
-    pdf.set_xy(10, 30)
-    pdf.cell(277, 14, "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING", 0, 1, 'C')
-    pdf.set_text_color(0, 0, 0)
     
     for (program, semester), group in re_exam_df.groupby(['Program', 'SemesterInt']):
         pdf.add_page()
-        header = f"{program} - Semester {int_to_roman(semester)} Re-exam Timetable"
-        df = group[['Exam Date', 'Subject', 'Exam Time']]
+        if os.path.exists(logo_path):
+            pdf.image(logo_path, x=130, y=10, w=40)
+        pdf.set_font("Arial", 'B', 16)
+        pdf.set_fill_color(149, 33, 28)
+        pdf.set_text_color(255, 255, 255)
+        pdf.rect(10, 30, 277, 14, 'F')
+        pdf.set_xy(10, 30)
+        pdf.cell(277, 14, "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING", 0, 1, 'C')
+        pdf.set_text_color(0, 0, 0)
+        header = f"{BRANCH_FULL_FORM.get(program, program)} - Semester {int_to_roman(semester)} Re-exam Timetable"
+        df = group[['Exam Date', 'Subject', 'Exam Time']].sort_values('Exam Date')
         col_widths = [60, 157, 60]
+        pdf.set_y(50)
         print_table_custom(pdf, df, ['Exam Date', 'Subject', 'Exam Time'], col_widths, header_content=header)
     
     pdf_output = io.BytesIO()
-    pdf.output(pdf_output)
+    pdf.output(pdf_output, 'F')
     pdf_output.seek(0)
     return pdf_output.getvalue()
 
 def save_verification_excel(re_exam_df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        re_exam_df[['Program', 'Stream', 'Semester', 'Subject name', 'Academic Year', 'Exam Date', 'Exam Time']].to_excel(writer, sheet_name="Verification", index=False)
+        verification_df = re_exam_df[['Program', 'Stream', 'Semester', 'Subject name', 'Academic Year', 'Exam Date', 'Exam Time']].copy()
+        verification_df.to_excel(writer, sheet_name="Verification", index=False)
     output.seek(0)
     return output
 
@@ -319,6 +344,17 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
+    # Initialize session state
+    if 'processing_complete' not in st.session_state:
+        st.session_state.processing_complete = False
+        st.session_state.excel_data = None
+        st.session_state.pdf_data = None
+        st.session_state.verification_data = None
+        st.session_state.total_exams = 0
+        st.session_state.unique_branches = 0
+        st.session_state.overall_date_range = 0
+        st.session_state.unique_exam_days = 0
+
     # Sidebar
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
@@ -330,13 +366,17 @@ def main():
             datetime(2025, 5, 1),
             datetime(2025, 8, 15)
         ]
-        custom_holidays = st.text_area("Custom Holidays (DD-MM-YYYY, one per line)")
-        if custom_holidays:
-            for line in custom_holidays.split('\n'):
-                try:
-                    holidays.append(datetime.strptime(line.strip(), "%d-%m-%Y"))
-                except:
-                    st.warning(f"Invalid date format: {line}")
+        with st.expander("Add Custom Holidays"):
+            num_holidays = st.number_input("Number of Custom Holidays", min_value=0, step=1, value=0)
+            custom_holidays = []
+            for i in range(num_holidays):
+                holiday = st.date_input(f"Custom Holiday {i+1}", key=f"holiday_{i}")
+                custom_holidays.append(datetime.combine(holiday, datetime.min.time()))
+            holidays.extend(custom_holidays)
+            if holidays:
+                st.markdown("#### Selected Holidays:")
+                for h in sorted(holidays):
+                    st.write(f"• {h.strftime('%B %d, %Y')}")
 
     # Main interface
     st.markdown('<div class="upload-section"><h3>📁 Upload Files</h3></div>', unsafe_allow_html=True)
@@ -344,8 +384,8 @@ def main():
     final_exam_file = st.file_uploader("Final Exam Schedule Excel", type=['xlsx'])
 
     if re_exam_file and final_exam_file:
-        if st.button("Generate Re-exam Timetable"):
-            with st.spinner("Processing..."):
+        if st.button("Generate Re-exam Timetable", type="primary"):
+            with st.spinner("Processing timetable..."):
                 common_subjects, non_common_subjects = read_final_exam_schedule(final_exam_file)
                 if common_subjects is None:
                     return
@@ -363,45 +403,57 @@ def main():
                 pdf_data = generate_pdf_timetable(re_exam_df)
                 verification_data = save_verification_excel(re_exam_df)
                 
+                # Store in session state
+                st.session_state.excel_data = excel_data.getvalue()
+                st.session_state.pdf_data = pdf_data
+                st.session_state.verification_data = verification_data.getvalue()
+                st.session_state.processing_complete = True
+                
                 # Statistics
-                total_exams = len(re_exam_df)
-                unique_branches = re_exam_df['Branch'].nunique()
-                all_dates = pd.to_datetime(re_exam_df['Exam Date'], format="%d-%m-%Y").dropna()
-                overall_date_range = (all_dates.max() - all_dates.min()).days + 1 if not all_dates.empty else 0
-                unique_exam_days = len(all_dates.dt.date.unique())
+                st.session_state.total_exams = len(re_exam_df)
+                st.session_state.unique_branches = re_exam_df['Branch'].nunique()
+                all_dates = pd.to_datetime(re_exam_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                st.session_state.overall_date_range = (all_dates.max() - all_dates.min()).days + 1 if not all_dates.empty else 0
+                st.session_state.unique_exam_days = len(all_dates.dt.date.unique()) if not all_dates.empty else 0
                 
-                st.markdown("### 📈 Statistics")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.markdown(f'<div class="metric-card"><h3>📝 {total_exams}</h3><p>Total Exams</p></div>', unsafe_allow_html=True)
-                with col2:
-                    st.markdown(f'<div class="metric-card"><h3>🏫 {unique_branches}</h3><p>Unique Branches</p></div>', unsafe_allow_html=True)
-                with col3:
-                    st.markdown(f'<div class="metric-card"><h3>📅 {overall_date_range}</h3><p>Days Span</p></div>', unsafe_allow_html=True)
-                with col4:
-                    st.markdown(f'<div class="metric-card"><h3>🗓️ {unique_exam_days}</h3><p>Exam Days</p></div>', unsafe_allow_html=True)
-                
-                # Display timetable
-                st.markdown('<div class="results-section"><h2>📊 Re-exam Timetable</h2></div>', unsafe_allow_html=True)
-                for (program, semester), group in re_exam_df.groupby(['Program', 'SemesterInt']):
-                    st.markdown(f"#### {program} - Semester {int_to_roman(semester)}")
-                    st.dataframe(group[['Subject', 'Exam Date', 'Exam Time']])
-                
-                # Download options
-                st.markdown("### 📥 Download Outputs")
-                col1, col2, col3 = st.columns(3)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                with col1:
-                    st.download_button("Download Excel", excel_data.getvalue(), f"re_exam_timetable_{timestamp}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                with col2:
-                    st.download_button("Download PDF", pdf_data, f"re_exam_timetable_{timestamp}.pdf", "application/pdf")
-                with col3:
-                    st.download_button("Download Verification", verification_data.getvalue(), f"re_exam_verification_{timestamp}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                
-                # Debugging log
-                with st.expander("Scheduling Log"):
-                    for log in optimizer.log:
-                        st.write(log)
+                st.markdown('<div class="status-success">🎉 Timetable generated successfully!</div>', unsafe_allow_html=True)
+
+    # Display results
+    if st.session_state.processing_complete:
+        st.markdown("---")
+        st.markdown("### 📈 Statistics")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.markdown(f'<div class="metric-card"><h3>📝 {st.session_state.total_exams}</h3><p>Total Exams</p></div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.unique_branches}</h3><p>Unique Branches</p></div>', unsafe_allow_html=True)
+        with col3:
+            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Days Span</p></div>', unsafe_allow_html=True)
+        with col4:
+            st.markdown(f'<div class="metric-card"><h3>🗓️ {st.session_state.unique_exam_days}</h3><p>Exam Days</p></div>', unsafe_allow_html=True)
+        
+        st.markdown("### 📥 Download Outputs")
+        col1, col2, col3 = st.columns(3)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        with col1:
+            if st.session_state.excel_data:
+                st.download_button("Download Excel", st.session_state.excel_data, f"re_exam_timetable_{timestamp}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        with col2:
+            if st.session_state.pdf_data:
+                st.download_button("Download PDF", st.session_state.pdf_data, f"re_exam_timetable_{timestamp}.pdf", "application/pdf")
+        with col3:
+            if st.session_state.verification_data:
+                st.download_button("Download Verification", st.session_state.verification_data, f"re_exam_verification_{timestamp}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        
+        st.markdown('<div class="results-section"><h2>📊 Re-exam Timetable</h2></div>', unsafe_allow_html=True)
+        re_exam_df = pd.concat([pd.read_excel(io.BytesIO(st.session_state.excel_data), sheet_name=sheet) for sheet in pd.ExcelFile(io.BytesIO(st.session_state.excel_data)).sheet_names])
+        for (program, semester), group in re_exam_df.groupby(['Program', 'SemesterInt']):
+            st.markdown(f"#### {BRANCH_FULL_FORM.get(program, program)} - Semester {int_to_roman(semester)}")
+            st.dataframe(group[['Subject', 'Exam Date', 'Exam Time']])
+        
+        with st.expander("Scheduling Log"):
+            for log in optimizer.log:
+                st.write(log)
 
 if __name__ == "__main__":
     main()
