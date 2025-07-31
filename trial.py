@@ -1164,7 +1164,8 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     optimizer = RealTimeOptimizer(all_branches, holidays)
     optimizer.initialize_grid_with_empty_days(base_date, num_days=50)
     
-    st.info(f"🔧 Scheduling {len(df)} subjects across {len(all_branches)} branches...")
+    # Remove detailed scheduling output, keep only summary
+    # st.info(f"🔧 Scheduling {len(df)} subjects across {len(all_branches)} branches...")
     
     # Helper function for finding earliest slot - UPDATED to ensure one exam per day per branch
     def find_earliest_available_slot_with_one_exam_per_day(start_day, for_branches, subject):
@@ -1187,13 +1188,13 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
             
             current_date += timedelta(days=1)
 
-    # Count subjects by category
+    # Count subjects by category - remove detailed output
     comp_common = len(df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')])
     comp_individual = len(df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'NO')])
     elec_common = len(df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')])
     elec_individual = len(df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'NO')])
     
-    st.write(f"📊 Subject distribution: COMP (Common: {comp_common}, Individual: {comp_individual}), ELEC (Common: {elec_common}, Individual: {elec_individual})")
+    # st.write(f"📊 Subject distribution: COMP (Common: {comp_common}, Individual: {comp_individual}), ELEC (Common: {elec_common}, Individual: {elec_individual})")
 
     # FIX: Schedule common COMP subjects - ensuring one exam per day per branch and NO DUPLICATES
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
@@ -1223,7 +1224,8 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
             exam_days[branch].add(exam_day.date())
             optimizer.add_exam_to_grid(date_str, slot_str, branch, subject)
         
-        st.write(f"✅ Scheduled common COMP {subject} on {date_str} for branches: {', '.join(branches)}")
+        # Remove individual scheduling output
+        # st.write(f"✅ Scheduled common COMP {subject} on {date_str} for branches: {', '.join(branches)}")
 
     # FIX: Schedule common ELEC subjects - ensuring one exam per day per branch and NO DUPLICATES
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
@@ -1253,14 +1255,15 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
             exam_days[branch].add(exam_day.date())
             optimizer.add_exam_to_grid(date_str, slot_str, branch, subject)
         
-        st.write(f"✅ Scheduled common ELEC {subject} on {date_str} for branches: {', '.join(branches)}")
+        # Remove individual scheduling output
+        # st.write(f"✅ Scheduled common ELEC {subject} on {date_str} for branches: {', '.join(branches)}")
 
-    # CRITICAL DEBUG: Show exam_days state after common scheduling
-    st.write("🔍 DEBUG: exam_days after common scheduling:")
-    for branch, dates in exam_days.items():
-        if dates:
-            date_strs = [d.strftime("%d-%m-%Y") for d in sorted(dates)]
-            st.write(f"  {branch}: {', '.join(date_strs)}")
+    # Remove debug output after common scheduling
+    # st.write("🔍 DEBUG: exam_days after common scheduling:")
+    # for branch, dates in exam_days.items():
+    #     if dates:
+    #         date_strs = [d.strftime("%d-%m-%Y") for d in sorted(dates)]
+    #         st.write(f"  {branch}: {', '.join(date_strs)}")
 
     # Schedule remaining subjects per semester with the updated optimization
     final_list = []
@@ -1271,14 +1274,15 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
         if df_sem.empty:
             continue
 
-        st.write(f"\n🔄 Processing Semester {sem}...")
+        # Remove detailed semester processing output
+        # st.write(f"\n🔄 Processing Semester {sem}...")
         
-        # CRITICAL DEBUG: Show already scheduled subjects in this semester
-        already_scheduled = df_sem[df_sem['Exam Date'] != ""]
-        if not already_scheduled.empty:
-            st.write(f"📋 Already scheduled in Semester {sem}:")
-            for _, row in already_scheduled.iterrows():
-                st.write(f"  {row['Branch']}: {row['Subject']} on {row['Exam Date']}")
+        # Remove already scheduled debug output
+        # already_scheduled = df_sem[df_sem['Exam Date'] != ""]
+        # if not already_scheduled.empty:
+        #     st.write(f"📋 Already scheduled in Semester {sem}:")
+        #     for _, row in already_scheduled.iterrows():
+        #         st.write(f"  {row['Branch']}: {row['Subject']} on {row['Exam Date']}")
 
         df_sem['Exam Date'] = df_sem['Exam Date'].apply(lambda x: parse_date_safely(x) if pd.notna(x) and str(x).strip() != "" else x)
         # Count unscheduled subjects before processing
