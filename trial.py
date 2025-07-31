@@ -2008,13 +2008,13 @@ def main():
                     holidays_set = set(holiday_dates)
                     st.write("Reading timetable...")
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
-                    st.write(f"df_non_elec shape: {df_non_elec.shape if df_non_elec is not None else 'None'}")
-                    st.write(f"df_ele shape: {df_ele.shape if df_ele is not None else 'None'}")
+                    #st.write(f"df_non_elec shape: {df_non_elec.shape if df_non_elec is not None else 'None'}")
+                    #st.write(f"df_ele shape: {df_ele.shape if df_ele is not None else 'None'}")
 
                     if df_non_elec is not None and df_ele is not None:
                         st.write("Processing constraints...")
                         non_elec_sched = process_constraints_with_real_time_optimization(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
-                        st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
+                        #st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
 
                         # Find the maximum date from non-elective exams
                         non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True) if non_elec_sched else pd.DataFrame()
