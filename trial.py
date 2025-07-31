@@ -1251,7 +1251,7 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
                         # Schedule the exam
                         df.at[idx, 'Exam Date'] = date_str
                         df.at[idx, 'Time Slot'] = preferred_slot
-                        optimizer.add_exam_to_grid(date_str, preferred_slot, branch, subject)
+                        optimizer.add_exam_to_grid(date_str, slot, branch, subject)
                         exam_days[branch].add(current_date.date())
                         break
                 current_date += timedelta(days=1)
@@ -1272,7 +1272,7 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     with col2:
         st.metric("Grid Utilization", f"{schedule_summary['utilization']:.1f}%")
     with col3:
-        st.metric("Total Subjects", len(df_combined_clean[df_combined_clean['Exam服务业
+        st.metric("Total Subjects Scheduled", len(df_combined_clean[df_combined_clean['Exam Date'] != ""]))
 
     # Calculate total span and provide feedback
     all_dates = pd.to_datetime(df_combined_clean['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
@@ -1292,7 +1292,6 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     for sem in sorted(df_combined_clean["Semester"].unique()):
         sem_dict[sem] = df_combined_clean[df_combined_clean["Semester"] == sem].copy()
     return sem_dict
-
 
 def find_next_valid_day_for_electives(start_day, holidays):
     """Find the next valid day for scheduling electives (skip weekends and holidays)"""
