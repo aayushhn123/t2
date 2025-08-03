@@ -1,3 +1,7 @@
 openpyxl==3.1.5
 fpdf==1.7.2
 PyPDF2==3.0.1
+streamlit==1.30.0
+pandas==2.2.2
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.23.0
