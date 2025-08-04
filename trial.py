@@ -129,19 +129,22 @@ def read_re_exam_data(file):
         }
         return m.get(sem.strip(), None)
     df["Semester"] = df["Semester"].apply(convert_sem)
-    df["Academic Year"] = df["Academic Year"].str.extract(r'(\d{4}-\d{4})').apply(lambda x: str(int(x.split('-')[1])) if pd.notna(x) else None)
+    # Fixed: Handle Series properly
+    df["Academic Year"] = df["Academic Year"].str.extract(r'(\d{4}-\d{4})').iloc[:, 0].apply(
+        lambda x: str(int(x.split('-')[1])) if pd.notna(x) else None
+    )
     df["Semester"] = pd.to_numeric(df["Semester"], errors='coerce')
-    df["Subject name"] = df["Subject name"].astype(str).str.strip()  # Ensure subject is string
+    df["Subject name"] = df["Subject name"].astype(str).str.strip()
     return df
 
 def read_verification_data(file):
     df = pd.read_excel(file)
     df["Semester"] = pd.to_numeric(df["Semester"], errors='coerce')
     df["Current Academic Year"] = df["Current Academic Year"].astype(str)
-    df["SubjectName"] = df["SubjectName"].astype(str).str.strip()  # Ensure subject is string
+    df["SubjectName"] = df["SubjectName"].astype(str).str.strip()
     return df
 
-# Exact matching logic with explicit Series handling
+# Fixed matching logic
 def match_subjects(re_exam_df, verification_df):
     matched_data = []
     unmatched_subjects = []
@@ -155,7 +158,7 @@ def match_subjects(re_exam_df, verification_df):
             unmatched_subjects.append(re_row.to_dict())
             continue
         
-        # Explicitly filter with all conditions combined
+        # Fixed: Properly handle Series filtering
         mask = (
             (verification_df['Semester'] == semester) &
             (verification_df['Current Academic Year'] == str(academic_year)) &
@@ -163,7 +166,7 @@ def match_subjects(re_exam_df, verification_df):
         )
         potential_matches = verification_df[mask]
         
-        if potential_matches.empty:  # Use .empty to check DataFrame
+        if len(potential_matches) == 0:  # Fixed: Use len() instead of .empty
             unmatched_subjects.append(re_row.to_dict())
         else:
             matched_row = potential_matches.iloc[0]
@@ -306,7 +309,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
-        if not any(cell.strip() for cell in row):  # Use .any() to check if any cell is non-empty
+        # Fixed: Check if any cell is non-empty properly
+        if not any(cell.strip() for cell in row if isinstance(cell, str)):
             continue
         wrapped_cells = []
         max_lines = 0
@@ -356,11 +360,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
             cols_to_print = fixed_cols[:1] + chunk
             chunk_df = pivot_df[fixed_cols + chunk].copy()
-            mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)  # Use .any()
+            # Fixed: Handle DataFrame boolean checking properly
+            mask = chunk_df[chunk].apply(lambda row: (row.astype(str).str.strip() != "").any(), axis=1)
             chunk_df = chunk_df[mask].reset_index(drop=True)
             if chunk_df.empty:
                 continue
-            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
+            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and len(pivot_df['Time Slot']) > 0 else None
             chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
             page_width = pdf.w - 2 * pdf.l_margin
             remaining = page_width - exam_date_width
@@ -491,7 +496,7 @@ def main():
             <p>Upload the final exam verification file (.xlsx format)</p>
         </div>
         """, unsafe_allow_html=True)
-    verification_file = st.file_uploader("Choose Final Exam Verification Excel file", type=['xlsx'])
+        verification_file = st.file_uploader("Choose Final Exam Verification Excel file", type=['xlsx'])
 
     if re_exam_file and verification_file:
         if st.button("🔄 Generate Re-Exam Timetable", type="primary", use_container_width=True):
