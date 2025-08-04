@@ -131,15 +131,17 @@ def read_re_exam_data(file):
     df["Semester"] = df["Semester"].apply(convert_sem)
     df["Academic Year"] = df["Academic Year"].str.extract(r'(\d{4}-\d{4})').apply(lambda x: str(int(x.split('-')[1])) if pd.notna(x) else None)
     df["Semester"] = pd.to_numeric(df["Semester"], errors='coerce')
+    df["Subject name"] = df["Subject name"].astype(str).str.strip()  # Ensure subject is string
     return df
 
 def read_verification_data(file):
     df = pd.read_excel(file)
     df["Semester"] = pd.to_numeric(df["Semester"], errors='coerce')
     df["Current Academic Year"] = df["Current Academic Year"].astype(str)
+    df["SubjectName"] = df["SubjectName"].astype(str).str.strip()  # Ensure subject is string
     return df
 
-# Exact matching logic
+# Exact matching logic with debugging
 def match_subjects(re_exam_df, verification_df):
     matched_data = []
     unmatched_subjects = []
@@ -147,12 +149,22 @@ def match_subjects(re_exam_df, verification_df):
         subject = re_row['Subject name']
         semester = re_row['Semester']
         academic_year = re_row['Academic Year']
+        
+        # Debug print to check input values
+        # st.write(f"Checking: Subject={subject}, Semester={semester}, Year={academic_year}")
+        
+        # Ensure all values are valid for comparison
+        if pd.isna(semester) or pd.isna(academic_year) or pd.isna(subject):
+            unmatched_subjects.append(re_row.to_dict())
+            continue
+        
         potential_matches = verification_df[
             (verification_df['Semester'] == semester) &
-            (verification_df['Current Academic Year'] == academic_year) &
+            (verification_df['Current Academic Year'] == str(academic_year)) &
             (verification_df['SubjectName'] == subject)
         ]
-        if potential_matches.empty:  # Explicitly check if the DataFrame is empty
+        
+        if potential_matches.empty:
             unmatched_subjects.append(re_row.to_dict())
         else:
             matched_row = potential_matches.iloc[0]
