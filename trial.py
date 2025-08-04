@@ -130,10 +130,13 @@ def read_re_exam_data(file):
         return m.get(sem.strip(), None)
     df["Semester"] = df["Semester"].apply(convert_sem)
     df["Academic Year"] = df["Academic Year"].str.extract(r'(\d{4}-\d{4})').apply(lambda x: str(int(x.split('-')[1])) if pd.notna(x) else None)
+    df["Semester"] = pd.to_numeric(df["Semester"], errors='coerce')
     return df
 
 def read_verification_data(file):
     df = pd.read_excel(file)
+    df["Semester"] = pd.to_numeric(df["Semester"], errors='coerce')
+    df["Current Academic Year"] = df["Current Academic Year"].astype(str)
     return df
 
 # Exact matching logic
@@ -149,7 +152,9 @@ def match_subjects(re_exam_df, verification_df):
             (verification_df['Current Academic Year'] == academic_year) &
             (verification_df['SubjectName'] == subject)
         ]
-        if not potential_matches.empty:
+        if potential_matches.empty:  # Explicitly check if the DataFrame is empty
+            unmatched_subjects.append(re_row.to_dict())
+        else:
             matched_row = potential_matches.iloc[0]
             matched_data.append({
                 'Campus': matched_row['Campus'],
@@ -167,8 +172,6 @@ def match_subjects(re_exam_df, verification_df):
                 'Is Common': matched_row['Is Common'],
                 'Academic Year': academic_year
             })
-        else:
-            unmatched_subjects.append(re_row.to_dict())
     return pd.DataFrame(matched_data), unmatched_subjects
 
 def split_br(b):
@@ -477,7 +480,7 @@ def main():
             <p>Upload the final exam verification file (.xlsx format)</p>
         </div>
         """, unsafe_allow_html=True)
-        verification_file = st.file_uploader("Choose Final Exam Verification Excel file", type=['xlsx'])
+    verification_file = st.file_uploader("Choose Final Exam Verification Excel file", type=['xlsx'])
 
     if re_exam_file and verification_file:
         if st.button("🔄 Generate Re-Exam Timetable", type="primary", use_container_width=True):
