@@ -184,7 +184,8 @@ def match_subjects(re_exam_df, verification_df):
                 'Time Slot': f"{matched_row['Exam Time'].split(' to ')[0]} - {matched_row['Exam Time'].split(' to ')[1].replace('pm', 'PM').replace('am', 'AM')}",
                 'Exam Duration': matched_row['Exam Duration'],
                 'Is Common': matched_row['Is Common'],
-                'Academic Year': academic_year
+                'Academic Year': academic_year,
+                'SubjectDisplayPDF': f"{matched_row['SubjectName']} ({academic_year})"
             })
     return pd.DataFrame(matched_data), unmatched_subjects
 
@@ -438,7 +439,7 @@ def save_to_excel(semester_wise_timetable):
         for sem, df_sem in semester_wise_timetable.items():
             for main_branch in df_sem["MainBranch"].unique():
                 df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-                df_mb["SubjectDisplay"] = df_mb["Subject"] + df_mb["Exam Duration"].apply(
+                df_mb["SubjectDisplay"] = df_mb["SubjectDisplayPDF"] + df_mb["Exam Duration"].apply(
                     lambda x: f" [Duration: {x} hrs]" if x != 3 else ''
                 )
                 df_mb["Exam Date"] = pd.to_datetime(df_mb["Exam Date"], format="%d-%m-%Y", errors='coerce')
