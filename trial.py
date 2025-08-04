@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from fuzzywuzzy import process, fuzz
 import io
 from datetime import datetime
 import os
@@ -8,7 +7,7 @@ from fpdf import FPDF
 from PyPDF2 import PdfReader, PdfWriter
 import re
 
-# Set page configuration (mirrored from final exam generator)
+# Set page configuration
 st.set_page_config(
     page_title="Re-Exam Timetable Generator",
     page_icon="📅",
@@ -16,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS (copied from final exam generator)
+# Custom CSS
 st.markdown("""
 <style>
     .main-header {
@@ -107,7 +106,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Constants from final exam generator
+# Constants
 BRANCH_FULL_FORM = {
     "B TECH": "BACHELOR OF TECHNOLOGY",
     "B TECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
@@ -137,7 +136,7 @@ def read_verification_data(file):
     df = pd.read_excel(file)
     return df
 
-# Matching logic
+# Exact matching logic
 def match_subjects(re_exam_df, verification_df):
     matched_data = []
     unmatched_subjects = []
@@ -147,14 +146,11 @@ def match_subjects(re_exam_df, verification_df):
         academic_year = re_row['Academic Year']
         potential_matches = verification_df[
             (verification_df['Semester'] == semester) &
-            (verification_df['Current Academic Year'] == academic_year)
+            (verification_df['Current Academic Year'] == academic_year) &
+            (verification_df['SubjectName'] == subject)
         ]
-        if potential_matches.empty:
-            unmatched_subjects.append(re_row.to_dict())
-            continue
-        matches = process.extract(subject, potential_matches['SubjectName'], scorer=fuzz.token_sort_ratio, limit=1)
-        if matches and matches[0][1] >= 80:
-            matched_row = potential_matches[potential_matches['SubjectName'] == matches[0][0]].iloc[0]
+        if not potential_matches.empty:
+            matched_row = potential_matches.iloc[0]
             matched_data.append({
                 'Campus': matched_row['Campus'],
                 'Program': re_row['Program'],
