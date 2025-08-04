@@ -141,7 +141,7 @@ def read_verification_data(file):
     df["SubjectName"] = df["SubjectName"].astype(str).str.strip()  # Ensure subject is string
     return df
 
-# Exact matching logic with debugging
+# Exact matching logic with explicit Series handling
 def match_subjects(re_exam_df, verification_df):
     matched_data = []
     unmatched_subjects = []
@@ -150,21 +150,20 @@ def match_subjects(re_exam_df, verification_df):
         semester = re_row['Semester']
         academic_year = re_row['Academic Year']
         
-        # Debug print to check input values
-        # st.write(f"Checking: Subject={subject}, Semester={semester}, Year={academic_year}")
-        
-        # Ensure all values are valid for comparison
+        # Skip if any key field is NaN
         if pd.isna(semester) or pd.isna(academic_year) or pd.isna(subject):
             unmatched_subjects.append(re_row.to_dict())
             continue
         
-        potential_matches = verification_df[
+        # Explicitly filter with all conditions combined
+        mask = (
             (verification_df['Semester'] == semester) &
             (verification_df['Current Academic Year'] == str(academic_year)) &
             (verification_df['SubjectName'] == subject)
-        ]
+        )
+        potential_matches = verification_df[mask]
         
-        if potential_matches.empty:
+        if potential_matches.empty:  # Use .empty to check DataFrame
             unmatched_subjects.append(re_row.to_dict())
         else:
             matched_row = potential_matches.iloc[0]
@@ -307,7 +306,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
-        if not any(cell.strip() for cell in row):
+        if not any(cell.strip() for cell in row):  # Use .any() to check if any cell is non-empty
             continue
         wrapped_cells = []
         max_lines = 0
@@ -357,7 +356,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
             cols_to_print = fixed_cols[:1] + chunk
             chunk_df = pivot_df[fixed_cols + chunk].copy()
-            mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
+            mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)  # Use .any()
             chunk_df = chunk_df[mask].reset_index(drop=True)
             if chunk_df.empty:
                 continue
