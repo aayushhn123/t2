@@ -486,10 +486,20 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
         pdf.set_y(71)
 
 def calculate_end_time(start_time, duration_hours):
-    start = datetime.strptime(start_time, "%I:%M %p")
-    duration = timedelta(hours=duration_hours)
-    end = start + duration
-    return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
+    if not start_time or not isinstance(start_time, str) or '-' not in start_time:
+        # Default to a standard time slot if start_time is invalid
+        start_time = "10:00 AM"
+    try:
+        start = datetime.strptime(start_time.split(" - ")[0], "%I:%M %p")
+        duration = timedelta(hours=float(duration_hours))
+        end = start + duration
+        return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
+    except (ValueError, IndexError):
+        # Fallback to default duration if parsing fails
+        start = datetime.strptime("10:00 AM", "%I:%M %p")
+        duration = timedelta(hours=float(duration_hours))
+        end = start + duration
+        return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
 
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
@@ -783,39 +793,43 @@ def determine_default_slot(semester):
 def schedule_streamwise(df, holidays, base_date):
     df = df.copy()
     streams = df['Branch'].unique()
+    max_days = 20  # Maximum allowed days for scheduling
 
     for stream in streams:
         mask = df['Branch'] == stream
         df_stream = df[mask]
-
         start = base_date
-        end = base_date + timedelta(days=14)
+        end = base_date + timedelta(days=max_days - 1)
         cur_date = start
+        used_dates = set()
 
-        commons = df_stream[df_stream['IsCommon']=='YES']
+        # Schedule common papers first
+        commons = df_stream[df_stream['IsCommon'] == 'YES']
         for _, row in commons.iterrows():
-            while cur_date.weekday() == 6 or cur_date in holidays:
+            while (cur_date.weekday() == 6 or cur_date in holidays or
+                   cur_date.strftime("%d-%m-%Y") in used_dates):
                 cur_date += timedelta(days=1)
             if cur_date > end:
-                st.error(f"Cannot fit all exams for {stream} within 15 days.")
-                return df
+                st.warning(f"Scheduling for {stream} exceeds 20 days, but continuing to schedule all exams.")
             date_str = cur_date.strftime("%d-%m-%Y")
             slot = row.get('Time Slot') or determine_default_slot(row['Semester'])
-            df.loc[row.name, ['Exam Date','Time Slot']] = date_str, slot
+            df.loc[row.name, ['Exam Date', 'Time Slot']] = date_str, slot
+            used_dates.add(date_str)
             cur_date += timedelta(days=1)
 
+        # Schedule non-common papers
         cur_date = start
-        indivs = df_stream[df_stream['IsCommon']=='NO']
+        indivs = df_stream[df_stream['IsCommon'] == 'NO']
         for _, row in indivs.iterrows():
-            while cur_date.weekday() == 6 or cur_date in holidays or \
-                  df[(df['Exam Date']==cur_date.strftime("%d-%m-%Y")) & (df['Branch']==stream)].any().any():
+            while (cur_date.weekday() == 6 or cur_date in holidays or
+                   cur_date.strftime("%d-%m-%Y") in used_dates):
                 cur_date += timedelta(days=1)
             if cur_date > end:
-                st.error(f"Cannot fit all exams for {stream} within 15 days.")
-                return df
+                st.warning(f"Scheduling for {stream} exceeds 20 days, but continuing to schedule all exams.")
             date_str = cur_date.strftime("%d-%m-%Y")
             slot = determine_default_slot(row['Semester'])
-            df.loc[row.name, ['Exam Date','Time Slot']] = date_str, slot
+            df.loc[row.name, ['Exam Date', 'Time Slot']] = date_str, slot
+            used_dates.add(date_str)
             cur_date += timedelta(days=1)
 
     return df
@@ -830,15 +844,15 @@ def schedule_electives(df, holidays, start_after):
     df = df.copy()
     df_ele = df[df['OE'].notna()].copy()
     next_day = find_next_valid_day(start_after + timedelta(days=1), holidays)
-    mask15 = df_ele['OE'].isin(['OE1','OE5'])
+    mask15 = df_ele['OE'].isin(['OE1', 'OE5'])
     if mask15.any():
         date_str = next_day.strftime("%d-%m-%Y")
-        df.loc[df_ele[mask15].index, ['Exam Date','Time Slot']] = date_str, "10:00 AM - 1:00 PM"
+        df.loc[df_ele[mask15].index, ['Exam Date', 'Time Slot']] = date_str, "10:00 AM - 1:00 PM"
     next_day2 = find_next_valid_day(next_day + timedelta(days=1), holidays)
-    mask2 = df_ele['OE']=='OE2'
+    mask2 = df_ele['OE'] == 'OE2'
     if mask2.any():
         date_str2 = next_day2.strftime("%d-%m-%Y")
-        df.loc[df_ele[mask2].index, ['Exam Date','Time Slot']] = date_str2, "2:00 PM - 5:00 PM"
+        df.loc[df_ele[mask2].index, ['Exam Date', 'Time Slot']] = date_str2, "2:00 PM - 5:00 PM"
     return df
 
 def save_to_excel(semester_wise_timetable):
@@ -945,7 +959,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_date = match.iloc[0]["Exam Date"]
             time_slot = match.iloc[0]["Time Slot"]
             duration = row["Exam Duration"]
-            start_time = time_slot.split(" - ")[0]
+            start_time = time_slot.split(" - ")[0] if time_slot and " - " in time_slot else "10:00 AM"
             end_time = calculate_end_time(start_time, duration)
             exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
@@ -1208,8 +1222,8 @@ def main():
 
     if st.session_state.processing_complete:
         st.markdown("---")
-        if st.session_state.unique_exam_days > 15:
-            st.warning(f"⚠️ The timetable spans {st.session_state.unique_exam_days} exam days, exceeding the limit of 15 days.")
+        if st.session_state.unique_exam_days > 20:
+            st.warning(f"⚠️ The timetable spans {st.session_state.unique_exam_days} exam days, exceeding the recommended limit of 20 days.")
 
         st.markdown("---")
         st.markdown("### 📥 Download Options")
@@ -1341,7 +1355,7 @@ def main():
                         duration = row['Exam Duration']
                         
                         if duration != 3 and time_slot and time_slot.strip():
-                            start_time = time_slot.split(' - ')[0]
+                            start_time = time_slot.split(' - ')[0] if ' - ' in time_slot else "10:00 AM"
                             end_time = calculate_end_time(start_time, duration)
                             time_range = f" ({start_time} to {end_time})"
                         else:
@@ -1381,7 +1395,7 @@ def main():
                         base_display = f"{subject} [{oe_type}]"
                         
                         if duration != 3 and time_slot and time_slot.strip():
-                            start_time = time_slot.split(' - ')[0]
+                            start_time = time_slot.split(' - ')[0] if ' - ' in time_slot else "10:00 AM"
                             end_time = calculate_end_time(start_time, duration)
                             time_range = f" ({start_time} to {end_time})"
                         else:
