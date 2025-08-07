@@ -834,6 +834,7 @@ def schedule_stream_exams(df_stream, holidays, start_date, window_days=15):
     """
     Schedules all exams in df_stream within a window of `window_days` calendar days,
     skipping Sundays and any date in `holidays`. Ensures only one exam per day.
+    Issues a warning if scheduling exceeds the window but continues scheduling.
     """
     df = df_stream.copy().reset_index(drop=True)
     df['Exam Date'] = ""
@@ -842,32 +843,33 @@ def schedule_stream_exams(df_stream, holidays, start_date, window_days=15):
     # Sort however you like (e.g. by difficulty or preferred slot)
     df = df.sort_values(['Semester','Category','Subject']).reset_index(drop=True)
 
-    # compute window end
+    # Compute window end
     window_end = start_date + timedelta(days=window_days - 1)
     current_date = start_date
 
     for idx, row in df.iterrows():
-        # advance current_date to next valid exam day if needed
+        # Advance current_date to next valid exam day if needed
         while True:
-            # if beyond window → fail
+            # Check if beyond window
             if current_date.date() > window_end.date():
-                raise RuntimeError(
-                    f"Cannot finish stream {row['Branch']} in {window_days} days."
+                st.warning(
+                    f"⚠️ Stream {row['Branch']} requires more than {window_days} days to schedule all exams. "
+                    f"Continuing scheduling beyond the {window_days}-day window."
                 )
-            # skip Sundays & holidays
+                # Continue scheduling without raising an error
+            # Skip Sundays & holidays
             if current_date.weekday() == 6 or current_date.date() in holidays:
                 current_date += timedelta(days=1)
                 continue
-            # ensure no other exam already scheduled this day
-            # (we only schedule one per day)
+            # Ensure no other exam already scheduled this day
             if current_date.strftime("%d-%m-%Y") in df['Exam Date'].values:
                 current_date += timedelta(days=1)
                 continue
             break
 
-        # assign
+        # Assign date and time slot
         date_str = current_date.strftime("%d-%m-%Y")
-        df.at[idx, 'Exam Date']  = date_str
+        df.at[idx, 'Exam Date'] = date_str
         # Determine preferred time slot based on semester
         sem = row['Semester']
         if sem % 2 != 0:
@@ -876,8 +878,8 @@ def schedule_stream_exams(df_stream, holidays, start_date, window_days=15):
         else:
             even_sem_position = sem // 2
             preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        df.at[idx, 'Time Slot']  = preferred_slot
-        # move to next day for the *next* exam
+        df.at[idx, 'Time Slot'] = preferred_slot
+        # Move to next day for the next exam
         current_date += timedelta(days=1)
 
     return df
@@ -1719,3 +1721,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
