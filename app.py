@@ -4,10 +4,8 @@ from datetime import datetime, timedelta, date
 from fpdf import FPDF
 import os
 import re
-import random
 import io
 from PyPDF2 import PdfReader, PdfWriter
-from collections import deque, defaultdict
 
 # Set page configuration
 st.set_page_config(
@@ -276,7 +274,7 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 wrap_text_cache = {}
 
 class StreamwiseScheduler:
-    """New scheduler that handles each stream independently with 15-day limit and no gaps"""
+    """Scheduler that handles each sub-branch independently with 15-day limit and no gaps"""
     
     def __init__(self, holidays, base_date):
         self.holidays = holidays
@@ -308,32 +306,30 @@ class StreamwiseScheduler:
             even_sem_position = semester // 2
             return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
     
-    def schedule_stream_independently(self, stream_data, stream_name):
-        """Schedule all subjects for a specific stream independently"""
-        st.write(f"🔧 Scheduling stream: {stream_name}")
+    def schedule_subbranch_independently(self, subbranch_data, subbranch_name):
+        """Schedule all subjects for a specific sub-branch independently"""
+        st.write(f"🔧 Scheduling sub-branch: {subbranch_name}")
         
         # Group by semester
-        semesters = stream_data['Semester'].unique()
-        stream_schedule = {}
+        semesters = subbranch_data['Semester'].unique()
+        subbranch_schedule = {}
         overall_start_date = self.base_date
         
         for semester in sorted(semesters):
             if semester == 0:
                 continue
                 
-            sem_data = stream_data[stream_data['Semester'] == semester].copy()
+            sem_data = subbranch_data[subbranch_data['Semester'] == semester].copy()
             if sem_data.empty:
                 continue
             
             st.write(f"  📚 Processing Semester {semester}")
             
-            # Get all subjects for this semester and stream
-            # Separate common and individual subjects
-            common_subjects = sem_data[sem_data['IsCommon'] == 'YES'].copy()
-            individual_subjects = sem_data[sem_data['IsCommon'] == 'NO'].copy()
+            # Get all subjects for this semester and sub-branch
+            subjects = sem_data.copy()
             
             # Count subjects to schedule
-            total_subjects = len(common_subjects.drop_duplicates(['ModuleCode'])) + len(individual_subjects)
+            total_subjects = len(subjects)
             st.write(f"    📝 Total subjects to schedule: {total_subjects}")
             
             if total_subjects == 0:
@@ -341,13 +337,13 @@ class StreamwiseScheduler:
             
             # Check if we can fit within 15 days
             if total_subjects > 15:
-                st.warning(f"⚠️ Stream {stream_name}, Semester {semester} has {total_subjects} subjects, exceeding 15-day limit!")
+                st.warning(f"⚠️ Sub-branch {subbranch_name}, Semester {semester} has {total_subjects} subjects, exceeding 15-day limit!")
             
             # Get valid exam days starting from overall_start_date
             valid_days = self.get_valid_exam_days(overall_start_date, max_days=30)
             
             if len(valid_days) < total_subjects:
-                st.error(f"❌ Not enough valid days to schedule {total_subjects} subjects for {stream_name} Semester {semester}")
+                st.error(f"❌ Not enough valid days to schedule {total_subjects} subjects for {subbranch_name} Semester {semester}")
                 continue
             
             # Get preferred time slot for this semester
@@ -356,37 +352,10 @@ class StreamwiseScheduler:
             # Schedule subjects one per day with no gaps
             day_index = 0
             
-            # First schedule common subjects (avoid duplicates)
-            scheduled_modules = set()
-            
-            for _, row in common_subjects.iterrows():
-                module_code = row['ModuleCode']
-                if module_code in scheduled_modules:
-                    # Skip duplicate common subjects
-                    continue
-                
+            # Schedule all subjects (no common subjects consideration)
+            for _, row in subjects.iterrows():
                 if day_index >= len(valid_days):
-                    st.error(f"❌ Ran out of valid days while scheduling common subjects for {stream_name} Semester {semester}")
-                    break
-                
-                exam_date = valid_days[day_index]
-                date_str = exam_date.strftime("%d-%m-%Y")
-                
-                # Update all rows with this module code
-                mask = (sem_data['ModuleCode'] == module_code)
-                sem_data.loc[mask, 'Exam Date'] = date_str
-                sem_data.loc[mask, 'Time Slot'] = preferred_slot
-                
-                scheduled_modules.add(module_code)
-                day_index += 1
-                
-                st.write(f"    ✅ Scheduled common subject {row['Subject']} on {date_str}")
-                self.scheduling_log.append(f"Scheduled common {row['Subject']} for {stream_name} Sem {semester} on {date_str}")
-            
-            # Then schedule individual subjects
-            for _, row in individual_subjects.iterrows():
-                if day_index >= len(valid_days):
-                    st.error(f"❌ Ran out of valid days while scheduling individual subjects for {stream_name} Semester {semester}")
+                    st.error(f"❌ Ran out of valid days while scheduling subjects for {subbranch_name} Semester {semester}")
                     break
                 
                 exam_date = valid_days[day_index]
@@ -397,25 +366,25 @@ class StreamwiseScheduler:
                 
                 day_index += 1
                 
-                st.write(f"    ✅ Scheduled individual subject {row['Subject']} on {date_str}")
-                self.scheduling_log.append(f"Scheduled individual {row['Subject']} for {stream_name} Sem {semester} on {date_str}")
+                st.write(f"    ✅ Scheduled subject {row['Subject']} on {date_str}")
+                self.scheduling_log.append(f"Scheduled {row['Subject']} for {subbranch_name} Sem {semester} on {date_str}")
             
             # Calculate actual days used
             actual_days_used = day_index
             
             if actual_days_used <= 15:
-                st.success(f"✅ Stream {stream_name} Semester {semester}: {actual_days_used} days used (within 15-day limit)")
+                st.success(f"✅ Sub-branch {subbranch_name} Semester {semester}: {actual_days_used} days used (within 15-day limit)")
             else:
-                st.warning(f"⚠️ Stream {stream_name} Semester {semester}: {actual_days_used} days used (exceeds 15-day limit)")
+                st.warning(f"⚠️ Sub-branch {subbranch_name} Semester {semester}: {actual_days_used} days used (exceeds 15-day limit)")
             
             # Update overall start date for next semester (start after current semester ends + 1 day gap)
             if day_index > 0:
                 last_exam_date = valid_days[day_index - 1]
                 overall_start_date = last_exam_date + timedelta(days=2)  # 1 day gap between semesters
             
-            stream_schedule[semester] = sem_data
+            subbranch_schedule[semester] = sem_data
         
-        return stream_schedule
+        return subbranch_schedule
 
 def parse_date_safely(date_input, input_format="%d-%m-%Y"):
     """Safely parse date input ensuring DD-MM-YYYY format interpretation"""
@@ -437,64 +406,63 @@ def parse_date_safely(date_input, input_format="%d-%m-%Y"):
     return pd.to_datetime(date_input, errors='coerce')
 
 def process_new_scheduling_logic(df, holidays, base_date):
-    """New main scheduling function that processes each stream independently"""
-    st.info("🚀 Starting new streamwise independent scheduling...")
+    """Main scheduling function that processes each sub-branch independently"""
+    st.info("🚀 Starting sub-branch independent scheduling...")
     
     # Initialize scheduler
     scheduler = StreamwiseScheduler(holidays, base_date)
     
-    # Get all unique streams (MainBranch-SubBranch combinations)
-    df['Stream'] = df['MainBranch'] + '-' + df['SubBranch']
-    streams = df['Stream'].unique()
+    # Get all unique sub-branches
+    subbranches = df['SubBranch'].unique()
     
-    st.write(f"📊 Found {len(streams)} streams to schedule: {', '.join(streams)}")
+    st.write(f"📊 Found {len(subbranches)} sub-branches to schedule: {', '.join(subbranches)}")
     
-    all_stream_schedules = {}
+    all_subbranch_schedules = {}
     
-    # Process each stream independently
-    for stream in sorted(streams):
-        st.write(f"\n🔄 Processing stream: {stream}")
+    # Process each sub-branch independently
+    for subbranch in sorted(subbranches):
+        st.write(f"\n🔄 Processing sub-branch: {subbranch}")
         
-        # Get all data for this stream
-        stream_data = df[df['Stream'] == stream].copy()
+        # Get all data for this sub-branch
+        subbranch_data = df[df['SubBranch'] == subbranch].copy()
         
-        # Schedule this stream independently
-        stream_schedule = scheduler.schedule_stream_independently(stream_data, stream)
+        # Schedule this sub-branch independently
+        subbranch_schedule = scheduler.schedule_subbranch_independently(subbranch_data, subbranch)
         
         # Merge into overall schedule
-        for semester, sem_data in stream_schedule.items():
-            if semester not in all_stream_schedules:
-                all_stream_schedules[semester] = []
-            all_stream_schedules[semester].append(sem_data)
+        for semester, sem_data in subbranch_schedule.items():
+            if semester not in all_subbranch_schedules:
+                all_subbranch_schedules[semester] = []
+            all_subbranch_schedules[semester].append(sem_data)
     
-    # Combine all streams for each semester
+    # Combine all sub-branches for each semester
     final_schedule = {}
-    for semester, sem_data_list in all_stream_schedules.items():
+    for semester, sem_data_list in all_subbranch_schedules.items():
         if sem_data_list:
             final_schedule[semester] = pd.concat(sem_data_list, ignore_index=True)
     
-    # Validation: Check that each stream has max 15 exam days per semester
+    # Validation: Check that each sub-branch has max 15 exam days per semester
     st.write("\n📋 Validation Summary:")
     
     validation_results = []
     
     for semester, sem_data in final_schedule.items():
-        for stream in sem_data['Stream'].unique():
-            stream_sem_data = sem_data[sem_data['Stream'] == stream]
-            unique_dates = stream_sem_data['Exam Date'].dropna().unique()
+        for subbranch in sem_data['SubBranch'].unique():
+            subbranch_sem_data = sem_data[sem_data['SubBranch'] == subbranch]
+            unique_dates = subbranch_sem_data['Exam Date'].dropna().unique()
             days_used = len(unique_dates)
             
             validation_results.append({
-                'Stream': stream,
+                'SubBranch': subbranch,
                 'Semester': semester,
                 'Days Used': days_used,
                 'Within Limit': days_used <= 15
             })
             
             if days_used <= 15:
-                st.write(f"✅ {stream} Semester {semester}: {days_used} days (✓)")
+                st.write(f"✅ {subbranch} Semester {semester}: {days_used} days (✓)")
             else:
-                st.write(f"❌ {stream} Semester {semester}: {days_used} days (exceeds limit)")
+                st.write(f"❌ {subbranch} Semester {semester}: {days_used} days (exceeds limit)")
     
     # Show validation summary
     validation_df = pd.DataFrame(validation_results)
@@ -1186,8 +1154,8 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
-            branch_count = len(scheduled_data[scheduled_data["ModuleCode"] == module_code]["Branch"].unique())
-            verification_df.at[idx, "Is Common"] = "YES" if branch_count > 1 else "NO"
+            # Since commonality is ignored, mark all as NO
+            verification_df.at[idx, "Is Common"] = "NO"
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -1334,7 +1302,7 @@ def main():
             all_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
             st.session_state.total_exams = len(all_data)
             st.session_state.total_semesters = len(semester_wise_timetable)
-            st.session_state.total_branches = len(all_data['Branch'].unique())
+            st.session_state.total_branches = len(all_data['SubBranch'].unique())
             
             # Calculate date range
             valid_dates = pd.to_datetime(
@@ -1362,8 +1330,8 @@ def main():
                 st.session_state.non_elective_range = "N/A"
                 st.session_state.elective_dates_str = "N/A"
 
-            # Stream-wise exam counts
-            stream_counts = all_data.groupby('Branch').size().reset_index(name='Exam Count')
+            # Sub-branch-wise exam counts
+            stream_counts = all_data.groupby('SubBranch').size().reset_index(name='Exam Count')
             st.session_state.stream_counts = stream_counts
 
             st.session_state.processing_complete = True
@@ -1400,7 +1368,7 @@ def main():
             st.markdown("""
             <div class="metric-card">
                 <h3>🌿 <span>{}</span></h3>
-                <p>Total Streams</p>
+                <p>Total Sub-Branches</p>
             </div>
             """.format(st.session_state.total_branches), unsafe_allow_html=True)
         with col4:
@@ -1421,7 +1389,7 @@ def main():
         st.markdown(f"**Non-Elective Exam Range:** {st.session_state.non_elective_range}")
         st.markdown(f"**Elective Exam Dates:** {st.session_state.elective_dates_str}")
 
-        st.markdown("#### Stream-wise Exam Counts")
+        st.markdown("#### Sub-Branch-wise Exam Counts")
         st.dataframe(st.session_state.stream_counts, use_container_width=True)
 
         if st.session_state.excel_data:
