@@ -313,7 +313,6 @@ class StreamwiseScheduler:
         # Group by semester
         semesters = subbranch_data['Semester'].unique()
         subbranch_schedule = {}
-        overall_start_date = self.base_date
         
         for semester in sorted(semesters):
             if semester == 0:
@@ -339,8 +338,8 @@ class StreamwiseScheduler:
             if total_subjects > 15:
                 st.warning(f"⚠️ Sub-branch {subbranch_name}, Semester {semester} has {total_subjects} subjects, exceeding 15-day limit!")
             
-            # Get valid exam days starting from overall_start_date
-            valid_days = self.get_valid_exam_days(overall_start_date, max_days=30)
+            # Get valid exam days starting from base_date (reset for each semester)
+            valid_days = self.get_valid_exam_days(self.base_date, max_days=30)
             
             if len(valid_days) < total_subjects:
                 st.error(f"❌ Not enough valid days to schedule {total_subjects} subjects for {subbranch_name} Semester {semester}")
@@ -352,7 +351,7 @@ class StreamwiseScheduler:
             # Schedule subjects one per day with no gaps
             day_index = 0
             
-            # Schedule all subjects (no common subjects consideration)
+            # Schedule all subjects
             for _, row in subjects.iterrows():
                 if day_index >= len(valid_days):
                     st.error(f"❌ Ran out of valid days while scheduling subjects for {subbranch_name} Semester {semester}")
@@ -376,11 +375,6 @@ class StreamwiseScheduler:
                 st.success(f"✅ Sub-branch {subbranch_name} Semester {semester}: {actual_days_used} days used (within 15-day limit)")
             else:
                 st.warning(f"⚠️ Sub-branch {subbranch_name} Semester {semester}: {actual_days_used} days used (exceeds 15-day limit)")
-            
-            # Update overall start date for next semester (start after current semester ends + 1 day gap)
-            if day_index > 0:
-                last_exam_date = valid_days[day_index - 1]
-                overall_start_date = last_exam_date + timedelta(days=2)  # 1 day gap between semesters
             
             subbranch_schedule[semester] = sem_data
         
@@ -1154,7 +1148,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
-            # Since commonality is ignored, mark all as NO
             verification_df.at[idx, "Is Common"] = "NO"
 
     output = io.BytesIO()
