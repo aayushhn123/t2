@@ -1,4 +1,4 @@
-# Exam Timetable Schedulers
+# Exam Timetable Schedulers  - TRIALS
 
 This repository contains two Streamlit applications designed to generate exam timetables efficiently:
 
