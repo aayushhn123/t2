@@ -2144,9 +2144,9 @@ if uploaded_file is not None:
                             '<div class="status-error">❌ Failed to read the Excel file. Please check the format.</div>',
                             unsafe_allow_html=True)
 
-                except Exception as e:
-                    st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
-                                unsafe_allow_html=True)
+            except Exception as e:
+                st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
+                            unsafe_allow_html=True)
 
     # Display timetable results if processing is complete
     if st.session_state.processing_complete:
@@ -2367,3 +2367,4 @@ if uploaded_file is not None:
 
 if __name__ == "__main__":
     main()
+
