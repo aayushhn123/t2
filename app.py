@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, date
 from fpdf import FPDF
 import io
 import os
-import re
 
 # -- Page config and CSS --
 st.set_page_config(
@@ -13,10 +12,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 st.markdown("""
 <style>
-    /* Custom styling (same as original) */
+    /* Custom button hover styling */
     .stButton>button {
         transition: all 0.3s ease;
         border-radius: 5px;
@@ -32,7 +30,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# -- Helper: wrap text for PDF table --
+# -- PDF Helpers --
 def wrap_text(pdf, text, col_width):
     words = text.split()
     lines = []
@@ -48,68 +46,68 @@ def wrap_text(pdf, text, col_width):
         lines.append(current)
     return lines
 
-# -- Helper: print row with uniform height --
+
 def print_row(pdf, row, col_widths, line_h=6):
-    # wrap each cell
     wrapped = [wrap_text(pdf, str(cell), w) for cell, w in zip(row, col_widths)]
     max_lines = max(len(lines) for lines in wrapped)
     total_h = line_h * max_lines
     for i, lines in enumerate(wrapped):
-        x = pdf.get_x(); y = pdf.get_y()
+        x, y = pdf.get_x(), pdf.get_y()
         for line in lines:
             pdf.multi_cell(col_widths[i], line_h, line, border=0, align='C')
-            pdf.set_xy(pdf.get_x() - col_widths[i], pdf.get_y())
-        pdf.set_xy(x + col_widths[i], y)
+            pdf.set_xy(x + col_widths[i], pdf.get_y())
+        pdf.set_xy(pdf.get_x() - col_widths[i], y)
     pdf.ln(total_h)
 
-# -- New Scheduling Logic --
+# -- Scheduling Logic --
 def schedule_stream_exams(df_stream, holidays, start_date, window_days=15):
     df = df_stream.copy().reset_index(drop=True)
     df['Exam Date'] = ''
     df['Time Slot'] = ''
-    df = df.sort_values(['Semester','SubBranch','Subject']).reset_index(drop=True)
+    df = df.sort_values(['Semester', 'SubBranch', 'Subject']).reset_index(drop=True)
     window_end = start_date + timedelta(days=window_days - 1)
     current = start_date
     for idx, row in df.iterrows():
         while True:
             if current.date() > window_end.date():
-                st.error(f"Cannot finish {row['Branch']} in {window_days} days.")
-                return df
-            if current.weekday() == 6 or current in holidays:
+                raise RuntimeError(f"Cannot finish {row['Branch']} in {window_days} days.")
+            # skip Sundays and custom holidays
+            if current.weekday() == 6 or current.date() in holidays:
                 current += timedelta(days=1)
                 continue
             date_str = current.strftime("%d-%m-%Y")
+            # ensure one exam per day per branch
             if date_str in df['Exam Date'].values:
                 current += timedelta(days=1)
                 continue
             break
-        df.at[idx,'Exam Date'] = date_str
-        df.at[idx,'Time Slot'] = row.get('Preferred Slot','10:00 AM - 1:00 PM')
+        df.at[idx, 'Exam Date'] = date_str
+        df.at[idx, 'Time Slot'] = row['Preferred Slot']
         current += timedelta(days=1)
     return df
 
+
 def process_constraints_streamwise(df_all, holidays, base_date):
-    result = []
+    parts = []
     for branch in sorted(df_all['Branch'].unique()):
-        sub = df_all[df_all['Branch']==branch]
-        sched = schedule_stream_exams(sub, holidays, base_date)
-        result.append(sched)
-    return pd.concat(result, ignore_index=True)
+        df_branch = df_all[df_all['Branch'] == branch]
+        scheduled = schedule_stream_exams(df_branch, holidays, base_date)
+        parts.append(scheduled)
+    return pd.concat(parts, ignore_index=True)
 
 # -- PDF Generation --
 def generate_pdf(df):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.add_page()
-    pdf.set_font('Arial','B',16)
-    pdf.cell(0,10,'Exam Timetable',0,1,'C')
-    # table header
-    pdf.set_font('Arial','B',12)
-    cols = ['Branch','Semester','SubBranch','Subject','Exam Date','Time Slot']
-    widths = [40,30,40,80,40,40]
-    for col,w in zip(cols,widths): pdf.cell(w,10,col,1,0,'C')
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, 'Exam Timetable', 0, 1, 'C')
+    pdf.set_font('Arial', 'B', 12)
+    cols = ['Branch', 'Semester', 'SubBranch', 'Subject', 'Exam Date', 'Time Slot']
+    widths = [50, 30, 30, 100, 40, 40]
+    for col, w in zip(cols, widths):
+        pdf.cell(w, 10, col, 1, 0, 'C')
     pdf.ln()
-    # rows
-    pdf.set_font('Arial','',11)
+    pdf.set_font('Arial', '', 11)
     for _, row in df[cols].iterrows():
         print_row(pdf, row.tolist(), widths)
     return pdf.output(dest='S').encode('latin-1')
@@ -125,35 +123,56 @@ def generate_excel(df):
 # -- Main App --
 def main():
     st.title('Exam Timetable Generator')
-    uploaded = st.file_uploader('Upload Exam Details Excel', type=['xlsx','xls'])
+    uploaded = st.file_uploader('Upload Exam Details Excel', type=['xlsx', 'xls'])
     if not uploaded:
-        st.info('Awaiting file upload...')
+        st.info('Please upload your exam input file.')
         return
-    df = pd.read_excel(uploaded, engine='openpyxl')
-    # ensure datetime conversions
-    if 'Date' in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    # Sidebar inputs
+
+    # Read and map columns
+    df_raw = pd.read_excel(uploaded, engine='openpyxl')
+    # Create scheduling-specific fields
+    df_raw['Branch'] = df_raw['Program'].astype(str) + ' - ' + df_raw['Stream'].astype(str)
+    df_raw['Semester'] = df_raw['Current Session']
+    df_raw['SubBranch'] = df_raw['Category']
+    df_raw['Subject'] = df_raw['Module Description']
+    # Generate time slots based on duration (start at 10 AM)
+    def slot_from_dur(d):
+        start_hr = 10
+        end_hr = start_hr + int(d)
+        suffix = 'AM' if end_hr < 12 else 'PM'
+        end_12 = end_hr if end_hr <= 12 else end_hr - 12
+        return f"10:00 AM - {end_12}:00 {suffix}"
+    df_raw['Preferred Slot'] = df_raw['Exam Duration'].apply(slot_from_dur)
+
+    # Sidebar: start date & holidays
     st.sidebar.header('Configuration')
     base_date = st.sidebar.date_input('Exam Start Date', value=date.today())
-    hols = st.sidebar.text_area('Custom Holidays (comma-separated YYYY-MM-DD)')
+    hol_text = st.sidebar.text_area('Custom Holidays (comma-separated YYYY-MM-DD)')
     holidays = set()
-    for s in hols.split(','):
-        try: holidays.add(datetime.strptime(s.strip(), '%Y-%m-%d').date())
-        except: pass
+    for part in hol_text.split(','):
+        try:
+            holidays.add(datetime.strptime(part.strip(), '%Y-%m-%d').date())
+        except:
+            pass
+
     # Run scheduling
     try:
-        scheduled = process_constraints_streamwise(df, holidays, base_date)
+        scheduled_df = process_constraints_streamwise(df_raw, holidays, base_date)
     except Exception as e:
-        st.error(str(e))
+        st.error(f"Scheduling Error: {e}")
         return
-    st.success('Scheduling complete!')
-    st.dataframe(scheduled)
-    # Download buttons
-    pdf_bytes = generate_pdf(scheduled)
-    st.download_button('Download PDF', data=pdf_bytes, file_name='Exam_Timetable.pdf', mime='application/pdf')
-    xlsx_bytes = generate_excel(scheduled)
-    st.download_button('Download Excel', data=xlsx_bytes, file_name='Exam_Timetable.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-if __name__=='__main__':
+    st.success('Scheduling complete!')
+    st.dataframe(scheduled_df)
+
+    # Download PDF & Excel
+    pdf_out = generate_pdf(scheduled_df)
+    st.download_button('Download PDF', data=pdf_out,
+                       file_name='Exam_Timetable.pdf', mime='application/pdf')
+    xlsx_out = generate_excel(scheduled_df)
+    st.download_button('Download Excel', data=xlsx_out,
+                       file_name='Exam_Timetable.xlsx',
+                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+if __name__ == '__main__':
     main()
