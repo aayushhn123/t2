@@ -565,7 +565,6 @@ def schedule_electives_after_main(sem_dict, holidays):
     
     return sem_dict
 
-# Keep all the existing PDF and Excel generation functions unchanged
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
@@ -1300,49 +1299,20 @@ def main():
             # Process holidays
             holidays_set = set(h.date() for h in st.session_state.custom_holidays if h is not None)
             
-            # Initialize scheduling
-            non_elec_sched = {}
-            non_elec_dates = pd.Series(dtype='datetime64[ns]')
-            
-            if not df_non.empty:
-                # Schedule non-elective subjects
-                branches = df_non['Branch'].unique()
-                for branch in branches:
-                    branch_df = df_non[df_non['Branch'] == branch].copy()
-                    if not branch_df.empty:
-                        st.write(f"Scheduling for branch: {branch}")
-                        scheduled_df = schedule_stream_exams(
-                            branch_df,
-                            holidays_set,
-                            datetime.combine(start_date, datetime.min.time())
-                        )
-                        non_elec_sched[branch] = scheduled_df
-                        valid_dates = pd.to_datetime(
-                            scheduled_df['Exam Date'], format="%d-%m-%Y", errors='coerce'
-                        ).dropna()
-                        non_elec_dates = pd.concat([non_elec_dates, valid_dates], ignore_index=True)
+            # Schedule non-elective subjects using the new scheduling logic
+            semester_wise_timetable = process_new_scheduling_logic(
+                df_non,
+                holidays_set,
+                datetime.combine(start_date, datetime.min.time())
+            )
             
             # Handle electives
             if df_ele is not None and not df_ele.empty:
+                semester_wise_timetable = schedule_electives_after_main(semester_wise_timetable, holidays_set)
                 final_df = pd.concat([df_non, df_ele], ignore_index=True)
             else:
                 final_df = df_non
                 st.write("No electives to schedule.")
-
-            # Convert branch-wise dictionary to semester-wise for compatibility
-            semester_wise_timetable = {}
-            for branch, branch_df in non_elec_sched.items():
-                for sem in branch_df['Semester'].unique():
-                    if sem not in semester_wise_timetable:
-                        semester_wise_timetable[sem] = pd.DataFrame()
-                    sem_df = branch_df[branch_df['Semester'] == sem].copy()
-                    semester_wise_timetable[sem] = pd.concat(
-                        [semester_wise_timetable[sem], sem_df], ignore_index=True
-                    )
-            
-            # Add electives to semester-wise timetable
-            if df_ele is not None and not df_ele.empty:
-                semester_wise_timetable = schedule_electives_after_main(semester_wise_timetable, holidays_set)
 
             # Save to session state
             st.session_state.timetable_data = semester_wise_timetable
@@ -1377,7 +1347,7 @@ def main():
                 st.session_state.unique_exam_days = len(valid_dates.dt.date.unique())
                 st.session_state.non_elective_range = (
                     f"{min_date.strftime('%d-%m-%Y')} to {max_date.strftime('%d-%m-%Y')}"
-                    if not non_elec_dates.empty else "N/A"
+                    if not valid_dates.empty else "N/A"
                 )
                 elective_dates = pd.to_datetime(
                     df_ele['Exam Date'], format="%d-%m-%Y", errors='coerce'
@@ -1489,4 +1459,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
