@@ -313,6 +313,7 @@ class StreamwiseScheduler:
         # Group by semester
         semesters = subbranch_data['Semester'].unique()
         subbranch_schedule = {}
+        overall_start_date = self.base_date
         
         for semester in sorted(semesters):
             if semester == 0:
@@ -338,8 +339,8 @@ class StreamwiseScheduler:
             if total_subjects > 15:
                 st.warning(f"⚠️ Sub-branch {subbranch_name}, Semester {semester} has {total_subjects} subjects, exceeding 15-day limit!")
             
-            # Get valid exam days starting from base_date (reset for each semester)
-            valid_days = self.get_valid_exam_days(self.base_date, max_days=30)
+            # Get valid exam days starting from overall_start_date
+            valid_days = self.get_valid_exam_days(overall_start_date, max_days=30)
             
             if len(valid_days) < total_subjects:
                 st.error(f"❌ Not enough valid days to schedule {total_subjects} subjects for {subbranch_name} Semester {semester}")
@@ -375,6 +376,11 @@ class StreamwiseScheduler:
                 st.success(f"✅ Sub-branch {subbranch_name} Semester {semester}: {actual_days_used} days used (within 15-day limit)")
             else:
                 st.warning(f"⚠️ Sub-branch {subbranch_name} Semester {semester}: {actual_days_used} days used (exceeds 15-day limit)")
+            
+            # Update overall start date for next semester (start after current semester ends + 1 day gap)
+            if day_index > 0:
+                last_exam_date = valid_days[day_index - 1]
+                overall_start_date = last_exam_date + timedelta(days=2)  # 1 day gap between semesters
             
             subbranch_schedule[semester] = sem_data
         
@@ -485,45 +491,44 @@ def schedule_electives_after_main(sem_dict, holidays):
     if not all_dates:
         start_date = datetime(2025, 4, 1)
     else:
-        latest_date = max(all_dates)
-        start_date = latest_date + timedelta(days=1)
+        max_non_elec_date = max(all_dates).date()
+        start_date = datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1)
     
-    # Find next valid days for electives
+    # Define function to find next valid day for electives
     def find_next_valid_day(start_day):
         day = start_day
         while True:
-            if day.weekday() != 6 and day.date() not in holidays:
-                return day
-            day += timedelta(days=1)
+            day_date = day.date()
+            if day.weekday() == 6 or day_date in holidays:
+                day += timedelta(days=1)
+                continue
+            return day
     
-    # Schedule OE1 and OE5 together, then OE2 the next day
-    oe1_oe5_date = find_next_valid_day(start_date)
-    oe2_date = find_next_valid_day(oe1_oe5_date + timedelta(days=1))
+    # Schedule electives on two consecutive valid days
+    elective_day1 = find_next_valid_day(start_date)
+    elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1))
     
-    oe1_oe5_date_str = oe1_oe5_date.strftime("%d-%m-%Y")
-    oe2_date_str = oe2_date.strftime("%d-%m-%Y")
+    # Format dates as strings
+    elective_day1_str = elective_day1.strftime("%d-%m-%Y")
+    elective_day2_str = elective_day2.strftime("%d-%m-%Y")
     
-    # Update electives in all semesters
-    electives_scheduled = 0
+    # Schedule OE1 and OE5 together on the first elective day
     for semester, sem_data in sem_dict.items():
-        # Schedule OE1 and OE5
         oe1_oe5_mask = sem_data['OE'].isin(['OE1', 'OE5'])
         if oe1_oe5_mask.any():
-            sem_dict[semester].loc[oe1_oe5_mask, 'Exam Date'] = oe1_oe5_date_str
+            sem_dict[semester].loc[oe1_oe5_mask, 'Exam Date'] = elective_day1_str
             sem_dict[semester].loc[oe1_oe5_mask, 'Time Slot'] = "10:00 AM - 1:00 PM"
-            electives_scheduled += oe1_oe5_mask.sum()
         
-        # Schedule OE2
+        # Schedule OE2 on the second elective day
         oe2_mask = sem_data['OE'] == 'OE2'
         if oe2_mask.any():
-            sem_dict[semester].loc[oe2_mask, 'Exam Date'] = oe2_date_str
+            sem_dict[semester].loc[oe2_mask, 'Exam Date'] = elective_day2_str
             sem_dict[semester].loc[oe2_mask, 'Time Slot'] = "2:00 PM - 5:00 PM"
-            electives_scheduled += oe2_mask.sum()
     
-    if electives_scheduled > 0:
-        st.success(f"✅ Scheduled {electives_scheduled} elective subjects")
-        st.write(f"📅 OE1/OE5: {oe1_oe5_date_str}")
-        st.write(f"📅 OE2: {oe2_date_str}")
+    st.write(f"✅ OE1 and OE5 scheduled together on {elective_day1_str} at 10:00 AM - 1:00 PM")
+    st.write(f"✅ OE2 scheduled on {elective_day2_str} at 2:00 PM - 5:00 PM")
+    st.write(f"🔍 Debug - OE1/OE5 date: {elective_day1_str} (should be {elective_day1.strftime('%d %B %Y')})")
+    st.write(f"🔍 Debug - OE2 date: {elective_day2_str} (should be {elective_day2.strftime('%d %B %Y')})")
     
     return sem_dict
 
@@ -896,7 +901,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             )
 
             default_time_slot = get_semester_default_time_slot(semester, main_branch)
-            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
             for idx in elective_data.index:
                 cell_value = elective_data.at[idx, 'SubjectDisplay']
                 if pd.isna(cell_value) or cell_value.strip() == "---":
@@ -1269,6 +1273,7 @@ def main():
             
             # Handle electives
             if df_ele is not None and not df_ele.empty:
+                st.write("Scheduling electives...")
                 semester_wise_timetable = schedule_electives_after_main(semester_wise_timetable, holidays_set)
                 final_df = pd.concat([df_non, df_ele], ignore_index=True)
             else:
