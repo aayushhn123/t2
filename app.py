@@ -1,11 +1,4 @@
-# ==================== HELPER FUNCTIONS ====================
-
-def calculate_end_time(start_time, duration_hours):
-    """Calculate the end time given a start time and duration in hours."""
-    start = datetime.strptime(start_time, "%I:%M %p")
-    duration = timedelta(hours=duration_hours)
-    end = start + duration
-    return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pmimport streamlit as st
+import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 from fpdf import FPDF
@@ -2321,3 +2314,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
