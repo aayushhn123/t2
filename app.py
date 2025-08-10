@@ -400,6 +400,9 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
     
+    # Track all scheduled dates for span calculation
+    all_scheduled_dates = []
+    
     # Helper function to find next valid day (skip Sundays and holidays)
     def find_next_valid_day(start_date, holidays_set):
         current_date = start_date
@@ -419,6 +422,7 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
         
         # RESET BASE DATE FOR EACH SEMESTER
         current_scheduling_date = base_date
+        semester_dates = []  # Track dates for this semester
         
         # Get time slot based on semester
         if semester % 2 != 0:  # Odd semester
@@ -452,6 +456,10 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
                 # Mark this date as occupied for this branch
                 exam_days[branch].add(exam_date.date())
                 
+                # Track the scheduled date
+                all_scheduled_dates.append(exam_date.date())
+                semester_dates.append(exam_date.date())
+                
                 scheduled_count += 1
                 st.write(f"    ✅ Scheduled {row['Subject']} on {date_str}")
                 
@@ -462,9 +470,73 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
                 if exam_date > current_scheduling_date:
                     current_scheduling_date = exam_date
         
+        # Show semester-wise span
+        if semester_dates:
+            semester_start = min(semester_dates)
+            semester_end = max(semester_dates)
+            semester_span = (semester_end - semester_start).days + 1
+            semester_unique_days = len(set(semester_dates))
+            
+            st.write(f"  📊 Semester {semester} span: {semester_span} days ({semester_start.strftime('%d-%m-%Y')} to {semester_end.strftime('%d-%m-%Y')})")
+            st.write(f"  📅 Semester {semester} unique exam days: {semester_unique_days}")
+        
         st.write(f"✅ Completed Semester {semester} scheduling")
     
-    st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
+    # Calculate and display overall span for uncommon subjects
+    if all_scheduled_dates:
+        overall_start = min(all_scheduled_dates)
+        overall_end = max(all_scheduled_dates)
+        overall_span = (overall_end - overall_start).days + 1
+        unique_exam_days = len(set(all_scheduled_dates))
+        total_exam_dates = len(all_scheduled_dates)
+        
+        st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
+        
+        # Display comprehensive statistics
+        st.markdown("### 📊 Uncommon Subjects Scheduling Statistics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Subjects", scheduled_count)
+        with col2:
+            st.metric("Overall Span", f"{overall_span} days")
+        with col3:
+            st.metric("Unique Exam Days", unique_exam_days)
+        with col4:
+            st.metric("Total Exam Instances", total_exam_dates)
+        
+        st.info(f"📅 **Overall Date Range:** {overall_start.strftime('%d %B %Y')} to {overall_end.strftime('%d %B %Y')}")
+        
+        # Show efficiency metrics
+        efficiency = (unique_exam_days / overall_span) * 100 if overall_span > 0 else 0
+        if efficiency > 80:
+            st.success(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Excellent - most days are utilized)")
+        elif efficiency > 60:
+            st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
+        else:
+            st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
+        
+        # Additional insights
+        with st.expander("📈 Detailed Statistics"):
+            st.write(f"• **Scheduling started from:** {base_date.strftime('%d %B %Y')}")
+            st.write(f"• **First exam scheduled on:** {overall_start.strftime('%d %B %Y')}")
+            st.write(f"• **Last exam scheduled on:** {overall_end.strftime('%d %B %Y')}")
+            st.write(f"• **Days with no exams:** {overall_span - unique_exam_days}")
+            st.write(f"• **Average exams per active day:** {total_exam_dates / unique_exam_days:.1f}")
+            
+            # Show semester-wise breakdown
+            st.write("\n**Semester-wise Summary:**")
+            for semester in sorted(uncommon_subjects['Semester'].unique()):
+                semester_subjects = df[(df['Semester'] == semester) & (df['CommonAcrossSems'] == False) & (df['Exam Date'] != "")]
+                semester_count = len(semester_subjects)
+                if semester_count > 0:
+                    semester_exam_dates = pd.to_datetime(semester_subjects['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.date
+                    sem_start = min(semester_exam_dates)
+                    sem_end = max(semester_exam_dates)
+                    sem_span = (sem_end - sem_start).days + 1
+                    st.write(f"  - Semester {semester}: {semester_count} subjects, {sem_span} days span")
+    else:
+        st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
     
     return df
 
@@ -2373,6 +2445,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
