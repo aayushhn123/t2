@@ -383,6 +383,7 @@ class RealTimeOptimizer:
 def schedule_uncommon_subjects_first(df, holidays, base_date):
     """
     Schedule uncommon subjects (CommonAcrossSems = FALSE) first, semester-wise for each stream
+    Base date resets for each semester
     """
     st.info("🔧 Scheduling uncommon subjects first...")
     
@@ -410,12 +411,14 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
     
     # Schedule by semester, then by stream within each semester
     scheduled_count = 0
-    current_scheduling_date = base_date
     
     for semester in sorted(uncommon_subjects['Semester'].unique()):
         semester_data = uncommon_subjects[uncommon_subjects['Semester'] == semester]
         
         st.write(f"📚 Scheduling Semester {semester} uncommon subjects...")
+        
+        # RESET BASE DATE FOR EACH SEMESTER
+        current_scheduling_date = base_date
         
         # Get time slot based on semester
         if semester % 2 != 0:  # Odd semester
@@ -431,14 +434,13 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
             
             st.write(f"  🔧 Scheduling {len(branch_subjects)} subjects for {branch}")
             
+            # RESET TO BASE DATE FOR EACH BRANCH WITHIN THE SEMESTER
+            branch_scheduling_date = base_date
+            
             # Schedule each subject for this branch back-to-back
             for idx, row in branch_subjects.iterrows():
-                # Find next available day for this branch
-                while current_scheduling_date.date() in exam_days[branch]:
-                    current_scheduling_date = find_next_valid_day(current_scheduling_date + timedelta(days=1), holidays)
-                
                 # Find a valid day (not Sunday, not holiday, not already occupied by this branch)
-                exam_date = find_next_valid_day(current_scheduling_date, holidays)
+                exam_date = find_next_valid_day(branch_scheduling_date, holidays)
                 while exam_date.date() in exam_days[branch]:
                     exam_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
                 
@@ -454,7 +456,13 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
                 st.write(f"    ✅ Scheduled {row['Subject']} on {date_str}")
                 
                 # Move to next day for next subject of this branch
-                current_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+                branch_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+                
+                # Update the overall current_scheduling_date to track the latest date used
+                if exam_date > current_scheduling_date:
+                    current_scheduling_date = exam_date
+        
+        st.write(f"✅ Completed Semester {semester} scheduling")
     
     st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
     
@@ -2365,6 +2373,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
