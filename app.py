@@ -1207,7 +1207,7 @@ def process_constraints_with_real_time_optimization(df, holidays, base_date, sch
     # Normalize types
     df = df.copy()
     # Ensure holidays is a set of date objects
-    holidays = set(pd.to_datetime(list(holidays)).date()) if holidays else set()
+    holidays = set(pd.to_datetime(list(holidays)).date) if holidays else set()
 
     # Only uncommon (non-common) subjects for this phase
     uncommon_mask = df["IsCommon"].fillna("NO").str.strip().str.upper().isin(["NO", "FALSE", "N", "0"])
