@@ -383,7 +383,7 @@ class RealTimeOptimizer:
 def schedule_uncommon_subjects_first(df, holidays, base_date):
     """
     Schedule uncommon subjects (CommonAcrossSems = FALSE) first, semester-wise for each stream
-    Base date resets for each semester
+    Base date resets for each semester AND each sub-branch/stream
     """
     st.info("🔧 Scheduling uncommon subjects first...")
     
@@ -396,12 +396,13 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
     
     st.write(f"Found {len(uncommon_subjects)} uncommon subjects to schedule")
     
-    # Initialize exam_days tracker for each branch
+    # Initialize exam_days tracker for each branch (this will track across all scheduling)
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
     
     # Track all scheduled dates for span calculation
     all_scheduled_dates = []
+    semester_statistics = {}
     
     # Helper function to find next valid day (skip Sundays and holidays)
     def find_next_valid_day(start_date, holidays_set):
@@ -420,9 +421,9 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
         
         st.write(f"📚 Scheduling Semester {semester} uncommon subjects...")
         
-        # RESET BASE DATE FOR EACH SEMESTER
-        current_scheduling_date = base_date
-        semester_dates = []  # Track dates for this semester
+        # Track dates for this semester
+        semester_dates = []
+        semester_branch_stats = {}
         
         # Get time slot based on semester
         if semester % 2 != 0:  # Odd semester
@@ -432,52 +433,80 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
             even_sem_position = semester // 2
             preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         
-        # Group by stream within this semester
+        # Group by stream/branch within this semester
         for branch in sorted(semester_data['Branch'].unique()):
             branch_subjects = semester_data[semester_data['Branch'] == branch]
             
             st.write(f"  🔧 Scheduling {len(branch_subjects)} subjects for {branch}")
             
-            # RESET TO BASE DATE FOR EACH BRANCH WITHIN THE SEMESTER
+            # RESET TO BASE DATE FOR EACH BRANCH/STREAM - KEY CHANGE!
             branch_scheduling_date = base_date
+            branch_dates = []
+            
+            st.write(f"    📅 Starting {branch} from base date: {base_date.strftime('%d-%m-%Y')}")
             
             # Schedule each subject for this branch back-to-back
             for idx, row in branch_subjects.iterrows():
-                # Find a valid day (not Sunday, not holiday, not already occupied by this branch)
+                # Find a valid day starting from base date for this branch
                 exam_date = find_next_valid_day(branch_scheduling_date, holidays)
-                while exam_date.date() in exam_days[branch]:
-                    exam_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+                
+                # Since each branch starts independently, no need to check exam_days conflicts
+                # Just find next valid calendar day
                 
                 # Schedule the exam
                 date_str = exam_date.strftime("%d-%m-%Y")
                 df.loc[idx, 'Exam Date'] = date_str
                 df.loc[idx, 'Time Slot'] = preferred_slot
                 
-                # Mark this date as occupied for this branch
+                # Mark this date as occupied for this branch (for future reference)
                 exam_days[branch].add(exam_date.date())
                 
                 # Track the scheduled date
                 all_scheduled_dates.append(exam_date.date())
                 semester_dates.append(exam_date.date())
+                branch_dates.append(exam_date.date())
                 
                 scheduled_count += 1
                 st.write(f"    ✅ Scheduled {row['Subject']} on {date_str}")
                 
                 # Move to next day for next subject of this branch
                 branch_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+            
+            # Track branch statistics
+            if branch_dates:
+                branch_start = min(branch_dates)
+                branch_end = max(branch_dates)
+                branch_span = (branch_end - branch_start).days + 1
+                branch_unique_days = len(set(branch_dates))
                 
-                # Update the overall current_scheduling_date to track the latest date used
-                if exam_date > current_scheduling_date:
-                    current_scheduling_date = exam_date
+                semester_branch_stats[branch] = {
+                    'count': len(branch_subjects),
+                    'start': branch_start,
+                    'end': branch_end,
+                    'span': branch_span,
+                    'unique_days': branch_unique_days
+                }
+                
+                st.write(f"    📊 {branch} span: {branch_span} days ({branch_start.strftime('%d-%m-%Y')} to {branch_end.strftime('%d-%m-%Y')})")
+                st.write(f"    📅 {branch} subjects scheduled on {branch_unique_days} days")
         
-        # Show semester-wise span
+        # Store semester statistics
         if semester_dates:
             semester_start = min(semester_dates)
             semester_end = max(semester_dates)
             semester_span = (semester_end - semester_start).days + 1
             semester_unique_days = len(set(semester_dates))
             
-            st.write(f"  📊 Semester {semester} span: {semester_span} days ({semester_start.strftime('%d-%m-%Y')} to {semester_end.strftime('%d-%m-%Y')})")
+            semester_statistics[semester] = {
+                'count': len(semester_data),
+                'start': semester_start,
+                'end': semester_end,
+                'span': semester_span,
+                'unique_days': semester_unique_days,
+                'branches': semester_branch_stats
+            }
+            
+            st.write(f"  📊 Semester {semester} overall span: {semester_span} days ({semester_start.strftime('%d-%m-%Y')} to {semester_end.strftime('%d-%m-%Y')})")
             st.write(f"  📅 Semester {semester} unique exam days: {semester_unique_days}")
         
         st.write(f"✅ Completed Semester {semester} scheduling")
@@ -503,7 +532,7 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
         with col3:
             st.metric("Unique Exam Days", unique_exam_days)
         with col4:
-            st.metric("Total Exam Instances", total_exam_dates)
+            st.metric("Total Streams", len(set(uncommon_subjects['Branch'])))
         
         st.info(f"📅 **Overall Date Range:** {overall_start.strftime('%d %B %Y')} to {overall_end.strftime('%d %B %Y')}")
         
@@ -518,23 +547,35 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
         
         # Additional insights
         with st.expander("📈 Detailed Statistics"):
-            st.write(f"• **Scheduling started from:** {base_date.strftime('%d %B %Y')}")
+            st.write(f"• **Base date used for all streams:** {base_date.strftime('%d %B %Y')}")
             st.write(f"• **First exam scheduled on:** {overall_start.strftime('%d %B %Y')}")
             st.write(f"• **Last exam scheduled on:** {overall_end.strftime('%d %B %Y')}")
             st.write(f"• **Days with no exams:** {overall_span - unique_exam_days}")
             st.write(f"• **Average exams per active day:** {total_exam_dates / unique_exam_days:.1f}")
             
-            # Show semester-wise breakdown
-            st.write("\n**Semester-wise Summary:**")
-            for semester in sorted(uncommon_subjects['Semester'].unique()):
-                semester_subjects = df[(df['Semester'] == semester) & (df['CommonAcrossSems'] == False) & (df['Exam Date'] != "")]
-                semester_count = len(semester_subjects)
-                if semester_count > 0:
-                    semester_exam_dates = pd.to_datetime(semester_subjects['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.date
-                    sem_start = min(semester_exam_dates)
-                    sem_end = max(semester_exam_dates)
-                    sem_span = (sem_end - sem_start).days + 1
-                    st.write(f"  - Semester {semester}: {semester_count} subjects, {sem_span} days span")
+            # Show detailed semester and branch breakdown
+            st.write("\n**📚 Semester & Stream-wise Breakdown:**")
+            for semester in sorted(semester_statistics.keys()):
+                stats = semester_statistics[semester]
+                st.write(f"\n**Semester {semester}:** {stats['count']} subjects, {stats['span']} days span")
+                
+                for branch, branch_stats in stats['branches'].items():
+                    st.write(f"  • **{branch}:** {branch_stats['count']} subjects")
+                    st.write(f"    - Date range: {branch_stats['start'].strftime('%d-%m-%Y')} to {branch_stats['end'].strftime('%d-%m-%Y')}")
+                    st.write(f"    - Span: {branch_stats['span']} days, Active days: {branch_stats['unique_days']}")
+        
+        # Show stream independence verification
+        with st.expander("🔍 Stream Independence Verification"):
+            st.write("**Verification that each stream started from base date:**")
+            for semester in sorted(semester_statistics.keys()):
+                st.write(f"\n**Semester {semester}:**")
+                for branch, branch_stats in semester_statistics[semester]['branches'].items():
+                    days_from_base = (branch_stats['start'] - base_date.date()).days
+                    st.write(f"  • {branch}: Started {days_from_base} days from base date")
+                    if days_from_base == 0:
+                        st.write(f"    ✅ Started exactly on base date")
+                    else:
+                        st.write(f"    ℹ️ Started {days_from_base} days after base date (due to holidays/weekends)")
     else:
         st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
     
@@ -2445,6 +2486,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
