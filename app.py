@@ -319,7 +319,7 @@ class RealTimeOptimizer:
             while True:
                 # Skip Sundays (weekday 6) and holidays
                 if current_date.weekday() != 6 and current_date.date() not in holidays_set:
-                return current_date
+                    return current_date
                 current_date += timedelta(days=1)
     
         # Schedule by semester, then by stream within each semester
@@ -2462,6 +2462,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
