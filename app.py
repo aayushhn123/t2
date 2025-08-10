@@ -612,10 +612,32 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
         pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(71)
 
+
 def calculate_end_time(start_time, duration_hours):
-    """Calculate the end time given a start time and duration in hours."""
-    start = datetime.strptime(start_time, "%I:%M %p")
-    duration = timedelta(hours=duration_hours)
+    """Calculate the end time given a start time and duration in hours.
+    Be tolerant to empty or malformed start_time.
+    """
+    # If no start time, return empty string for downstream display
+    if start_time is None:
+        return ""
+    s = str(start_time).strip()
+    if not s:
+        return ""
+    # Normalize AM/PM
+    try_strings = [s, s.upper(), s.lower().replace("am", "AM").replace("pm", "PM")]
+    start = None
+    for cand in try_strings:
+        try:
+            start = datetime.strptime(cand, "%I:%M %p")
+            break
+        except Exception:
+            continue
+    if start is None:
+        return ""
+    try:
+        duration = timedelta(hours=float(duration_hours) if duration_hours is not None else 0)
+    except Exception:
+        duration = timedelta(hours=0)
     end = start + duration
     return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
 
@@ -1791,9 +1813,12 @@ def save_verification_excel(original_df, semester_wise_timetable):
             exam_date = match.iloc[0]["Exam Date"]
             time_slot = match.iloc[0]["Time Slot"]
             duration = row["Exam Duration"]
-            start_time = time_slot.split(" - ")[0]
-            end_time = calculate_end_time(start_time, duration)
-            exam_time = f"{start_time} to {end_time}"
+            exam_time = ""
+            if isinstance(time_slot, str) and time_slot.strip():
+                start_time = time_slot.split(" - ")[0]
+                end_time = calculate_end_time(start_time, duration)
+                if start_time and end_time:
+                    exam_time = f"{start_time} to {end_time}"
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
             branch_count = len(scheduled_data[scheduled_data["ModuleCode"] == module_code]["Branch"].unique())
