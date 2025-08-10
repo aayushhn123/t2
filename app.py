@@ -936,84 +936,84 @@ def parse_date_safely(date_input, input_format="%d-%m-%Y"):
     return pd.to_datetime(date_input, errors='coerce')
 
  def schedule_uncommon_subjects_first(df, holidays, base_date):
-        """
-        Schedule uncommon subjects (CommonAcrossSems = FALSE) first, semester-wise for each stream
-        """
-        st.info("🔧 Scheduling uncommon subjects first...")
+    """
+    Schedule uncommon subjects (CommonAcrossSems = FALSE) first, semester-wise for each stream
+    """
+    st.info("🔧 Scheduling uncommon subjects first...")
     
-        # Filter uncommon subjects only
-        uncommon_subjects = df[df['CommonAcrossSems'] == False].copy()
+    # Filter uncommon subjects only
+    uncommon_subjects = df[df['CommonAcrossSems'] == False].copy()
     
-        if uncommon_subjects.empty:
-            st.info("No uncommon subjects to schedule")
-            return df
-    
-        st.write(f"Found {len(uncommon_subjects)} uncommon subjects to schedule")
-    
-        # Initialize exam_days tracker for each branch
-        all_branches = df['Branch'].unique()
-        exam_days = {branch: set() for branch in all_branches}
-    
-        # Helper function to find next valid day (skip Sundays and holidays)
-        def find_next_valid_day(start_date, holidays_set):
-            current_date = start_date
-            while True:
-                # Skip Sundays (weekday 6) and holidays
-                if current_date.weekday() != 6 and current_date.date() not in holidays_set:
-                    return current_date
-                current_date += timedelta(days=1)
-    
-        # Schedule by semester, then by stream within each semester
-        scheduled_count = 0
-        current_scheduling_date = base_date
-    
-        for semester in sorted(uncommon_subjects['Semester'].unique()):
-            semester_data = uncommon_subjects[uncommon_subjects['Semester'] == semester]
-        
-            st.write(f"📚 Scheduling Semester {semester} uncommon subjects...")
-        
-            # Get time slot based on semester
-            if semester % 2 != 0:  # Odd semester
-                odd_sem_position = (semester + 1) // 2
-                preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-            else:  # Even semester
-                even_sem_position = semester // 2
-                preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        
-            # Group by stream within this semester
-            for branch in sorted(semester_data['Branch'].unique()):
-                branch_subjects = semester_data[semester_data['Branch'] == branch]
-            
-                st.write(f"  🔧 Scheduling {len(branch_subjects)} subjects for {branch}")
-            
-                # Schedule each subject for this branch back-to-back
-                for idx, row in branch_subjects.iterrows():
-                    # Find next available day for this branch
-                    while current_scheduling_date.date() in exam_days[branch]:
-                        current_scheduling_date = find_next_valid_day(current_scheduling_date + timedelta(days=1), holidays)
-                
-                    # Find a valid day (not Sunday, not holiday, not already occupied by this branch)
-                    exam_date = find_next_valid_day(current_scheduling_date, holidays)
-                    while exam_date.date() in exam_days[branch]:
-                        exam_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
-                
-                    # Schedule the exam
-                    date_str = exam_date.strftime("%d-%m-%Y")
-                    df.loc[idx, 'Exam Date'] = date_str
-                    df.loc[idx, 'Time Slot'] = preferred_slot
-                
-                    # Mark this date as occupied for this branch
-                    exam_days[branch].add(exam_date.date())
-                
-                    scheduled_count += 1
-                    st.write(f"    ✅ Scheduled {row['Subject']} on {date_str}")
-                
-                    # Move to next day for next subject of this branch
-                    current_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
-    
-        st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
-    
+    if uncommon_subjects.empty:
+        st.info("No uncommon subjects to schedule")
         return df
+    
+    st.write(f"Found {len(uncommon_subjects)} uncommon subjects to schedule")
+    
+    # Initialize exam_days tracker for each branch
+    all_branches = df['Branch'].unique()
+    exam_days = {branch: set() for branch in all_branches}
+    
+    # Helper function to find next valid day (skip Sundays and holidays)
+    def find_next_valid_day(start_date, holidays_set):
+        current_date = start_date
+        while True:
+            # Skip Sundays (weekday 6) and holidays
+            if current_date.weekday() != 6 and current_date.date() not in holidays_set:
+                return current_date
+            current_date += timedelta(days=1)
+    
+    # Schedule by semester, then by stream within each semester
+    scheduled_count = 0
+    current_scheduling_date = base_date
+    
+    for semester in sorted(uncommon_subjects['Semester'].unique()):
+        semester_data = uncommon_subjects[uncommon_subjects['Semester'] == semester]
+        
+        st.write(f"📚 Scheduling Semester {semester} uncommon subjects...")
+        
+        # Get time slot based on semester
+        if semester % 2 != 0:  # Odd semester
+            odd_sem_position = (semester + 1) // 2
+            preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        else:  # Even semester
+            even_sem_position = semester // 2
+            preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        
+        # Group by stream within this semester
+        for branch in sorted(semester_data['Branch'].unique()):
+            branch_subjects = semester_data[semester_data['Branch'] == branch]
+            
+            st.write(f"  🔧 Scheduling {len(branch_subjects)} subjects for {branch}")
+            
+            # Schedule each subject for this branch back-to-back
+            for idx, row in branch_subjects.iterrows():
+                # Find next available day for this branch
+                while current_scheduling_date.date() in exam_days[branch]:
+                    current_scheduling_date = find_next_valid_day(current_scheduling_date + timedelta(days=1), holidays)
+                
+                # Find a valid day (not Sunday, not holiday, not already occupied by this branch)
+                exam_date = find_next_valid_day(current_scheduling_date, holidays)
+                while exam_date.date() in exam_days[branch]:
+                    exam_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+                
+                # Schedule the exam
+                date_str = exam_date.strftime("%d-%m-%Y")
+                df.loc[idx, 'Exam Date'] = date_str
+                df.loc[idx, 'Time Slot'] = preferred_slot
+                
+                # Mark this date as occupied for this branch
+                exam_days[branch].add(exam_date.date())
+                
+                scheduled_count += 1
+                st.write(f"    ✅ Scheduled {row['Subject']} on {date_str}")
+                
+                # Move to next day for next subject of this branch
+                current_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+    
+    st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
+    
+    return df
 
 def schedule_semester_non_electives_with_optimization(df_sem, holidays, base_date, exam_days, optimizer, schedule_by_difficulty=False):
     """Enhanced scheduling that ensures only one exam per day per branch (subbranch)"""
@@ -2363,6 +2363,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
