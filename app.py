@@ -1054,7 +1054,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     except Exception as e:
         st.error(f"Error during PDF post-processing: {str(e)}")
 
-ef read_timetable(uploaded_file):
+def read_timetable(uploaded_file):
     """
     Updated to read the Circuit column from the Excel file
     """
@@ -2791,3 +2791,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
