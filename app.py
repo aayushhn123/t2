@@ -482,6 +482,7 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
     Schedule common subjects across ALL branches (circuit and non-circuit) and remaining individual subjects
     Priority: Schedule maximum common subjects per day while respecting constraints
     CRITICAL CONSTRAINT: Only one exam per day per subbranch per semester (not just branch per semester)
+    FIXED: Properly handle all common subjects including those that couldn't be scheduled initially
     """
     st.info("🔧 Scheduling common subjects across all branches with maximum subjects per day priority...")
     
@@ -501,6 +502,9 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
     common_subjects = subjects_to_schedule[subjects_to_schedule['CommonAcrossSems'] == True].copy()
     individual_subjects = subjects_to_schedule[subjects_to_schedule['CommonAcrossSems'] == False].copy()
     
+    st.write(f"📋 Common subjects to schedule: {len(common_subjects)}")
+    st.write(f"📋 Individual subjects to schedule: {len(individual_subjects)}")
+    
     scheduled_count = 0
     current_scheduling_date = base_date
     
@@ -512,30 +516,36 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                 return current_date
             current_date += timedelta(days=1)
     
-    # Helper function to get subbranch-semester key (UPDATED TO USE SUBBRANCH)
+    # Helper function to get subbranch-semester key
     def get_subbranch_semester_key(subbranch, semester):
         return f"{subbranch}_{semester}"
     
-    # Track scheduled subbranch-semester combinations per day (CRITICAL CHANGE)
+    # Track scheduled subbranch-semester combinations per day
     daily_scheduled = {}  # date -> set of subbranch_semester keys
     
     # Schedule common subjects with maximum subjects per day priority
     if not common_subjects.empty:
-        st.write("📚 Scheduling common subjects across all branches with max per day priority...")
+        st.write("📚 Scheduling common subjects across all branches...")
         
         # Group by ModuleCode to find truly common subjects across ALL branches
         common_subject_groups = {}
         for module_code, group in common_subjects.groupby('ModuleCode'):
             branches_for_this_subject = group['Branch'].unique()
-            if len(branches_for_this_subject) > 1:  # Common across multiple branches (any combination)
-                common_subject_groups[module_code] = group
-                st.write(f"  📋 Found common subject {group['Subject'].iloc[0]} across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
+            # FIXED: Accept subjects that are marked as common even if they appear in only one branch in this batch
+            # This handles cases where other instances might exist in other semesters or have been filtered out
+            common_subject_groups[module_code] = group
+            st.write(f"  📋 Found common subject {group['Subject'].iloc[0]} across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
         
         # Create a list of unscheduled common subject groups
         unscheduled_groups = list(common_subject_groups.keys())
+        st.write(f"📊 Total common subject groups to schedule: {len(unscheduled_groups)}")
         
         # Schedule day by day, maximizing subjects per day
-        while unscheduled_groups:
+        scheduling_attempts = 0
+        max_scheduling_attempts = 200  # Prevent infinite loops
+        
+        while unscheduled_groups and scheduling_attempts < max_scheduling_attempts:
+            scheduling_attempts += 1
             exam_date = find_next_valid_day(current_scheduling_date, holidays)
             date_str = exam_date.strftime("%d-%m-%Y")
             
@@ -546,9 +556,11 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
             available_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
             subjects_scheduled_today = 0
             
-            st.write(f"  📅 Attempting to schedule on {date_str}")
+            st.write(f"  📅 Attempting to schedule on {date_str} (Attempt {scheduling_attempts})")
             
             # Try to schedule as many common subjects as possible on this day
+            day_had_scheduling = False
+            
             for time_slot in available_slots:
                 groups_scheduled_in_slot = []
                 
@@ -560,7 +572,7 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                     can_schedule = True
                     conflicting_subbranches = []
                     
-                    # Check if any subbranch-semester combination conflicts (CRITICAL CHANGE)
+                    # Check if any subbranch-semester combination conflicts
                     for idx, row in group.iterrows():
                         subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
                         if subbranch_sem_key in daily_scheduled[date_str]:
@@ -589,13 +601,14 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                             df.loc[idx, 'Time Slot'] = actual_slot
                             scheduled_count += 1
                             
-                            # Mark this subbranch-semester as scheduled for this date (CRITICAL CHANGE)
+                            # Mark this subbranch-semester as scheduled for this date
                             subbranch_sem_key = get_subbranch_semester_key(group.loc[idx, 'SubBranch'], group.loc[idx, 'Semester'])
                             daily_scheduled[date_str].add(subbranch_sem_key)
                             subbranches_scheduled.append(f"{group.loc[idx, 'SubBranch']} (Sem {group.loc[idx, 'Semester']})")
                         
                         groups_scheduled_in_slot.append(module_code)
                         subjects_scheduled_today += 1
+                        day_had_scheduling = True
                         
                         st.write(f"      ✅ Scheduled common subject {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {actual_slot}")
                     else:
@@ -605,10 +618,9 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                 for module_code in groups_scheduled_in_slot:
                     unscheduled_groups.remove(module_code)
                 
-                # If no more subjects can be scheduled in remaining slots, break
+                # If no more subjects can be scheduled in remaining slots for this time slot, continue to next slot
                 if not groups_scheduled_in_slot:
                     st.write(f"      ℹ️ No more common subjects can be scheduled in {time_slot}")
-                    break
             
             # Try to fill remaining slots with individual subjects
             remaining_slots = 2 - subjects_scheduled_today
@@ -647,8 +659,9 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                             df.loc[idx_to_schedule, 'Time Slot'] = preferred_slot
                             scheduled_count += 1
                             individual_scheduled_today += 1
+                            day_had_scheduling = True
                             
-                            # Mark this subbranch-semester as scheduled (CRITICAL CHANGE)
+                            # Mark this subbranch-semester as scheduled
                             subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
                             daily_scheduled[date_str].add(subbranch_sem_key)
                             
@@ -662,18 +675,36 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
             
             # Move to next day
             current_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+            
+            # If no scheduling happened this day and we still have unscheduled groups, continue to next day
+            if not day_had_scheduling and unscheduled_groups:
+                st.write(f"  ⚠️ No subjects could be scheduled on {date_str}, moving to next day")
+                continue
     
-    # Schedule remaining individual subjects
+    # FIXED: Handle any remaining unscheduled common subjects as individual subjects
+    remaining_common_subjects = df[
+        (df['Exam Date'] == "") & 
+        (df['CommonAcrossSems'] == True) & 
+        (df['Category'] != 'INTD')
+    ].copy()
+    
+    if not remaining_common_subjects.empty:
+        st.warning(f"⚠️ {len(remaining_common_subjects)} common subjects could not be scheduled in groups. Scheduling them individually...")
+        
+        # Add remaining common subjects to individual subjects for scheduling
+        individual_subjects = pd.concat([individual_subjects, remaining_common_subjects], ignore_index=True)
+    
+    # Schedule remaining individual subjects (including previously unscheduled common subjects)
     if not individual_subjects.empty:
         st.write(f"📚 Scheduling remaining {len(individual_subjects)} individual subjects...")
         
         for idx, row in individual_subjects.iterrows():
             if df.loc[idx, 'Exam Date'] == "":  # Not yet scheduled
-                # Find a day where this subbranch-semester is not scheduled (CRITICAL CHANGE)
+                # Find a day where this subbranch-semester is not scheduled
                 found_slot = False
                 test_date = current_scheduling_date
                 attempts = 0
-                max_attempts = 100
+                max_attempts = 200  # Increased from 100
                 
                 while not found_slot and attempts < max_attempts:
                     test_date = find_next_valid_day(test_date, holidays)
@@ -700,7 +731,9 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                         
                         daily_scheduled[date_str].add(subbranch_sem_key)
                         
-                        st.write(f"    ✅ Scheduled individual subject {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) on {date_str}")
+                        # Check if this was originally a common subject
+                        original_common = "✓" if row['CommonAcrossSems'] else ""
+                        st.write(f"    ✅ Scheduled subject {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) on {date_str} {original_common}")
                         found_slot = True
                     else:
                         test_date += timedelta(days=1)
@@ -708,6 +741,20 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                 
                 if not found_slot:
                     st.error(f"❌ Could not schedule {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) after {max_attempts} attempts")
+    
+    # Final count of unscheduled subjects
+    final_unscheduled = df[
+        (df['Exam Date'] == "") & 
+        (df['Category'] != 'INTD')
+    ]
+    
+    if not final_unscheduled.empty:
+        st.error(f"❌ {len(final_unscheduled)} subjects remain unscheduled:")
+        for idx, row in final_unscheduled.iterrows():
+            common_status = "Common" if row['CommonAcrossSems'] else "Individual"
+            st.write(f"  • {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) - {common_status}")
+    else:
+        st.success("✅ All subjects successfully scheduled!")
     
     st.success(f"✅ Successfully scheduled {scheduled_count} subjects across all branches")
     
@@ -1441,6 +1488,32 @@ def save_verification_excel(original_df, semester_wise_timetable):
     matched_count = 0
     unmatched_count = 0
     
+    # IMPROVED: Create lookup dictionaries for faster matching
+    # Create comprehensive lookup for scheduled subjects
+    scheduled_lookup = {}
+    for idx, row in scheduled_data.iterrows():
+        module_code = str(row['ExtractedModuleCode']).strip()
+        if module_code and module_code != "nan":
+            semester = row['Semester']
+            branch = row['Branch']
+            
+            # Create multiple possible keys for matching
+            keys_to_try = [
+                f"{module_code}_{semester}_{branch}",  # Exact match
+            ]
+            
+            # Add branch variations for matching
+            if '-' in branch:
+                program, stream = branch.split('-', 1)
+                keys_to_try.append(f"{module_code}_{semester}_{program.strip()}-{stream.strip()}")
+            
+            for key in keys_to_try:
+                if key not in scheduled_lookup:
+                    scheduled_lookup[key] = []
+                scheduled_lookup[key].append(row)
+    
+    st.write(f"📊 Created lookup with {len(scheduled_lookup)} unique keys")
+    
     # Process each row for matching
     for idx, row in verification_df.iterrows():
         try:
@@ -1464,25 +1537,41 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 unmatched_count += 1
                 continue
             
-            # Debug: Show what we're trying to match
-            if idx < 3:  # Show first 3 for debugging
-                st.write(f"🔍 **Matching attempt {idx+1}:**")
-                st.write(f"   Module Code: '{module_code}'")
-                st.write(f"   Semester: '{semester_value}' -> {semester_num}")
-                st.write(f"   Branch: '{branch}'")
+            # Try to find match using lookup
+            lookup_key = f"{module_code}_{semester_num}_{branch}"
+            match_found = False
             
-            # Find matching scheduled subject
-            match_conditions = (
-                (scheduled_data["ExtractedModuleCode"] == module_code) &
-                (scheduled_data["Semester"] == semester_num) &
-                (scheduled_data["Branch"] == branch)
-            )
+            if lookup_key in scheduled_lookup:
+                # Found exact match
+                matched_subject = scheduled_lookup[lookup_key][0]  # Take first match
+                match_found = True
+            else:
+                # Try alternative matching approaches
+                # 1. Try with just module code and semester (for common subjects)
+                for key, subjects in scheduled_lookup.items():
+                    if key.startswith(f"{module_code}_{semester_num}_"):
+                        # Check if this is a common subject
+                        matched_subject = subjects[0]
+                        if matched_subject.get('CommonAcrossSems', False):
+                            match_found = True
+                            break
+                
+                # 2. Try partial branch matching
+                if not match_found:
+                    for key, subjects in scheduled_lookup.items():
+                        if key.startswith(f"{module_code}_{semester_num}_"):
+                            # Extract branch from key
+                            key_parts = key.split('_')
+                            if len(key_parts) >= 3:
+                                key_branch = '_'.join(key_parts[2:])
+                                # Check if branches are similar (same program or stream)
+                                if branch in key_branch or key_branch in branch:
+                                    matched_subject = subjects[0]
+                                    match_found = True
+                                    break
             
-            match = scheduled_data[match_conditions]
-            
-            if not match.empty:
+            if match_found:
                 # Found a match
-                matched_subject = match.iloc[0]
                 exam_date = matched_subject["Exam Date"]
                 time_slot = matched_subject["Time Slot"]
                 duration = row.get("Exam Duration", 3.0)
@@ -1512,39 +1601,30 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 verification_df.at[idx, "Time Slot"] = str(time_slot)
                 verification_df.at[idx, "Scheduling Status"] = "Scheduled"
                 
-                # Check commonality
+                # Check commonality - improved logic
                 same_module_scheduled = scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]
                 unique_branches = same_module_scheduled["Branch"].nunique()
-                verification_df.at[idx, "Is Common"] = "YES" if unique_branches > 1 else "NO"
+                is_marked_common = row.get("Common across sems", False)
+                verification_df.at[idx, "Is Common"] = "YES" if (unique_branches > 1 or is_marked_common) else "NO"
                 
                 matched_count += 1
                 
                 if idx < 3:  # Debug first few matches
-                    st.write(f"   ✅ **MATCH FOUND!**")
+                    st.write(f"   ✅ **MATCH FOUND for {module_code}!**")
                     st.write(f"   Exam Date: {exam_date}")
                     st.write(f"   Time Slot: {time_slot}")
-                    st.write(f"   Exam Time: {exam_time}")
                 
             else:
                 # No match found
                 verification_df.at[idx, "Exam Date"] = "Not Scheduled"
-                verification_df.at[idx, "Exam Time"] = "Not Scheduled"
+                verification_df.at[idx, "Exam Time"] = "Not Scheduled" 
                 verification_df.at[idx, "Time Slot"] = "Not Scheduled"
                 verification_df.at[idx, "Is Common"] = "N/A"
                 verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
                 unmatched_count += 1
                 
-                if idx < 5:  # Debug first few non-matches
+                if unmatched_count <= 10:  # Show first 10 unmatched for debugging
                     st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
-                    
-                    # Show what scheduled data we have for this module code
-                    module_matches = scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]
-                    if not module_matches.empty:
-                        st.write(f"   📋 Available matches for {module_code}:")
-                        for _, match_row in module_matches.iterrows():
-                            st.write(f"      - Branch: {match_row['Branch']}, Semester: {match_row['Semester']}")
-                    else:
-                        st.write(f"   📋 No scheduled data found for module code: {module_code}")
                         
         except Exception as e:
             st.error(f"Error processing row {idx}: {e}")
@@ -1568,6 +1648,11 @@ def save_verification_excel(original_df, semester_wise_timetable):
         }
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        
+        # Add unmatched subjects sheet for debugging
+        unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
+        if not unmatched_subjects.empty:
+            unmatched_subjects.to_excel(writer, sheet_name="Unmatched_Subjects", index=False)
 
     output.seek(0)
     return output
@@ -2334,5 +2419,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
