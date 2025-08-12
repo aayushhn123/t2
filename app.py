@@ -1857,6 +1857,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     
     return sem_dict, moves_made, optimization_log
     
+
 def main():
     st.markdown("""
     <div class="main-header">
@@ -2153,8 +2154,7 @@ def main():
                 st.download_button(
                     label="📄 Download PDF File",
                     data=st.session_state.pdf_data,
-                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                    mime="application/pdf",
+                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",mime="application/pdf",
                    use_container_width=True,
                    key="download_pdf"
                )
@@ -2326,13 +2326,6 @@ def main():
        <p style="font-size: 0.9em;">Stream-wise scheduling • All-branch commonality • OE optimization • Maximum efficiency • Verification export</p>
    </div>
    """, unsafe_allow_html=True)
+
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
