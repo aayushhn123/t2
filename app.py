@@ -2154,178 +2154,180 @@ def main():
                 st.download_button(
                     label="📄 Download PDF File",
                     data=st.session_state.pdf_data,
-                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",mime="application/pdf",
-                   use_container_width=True,
-                   key="download_pdf"
-               )
+                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="download_pdf"
+                )
 
-       with col3:
-           if st.session_state.verification_data:
-               st.download_button(
-                   label="📋 Download Verification File",
-                   data=st.session_state.verification_data,
-                   file_name=f"verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                   use_container_width=True,
-                   key="download_verification"
-               )
+        with col3:
+            if st.session_state.verification_data:
+                st.download_button(
+                    label="📋 Download Verification File",
+                    data=st.session_state.verification_data,
+                    file_name=f"verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="download_verification"
+                )
 
-       with col4:
-           if st.button("🔄 Generate New Timetable", use_container_width=True):
-               # Clear session state and rerun
-               st.session_state.processing_complete = False
-               st.session_state.timetable_data = {}
-               st.session_state.original_df = None
-               st.session_state.excel_data = None
-               st.session_state.pdf_data = None
-               st.session_state.verification_data = None
-               st.session_state.total_exams = 0
-               st.session_state.total_semesters = 0
-               st.session_state.total_branches = 0
-               st.session_state.overall_date_range = 0
-               st.session_state.unique_exam_days = 0
-               st.rerun()
+        with col4:
+            if st.button("🔄 Generate New Timetable", use_container_width=True):
+                # Clear session state and rerun
+                st.session_state.processing_complete = False
+                st.session_state.timetable_data = {}
+                st.session_state.original_df = None
+                st.session_state.excel_data = None
+                st.session_state.pdf_data = None
+                st.session_state.verification_data = None
+                st.session_state.total_exams = 0
+                st.session_state.total_semesters = 0
+                st.session_state.total_branches = 0
+                st.session_state.overall_date_range = 0
+                st.session_state.unique_exam_days = 0
+                st.rerun()
 
-       # Statistics Overview
-       st.markdown("""
-       <div class="stats-section">
-           <h2>📈 Complete Timetable Statistics</h2>
-       </div>
-       """, unsafe_allow_html=True)
+        # Statistics Overview
+        st.markdown("""
+        <div class="stats-section">
+            <h2>📈 Complete Timetable Statistics</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-       col1, col2, col3, col4 = st.columns(4)
-       with col1:
-           st.markdown(f'<div class="metric-card"><h3>📝 {st.session_state.total_exams}</h3><p>Total Exams</p></div>',
-                       unsafe_allow_html=True)
-       with col2:
-           st.markdown(f'<div class="metric-card"><h3>🎓 {st.session_state.total_semesters}</h3><p>Semesters</p></div>',
-                       unsafe_allow_html=True)
-       with col3:
-           st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.total_branches}</h3><p>Branches</p></div>',
-                       unsafe_allow_html=True)
-       with col4:
-           st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Days Span</p></div>',
-                       unsafe_allow_html=True)
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.markdown(f'<div class="metric-card"><h3>📝 {st.session_state.total_exams}</h3><p>Total Exams</p></div>',
+                        unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'<div class="metric-card"><h3>🎓 {st.session_state.total_semesters}</h3><p>Semesters</p></div>',
+                        unsafe_allow_html=True)
+        with col3:
+            st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.total_branches}</h3><p>Branches</p></div>',
+                        unsafe_allow_html=True)
+        with col4:
+            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Days Span</p></div>',
+                        unsafe_allow_html=True)
 
-       # Show efficiency metrics
-       if st.session_state.unique_exam_days > 0 and st.session_state.overall_date_range > 0:
-           efficiency = (st.session_state.unique_exam_days / st.session_state.overall_date_range) * 100
-           if efficiency > 80:
-               st.success(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Excellent - most days are utilized)")
-           elif efficiency > 60:
-               st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
-           else:
-               st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
+        # Show efficiency metrics
+        if st.session_state.unique_exam_days > 0 and st.session_state.overall_date_range > 0:
+            efficiency = (st.session_state.unique_exam_days / st.session_state.overall_date_range) * 100
+            if efficiency > 80:
+                st.success(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Excellent - most days are utilized)")
+            elif efficiency > 60:
+                st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
+            else:
+                st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
 
-       # Timetable Results
-       st.markdown("---")
-       st.markdown("""
-       <div class="results-section">
-           <h2>📊 Complete Timetable Results</h2>
-       </div>
-       """, unsafe_allow_html=True)
+        # Timetable Results
+        st.markdown("---")
+        st.markdown("""
+        <div class="results-section">
+            <h2>📊 Complete Timetable Results</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-       for sem, df_sem in st.session_state.timetable_data.items():
-           st.markdown(f"### 📚 Semester {sem}")
+        for sem, df_sem in st.session_state.timetable_data.items():
+            st.markdown(f"### 📚 Semester {sem}")
 
-           for main_branch in df_sem["MainBranch"].unique():
-               main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
-               df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+            for main_branch in df_sem["MainBranch"].unique():
+                main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
 
-               if not df_mb.empty:
-                   # Separate non-electives and electives for display
-                   df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                   df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+                if not df_mb.empty:
+                    # Separate non-electives and electives for display
+                    df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                    df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
-                   # Display non-electives
-                   if not df_non_elec.empty:
-                       # Format subject display
-                       def format_subject_display(row):
-                           subject = row['Subject']
-                           time_slot = row['Time Slot']
-                           duration = row['Exam Duration']
-                           
-                           # If duration is not 3 hours, show the specific time range
-                           if duration != 3 and time_slot and time_slot.strip():
-                               start_time = time_slot.split(' - ')[0]
-                               end_time = calculate_end_time(start_time, duration)
-                               time_range = f" ({start_time} to {end_time})"
-                           else:
-                               time_range = ""
-                           
-                           return subject + time_range
-                       
-                       df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
-                       df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                       df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                       
-                       # Create pivot table for non-electives
-                       pivot_df = df_non_elec.pivot_table(
-                           index=["Exam Date", "Time Slot"],
-                           columns="SubBranch",
-                           values="SubjectDisplay",
-                           aggfunc=lambda x: ", ".join(x)
-                       ).fillna("---")
-                       
-                       if not pivot_df.empty:
-                           st.markdown(f"#### {main_branch_full} - Core Subjects")
-                           formatted_pivot = pivot_df.copy()
-                           if len(formatted_pivot.index.levels) > 0:
-                               formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
-                                                  formatted_pivot.index.levels[0]]
-                               formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
-                           st.dataframe(formatted_pivot, use_container_width=True)
+                    # Display non-electives
+                    if not df_non_elec.empty:
+                        # Format subject display
+                        def format_subject_display(row):
+                            subject = row['Subject']
+                            time_slot = row['Time Slot']
+                            duration = row['Exam Duration']
+                            
+                            # If duration is not 3 hours, show the specific time range
+                            if duration != 3 and time_slot and time_slot.strip():
+                                start_time = time_slot.split(' - ')[0]
+                                end_time = calculate_end_time(start_time, duration)
+                                time_range = f" ({start_time} to {end_time})"
+                            else:
+                                time_range = ""
+                            
+                            return subject + time_range
+                        
+                        df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
+                        df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                        df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                        
+                        # Create pivot table for non-electives
+                        pivot_df = df_non_elec.pivot_table(
+                            index=["Exam Date", "Time Slot"],
+                            columns="SubBranch",
+                            values="SubjectDisplay",
+                            aggfunc=lambda x: ", ".join(x)
+                        ).fillna("---")
+                        
+                        if not pivot_df.empty:
+                            st.markdown(f"#### {main_branch_full} - Core Subjects")
+                            formatted_pivot = pivot_df.copy()
+                            if len(formatted_pivot.index.levels) > 0:
+                                formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
+                                                   formatted_pivot.index.levels[0]]
+                                formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
+                            st.dataframe(formatted_pivot, use_container_width=True)
 
-                   # Display electives
-                   if not df_elec.empty:
-                       # Format elective display
-                       def format_elective_display(row):
-                           subject = row['Subject']
-                           oe_type = row['OE']
-                           time_slot = row['Time Slot']
-                           duration = row['Exam Duration']
-                           
-                           base_display = f"{subject} [{oe_type}]"
-                           
-                           # If duration is not 3 hours, show the specific time range
-                           if duration != 3 and time_slot and time_slot.strip():
-                               start_time = time_slot.split(' - ')[0]
-                               end_time = calculate_end_time(start_time, duration)
-                               time_range = f" ({start_time} to {end_time})"
-                           else:
-                               time_range = ""
-                           
-                           return base_display + time_range
-                       
-                       df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
-                       df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                       df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
-                       
-                       # Create elective pivot
-                       elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-                           lambda x: ", ".join(x)
-                       ).reset_index()
-                       
-                       if not elec_pivot.empty:
-                           st.markdown(f"#### {main_branch_full} - Open Electives")
-                           # Format dates for display
-                           elec_pivot['Formatted_Date'] = elec_pivot['Exam Date'].dt.strftime("%d-%m-%Y")
-                           elec_pivot_display = elec_pivot[['Formatted_Date', 'Time Slot', 'OE', 'SubjectDisplay']].rename(columns={
-                               'Formatted_Date': 'Exam Date',
-                               'OE': 'OE Type',
-                               'SubjectDisplay': 'Subjects'
-                           })
-                           st.dataframe(elec_pivot_display, use_container_width=True)
+                    # Display electives
+                    if not df_elec.empty:
+                        # Format elective display
+                        def format_elective_display(row):
+                            subject = row['Subject']
+                            oe_type = row['OE']
+                            time_slot = row['Time Slot']
+                            duration = row['Exam Duration']
+                            
+                            base_display = f"{subject} [{oe_type}]"
+                            
+                            # If duration is not 3 hours, show the specific time range
+                            if duration != 3 and time_slot and time_slot.strip():
+                                start_time = time_slot.split(' - ')[0]
+                                end_time = calculate_end_time(start_time, duration)
+                                time_range = f" ({start_time} to {end_time})"
+                            else:
+                                time_range = ""
+                            
+                            return base_display + time_range
+                        
+                        df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
+                        df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                        df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                        
+                        # Create elective pivot
+                        elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                            lambda x: ", ".join(x)
+                        ).reset_index()
+                        
+                        if not elec_pivot.empty:
+                            st.markdown(f"#### {main_branch_full} - Open Electives")
+                            # Format dates for display
+                            elec_pivot['Formatted_Date'] = elec_pivot['Exam Date'].dt.strftime("%d-%m-%Y")
+                            elec_pivot_display = elec_pivot[['Formatted_Date', 'Time Slot', 'OE', 'SubjectDisplay']].rename(columns={
+                                'Formatted_Date': 'Exam Date',
+                                'OE': 'OE Type',
+                                'SubjectDisplay': 'Subjects'
+                            })
+                            st.dataframe(elec_pivot_display, use_container_width=True)
 
-   # Display footer
-   st.markdown("---")
-   st.markdown("""
-   <div class="footer">
-       <p>🎓 <strong>Complete Timetable Generator</strong></p>
-       <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-       <p style="font-size: 0.9em;">Stream-wise scheduling • All-branch commonality • OE optimization • Maximum efficiency • Verification export</p>
-   </div>
-   """, unsafe_allow_html=True)
+    # Display footer
+    st.markdown("---")
+    st.markdown("""
+    <div class="footer">
+        <p>🎓 <strong>Complete Timetable Generator</strong></p>
+        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
+        <p style="font-size: 0.9em;">Stream-wise scheduling • All-branch commonality • OE optimization • Maximum efficiency • Verification export</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
