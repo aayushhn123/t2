@@ -478,35 +478,27 @@ def schedule_uncommon_subjects_first(df, holidays, base_date):
 
 def schedule_common_subjects_after_uncommon(df, holidays, base_date):
     """
-    Schedule common subjects for circuit branches and simultaneously schedule non-circuit branches
+    Schedule common subjects across ALL branches (circuit and non-circuit) and remaining individual subjects
     Priority: Schedule maximum common subjects per day while respecting constraints
     Constraint: Only one exam per day per subbranch per semester
     """
-    st.info("🔧 Scheduling common subjects for circuit branches with maximum subjects per day priority...")
+    st.info("🔧 Scheduling common subjects across all branches with maximum subjects per day priority...")
     
-    # Filter subjects that need to be scheduled
+    # Filter subjects that need to be scheduled (all remaining subjects except electives)
     subjects_to_schedule = df[
         (df['Exam Date'] == "") &  # Not yet scheduled
-        (df['Category'] != 'INTD') &  # Not electives
-        (df['Circuit'] == True)  # Only circuit subjects
+        (df['Category'] != 'INTD')  # Not electives
     ].copy()
     
     if subjects_to_schedule.empty:
-        st.info("No circuit subjects to schedule")
+        st.info("No subjects to schedule")
         return df
     
-    st.write(f"Found {len(subjects_to_schedule)} circuit subjects to schedule")
+    st.write(f"Found {len(subjects_to_schedule)} subjects to schedule")
     
-    # Separate common and non-common circuit subjects
-    common_circuit_subjects = subjects_to_schedule[subjects_to_schedule['CommonAcrossSems'] == True].copy()
-    non_common_circuit_subjects = subjects_to_schedule[subjects_to_schedule['CommonAcrossSems'] == False].copy()
-    
-    # Also get non-circuit subjects that need scheduling
-    non_circuit_subjects = df[
-        (df['Exam Date'] == "") &  # Not yet scheduled
-        (df['Category'] != 'INTD') &  # Not electives
-        (df['Circuit'] == False)  # Non-circuit subjects
-    ].copy()
+    # Separate common and non-common subjects (across ALL branches now)
+    common_subjects = subjects_to_schedule[subjects_to_schedule['CommonAcrossSems'] == True].copy()
+    individual_subjects = subjects_to_schedule[subjects_to_schedule['CommonAcrossSems'] == False].copy()
     
     scheduled_count = 0
     current_scheduling_date = base_date
@@ -526,16 +518,17 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
     # Track scheduled branch-semester combinations per day
     daily_scheduled = {}  # date -> set of branch_semester keys
     
-    # Schedule common circuit subjects with maximum subjects per day priority
-    if not common_circuit_subjects.empty:
-        st.write("📚 Scheduling common circuit subjects with max per day priority...")
+    # Schedule common subjects with maximum subjects per day priority
+    if not common_subjects.empty:
+        st.write("📚 Scheduling common subjects across all branches with max per day priority...")
         
-        # Group by ModuleCode to find truly common subjects
+        # Group by ModuleCode to find truly common subjects across ALL branches
         common_subject_groups = {}
-        for module_code, group in common_circuit_subjects.groupby('ModuleCode'):
+        for module_code, group in common_subjects.groupby('ModuleCode'):
             branches_for_this_subject = group['Branch'].unique()
-            if len(branches_for_this_subject) > 1:  # Common across multiple circuit branches
+            if len(branches_for_this_subject) > 1:  # Common across multiple branches (any combination)
                 common_subject_groups[module_code] = group
+                st.write(f"  📋 Found common subject {group['Subject'].iloc[0]} across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
         
         # Create a list of unscheduled common subject groups
         unscheduled_groups = list(common_subject_groups.keys())
@@ -552,27 +545,32 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
             available_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
             subjects_scheduled_today = 0
             
+            st.write(f"  📅 Attempting to schedule on {date_str}")
+            
             # Try to schedule as many common subjects as possible on this day
             for time_slot in available_slots:
                 groups_scheduled_in_slot = []
+                
+                st.write(f"    🕐 Checking {time_slot} slot")
                 
                 # Check which groups can be scheduled in this time slot
                 for module_code in unscheduled_groups[:]:  # Use slice to avoid modification during iteration
                     group = common_subject_groups[module_code]
                     can_schedule = True
+                    conflicting_branches = []
                     
                     # Check if any branch-semester combination conflicts
                     for idx, row in group.iterrows():
                         branch_sem_key = get_branch_semester_key(row['Branch'], row['Semester'])
                         if branch_sem_key in daily_scheduled[date_str]:
                             can_schedule = False
-                            break
+                            conflicting_branches.append(row['Branch'])
                     
                     if can_schedule:
                         # Schedule this group in this time slot
                         semester = group['Semester'].iloc[0]
                         
-                        # Calculate preferred slot based on semester (but use current slot)
+                        # Calculate preferred slot based on semester
                         if semester % 2 != 0:  # Odd semester
                             odd_sem_position = (semester + 1) // 2
                             preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -584,6 +582,7 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                         actual_slot = preferred_slot if preferred_slot == time_slot else time_slot
                         
                         # Schedule all instances of this common subject
+                        branches_scheduled = []
                         for idx in group.index:
                             df.loc[idx, 'Exam Date'] = date_str
                             df.loc[idx, 'Time Slot'] = actual_slot
@@ -592,11 +591,14 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                             # Mark this branch-semester as scheduled for this date
                             branch_sem_key = get_branch_semester_key(group.loc[idx, 'Branch'], group.loc[idx, 'Semester'])
                             daily_scheduled[date_str].add(branch_sem_key)
+                            branches_scheduled.append(group.loc[idx, 'Branch'])
                         
                         groups_scheduled_in_slot.append(module_code)
                         subjects_scheduled_today += 1
                         
-                        st.write(f"    ✅ Scheduled common subject {group['Subject'].iloc[0]} for {len(group)} branches on {date_str} at {actual_slot}")
+                        st.write(f"      ✅ Scheduled common subject {group['Subject'].iloc[0]} for branches: {', '.join(branches_scheduled)} on {date_str} at {actual_slot}")
+                    else:
+                        st.write(f"      ❌ Cannot schedule {group['Subject'].iloc[0]} - conflicts with: {', '.join(conflicting_branches)}")
                 
                 # Remove scheduled groups from unscheduled list
                 for module_code in groups_scheduled_in_slot:
@@ -604,58 +606,75 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                 
                 # If no more subjects can be scheduled in remaining slots, break
                 if not groups_scheduled_in_slot:
+                    st.write(f"      ℹ️ No more common subjects can be scheduled in {time_slot}")
                     break
             
-            # Try to schedule non-circuit subjects in remaining capacity
-            if not non_circuit_subjects.empty and subjects_scheduled_today < 2:
-                remaining_slots = 2 - subjects_scheduled_today
+            # Try to fill remaining slots with individual subjects
+            remaining_slots = 2 - subjects_scheduled_today
+            if remaining_slots > 0 and not individual_subjects.empty:
+                st.write(f"    🔄 Trying to fill {remaining_slots} remaining slots with individual subjects")
                 
-                for slot_idx, time_slot in enumerate(available_slots):
-                    if slot_idx >= remaining_slots:
+                individual_scheduled_today = 0
+                for time_slot in available_slots:
+                    if individual_scheduled_today >= remaining_slots:
                         break
                     
-                    # Find non-circuit subjects that can be scheduled
-                    available_non_circuit = []
-                    for idx, row in non_circuit_subjects.iterrows():
+                    # Find individual subjects that can be scheduled in this slot
+                    available_individual = []
+                    for idx, row in individual_subjects.iterrows():
                         if df.loc[idx, 'Exam Date'] == "":  # Not yet scheduled
                             branch_sem_key = get_branch_semester_key(row['Branch'], row['Semester'])
                             if branch_sem_key not in daily_scheduled[date_str]:
-                                available_non_circuit.append(idx)
+                                available_individual.append(idx)
                     
-                    if available_non_circuit:
-                        # Schedule one non-circuit subject
-                        idx_to_schedule = available_non_circuit[0]
-                        row = non_circuit_subjects.loc[idx_to_schedule]
-                        
-                        df.loc[idx_to_schedule, 'Exam Date'] = date_str
-                        df.loc[idx_to_schedule, 'Time Slot'] = time_slot
-                        scheduled_count += 1
-                        
-                        # Mark this branch-semester as scheduled
-                        branch_sem_key = get_branch_semester_key(row['Branch'], row['Semester'])
-                        daily_scheduled[date_str].add(branch_sem_key)
-                        
-                        st.write(f"    ✅ Simultaneously scheduled non-circuit subject {row['Subject']} on {date_str} at {time_slot}")
-                        
-                        # Remove from non_circuit_subjects
-                        non_circuit_subjects = non_circuit_subjects.drop([idx_to_schedule])
+                    if available_individual:
+                        # Schedule one individual subject per available slot
+                        for slot_fill in range(min(len(available_individual), remaining_slots - individual_scheduled_today)):
+                            idx_to_schedule = available_individual[slot_fill]
+                            row = individual_subjects.loc[idx_to_schedule]
+                            
+                            # Calculate preferred slot for this subject
+                            semester = row['Semester']
+                            if semester % 2 != 0:  # Odd semester
+                                odd_sem_position = (semester + 1) // 2
+                                preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+                            else:  # Even semester
+                                even_sem_position = semester // 2
+                                preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+                            
+                            df.loc[idx_to_schedule, 'Exam Date'] = date_str
+                            df.loc[idx_to_schedule, 'Time Slot'] = preferred_slot
+                            scheduled_count += 1
+                            individual_scheduled_today += 1
+                            
+                            # Mark this branch-semester as scheduled
+                            branch_sem_key = get_branch_semester_key(row['Branch'], row['Semester'])
+                            daily_scheduled[date_str].add(branch_sem_key)
+                            
+                            st.write(f"      ✅ Filled slot with individual subject {row['Subject']} ({row['Branch']}) at {preferred_slot}")
+                            
+                            # Remove from individual_subjects
+                            individual_subjects = individual_subjects.drop([idx_to_schedule])
             
-            st.write(f"📊 Scheduled {subjects_scheduled_today} common subjects on {date_str}")
+            total_scheduled_today = subjects_scheduled_today + (individual_scheduled_today if 'individual_scheduled_today' in locals() else 0)
+            st.write(f"  📊 Total subjects scheduled on {date_str}: {total_scheduled_today} ({subjects_scheduled_today} common + {individual_scheduled_today if 'individual_scheduled_today' in locals() else 0} individual)")
             
             # Move to next day
             current_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
     
-    # Schedule remaining non-common circuit subjects
-    if not non_common_circuit_subjects.empty:
-        st.write("📚 Scheduling remaining non-common circuit subjects...")
+    # Schedule remaining individual subjects
+    if not individual_subjects.empty:
+        st.write(f"📚 Scheduling remaining {len(individual_subjects)} individual subjects...")
         
-        for idx, row in non_common_circuit_subjects.iterrows():
+        for idx, row in individual_subjects.iterrows():
             if df.loc[idx, 'Exam Date'] == "":  # Not yet scheduled
                 # Find a day where this branch-semester is not scheduled
                 found_slot = False
                 test_date = current_scheduling_date
+                attempts = 0
+                max_attempts = 100
                 
-                while not found_slot:
+                while not found_slot and attempts < max_attempts:
                     test_date = find_next_valid_day(test_date, holidays)
                     date_str = test_date.strftime("%d-%m-%Y")
                     
@@ -680,78 +699,35 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                         
                         daily_scheduled[date_str].add(branch_sem_key)
                         
-                        st.write(f"    ✅ Scheduled non-common circuit subject {row['Subject']} on {date_str}")
+                        st.write(f"    ✅ Scheduled individual subject {row['Subject']} ({row['Branch']}) on {date_str}")
                         found_slot = True
-                        
-                        # Try to schedule a non-circuit subject simultaneously
-                        if not non_circuit_subjects.empty:
-                            available_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
-                            other_slot = [slot for slot in available_slots if slot != preferred_slot][0]
-                            
-                            # Find a non-circuit subject that can be scheduled
-                            for nc_idx, nc_row in non_circuit_subjects.iterrows():
-                                if df.loc[nc_idx, 'Exam Date'] == "":
-                                    nc_branch_sem_key = get_branch_semester_key(nc_row['Branch'], nc_row['Semester'])
-                                    if nc_branch_sem_key not in daily_scheduled[date_str]:
-                                        df.loc[nc_idx, 'Exam Date'] = date_str
-                                        df.loc[nc_idx, 'Time Slot'] = other_slot
-                                        scheduled_count += 1
-                                        
-                                        daily_scheduled[date_str].add(nc_branch_sem_key)
-                                        
-                                        st.write(f"    ✅ Simultaneously scheduled non-circuit subject {nc_row['Subject']} on {date_str}")
-                                        non_circuit_subjects = non_circuit_subjects.drop([nc_idx])
-                                        break
                     else:
                         test_date += timedelta(days=1)
-    
-    # Schedule any remaining non-circuit subjects
-    if not non_circuit_subjects.empty:
-        st.write("📚 Scheduling remaining non-circuit subjects...")
-        
-        for idx, row in non_circuit_subjects.iterrows():
-            if df.loc[idx, 'Exam Date'] == "":
-                # Find a day where this branch-semester is not scheduled
-                found_slot = False
-                test_date = current_scheduling_date
+                        attempts += 1
                 
-                while not found_slot:
-                    test_date = find_next_valid_day(test_date, holidays)
-                    date_str = test_date.strftime("%d-%m-%Y")
-                    
-                    if date_str not in daily_scheduled:
-                        daily_scheduled[date_str] = set()
-                    
-                    branch_sem_key = get_branch_semester_key(row['Branch'], row['Semester'])
-                    
-                    if branch_sem_key not in daily_scheduled[date_str]:
-                        semester = row['Semester']
-                        if semester % 2 != 0:  # Odd semester
-                            odd_sem_position = (semester + 1) // 2
-                            preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-                        else:  # Even semester
-                            even_sem_position = semester // 2
-                            preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-                        
-                        df.loc[idx, 'Exam Date'] = date_str
-                        df.loc[idx, 'Time Slot'] = preferred_slot
-                        scheduled_count += 1
-                        
-                        daily_scheduled[date_str].add(branch_sem_key)
-                        
-                        st.write(f"    ✅ Scheduled remaining non-circuit subject {row['Subject']} on {date_str}")
-                        found_slot = True
-                    else:
-                        test_date += timedelta(days=1)
+                if not found_slot:
+                    st.error(f"❌ Could not schedule {row['Subject']} ({row['Branch']}) after {max_attempts} attempts")
     
-    st.success(f"✅ Successfully scheduled {scheduled_count} circuit and non-circuit subjects")
+    st.success(f"✅ Successfully scheduled {scheduled_count} subjects across all branches")
     
     # Display scheduling efficiency summary
     if daily_scheduled:
         st.markdown("### 📊 Daily Scheduling Summary")
+        total_days = len(daily_scheduled)
+        total_subjects_scheduled = sum(len([idx for idx in df.index if df.loc[idx, 'Exam Date'] == date_str]) for date_str in daily_scheduled.keys())
+        avg_subjects_per_day = total_subjects_scheduled / total_days if total_days > 0 else 0
+        
+        st.write(f"📈 **Overall Statistics:**")
+        st.write(f"  • Total exam days: {total_days}")
+        st.write(f"  • Total subjects scheduled: {total_subjects_scheduled}")
+        st.write(f"  • Average subjects per day: {avg_subjects_per_day:.1f}")
+        
+        st.write(f"\n📅 **Day-by-day breakdown:**")
         for date_str in sorted(daily_scheduled.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y")):
             subjects_on_date = len([idx for idx in df.index if df.loc[idx, 'Exam Date'] == date_str])
-            st.write(f"📅 {date_str}: {subjects_on_date} subjects scheduled")
+            date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+            day_name = date_obj.strftime("%A")
+            st.write(f"  • {day_name}, {date_str}: {subjects_on_date} subjects")
     
     return df
     
@@ -1723,6 +1699,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
