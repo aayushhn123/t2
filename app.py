@@ -1856,7 +1856,16 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     output.seek(0)
     return output
-
+    
+def find_next_valid_day_for_electives(start_day, holidays):
+    """Find the next valid day for scheduling electives (skip weekends and holidays)"""
+    day = start_day
+    while True:
+        day_date = day.date()
+        if day.weekday() == 6 or day_date in holidays:
+            day += timedelta(days=1)
+            continue
+        return day
 # Assume other functions like read_timetable, schedule_electives_globally, optimize_oe_subjects_after_scheduling, save_to_excel, save_verification_excel are defined here or in the truncated part.
 # For completeness, the code assumes they exist as in the original.
 
@@ -2332,4 +2341,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
