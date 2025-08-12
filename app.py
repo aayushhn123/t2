@@ -926,7 +926,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     try:
         reader = PdfReader(output_pdf)
         writer = PdfWriter()
-        page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*)
+        page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
         for page_num in range(len(reader.pages)):
             page = reader.pages[page_num]
             try:
@@ -1420,3 +1420,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
