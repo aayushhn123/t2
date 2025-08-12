@@ -1344,6 +1344,77 @@ def save_to_excel(semester_wise_timetable):
     output.seek(0)
     return output
 
+def save_verification_excel(original_df, semester_wise_timetable):
+    if not semester_wise_timetable:
+        return None
+
+    columns_to_retain = [
+        "School Name", "Campus", "Program", "Stream", "Current Academic Year",
+        "Current Session", "ModuleCode", "SubjectName", "Difficulty", "Category", "OE", "Exam mode", "Exam Duration", "Circuit"
+    ]
+
+    available_columns = [col for col in columns_to_retain if col in original_df.columns]
+    verification_df = original_df[available_columns].copy()
+
+    verification_df["Exam Date"] = ""
+    verification_df["Exam Time"] = ""
+    verification_df["Is Common"] = ""
+
+    scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
+    
+    # Extract ModuleCode from Subject column (format: "Subject Name - (CODE)")
+    scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\((.*?)\)', expand=False)
+
+    for idx, row in verification_df.iterrows():
+        module_code = row["ModuleCode"]
+        
+        # Convert semester properly
+        semester_value = row["Current Session"] if "Current Session" in verification_df.columns else row.get("Semester", "")
+        
+        # Convert semester string to number
+        def convert_sem_for_verification(sem):
+            if pd.isna(sem):
+                return 0
+            m = {
+                "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
+                "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
+                "Sem IX": 9, "Sem X": 10, "Sem XI": 11
+            }
+            return m.get(str(sem).strip(), 0)
+        
+        semester_num = convert_sem_for_verification(semester_value)
+
+        match = scheduled_data[
+            (scheduled_data["ExtractedModuleCode"] == module_code) &
+            (scheduled_data["Semester"] == semester_num)
+        ]
+
+        if not match.empty:
+            exam_date = match.iloc[0]["Exam Date"]
+            time_slot = match.iloc[0]["Time Slot"]
+            duration = row["Exam Duration"] if pd.notna(row["Exam Duration"]) else 3.0
+            
+            if time_slot and time_slot.strip():
+                start_time = time_slot.split(" - ")[0]
+                end_time = calculate_end_time(start_time, duration)
+                exam_time = f"{start_time} to {end_time}"
+            else:
+                exam_time = "TBD"
+            
+            verification_df.at[idx, "Exam Date"] = exam_date
+            verification_df.at[idx, "Exam Time"] = exam_time
+            
+            # Check if it's common across branches
+            branch_count = len(scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]["Branch"].unique())
+            verification_df.at[idx, "Is Common"] = "YES" if branch_count > 1 else "NO"
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        verification_df.to_excel(writer, sheet_name="Verification", index=False)
+
+    output.seek(0)
+    return output
+
 def main():
     st.markdown("""
     <div class="main-header">
@@ -1365,6 +1436,18 @@ def main():
         st.session_state.excel_data = None
     if 'pdf_data' not in st.session_state:
         st.session_state.pdf_data = None
+    if 'verification_data' not in st.session_state:
+        st.session_state.verification_data = None
+    if 'total_exams' not in st.session_state:
+        st.session_state.total_exams = 0
+    if 'total_semesters' not in st.session_state:
+        st.session_state.total_semesters = 0
+    if 'total_branches' not in st.session_state:
+        st.session_state.total_branches = 0
+    if 'overall_date_range' not in st.session_state:
+        st.session_state.overall_date_range = 0
+    if 'unique_exam_days' not in st.session_state:
+        st.session_state.unique_exam_days = 0
 
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
@@ -1461,9 +1544,10 @@ def main():
             <ul>
                 <li>📊 Excel file processing</li>
                 <li>📅 Uncommon subject scheduling</li>
-                <li>🔄 Circuit branch common scheduling</li>
-                <li>⚡ Parallel non-circuit scheduling</li>
+                <li>🔄 All-branch common scheduling</li>
+                <li>⚡ Maximum subjects per day</li>
                 <li>📋 PDF generation</li>
+                <li>✅ Verification file export</li>
                 <li>🎯 Stream-wise scheduling</li>
                 <li>📱 Mobile-friendly interface</li>
             </ul>
@@ -1546,6 +1630,11 @@ def main():
                             if excel_data:
                                 st.session_state.excel_data = excel_data.getvalue()
 
+                            st.write("Generating verification file...")
+                            verification_data = save_verification_excel(original_df, sem_dict)
+                            if verification_data:
+                                st.session_state.verification_data = verification_data.getvalue()
+
                             st.write("Generating PDF...")
                             if sem_dict:
                                 pdf_output = io.BytesIO()
@@ -1579,7 +1668,7 @@ def main():
         # Download options
         st.markdown("### 📥 Download Options")
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
 
         with col1:
             if st.session_state.excel_data:
@@ -1604,6 +1693,17 @@ def main():
                 )
 
         with col3:
+            if st.session_state.verification_data:
+                st.download_button(
+                    label="📋 Download Verification File",
+                    data=st.session_state.verification_data,
+                    file_name=f"verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="download_verification"
+                )
+
+        with col4:
             if st.button("🔄 Generate New Timetable", use_container_width=True):
                 # Clear session state and rerun
                 st.session_state.processing_complete = False
@@ -1611,12 +1711,18 @@ def main():
                 st.session_state.original_df = None
                 st.session_state.excel_data = None
                 st.session_state.pdf_data = None
+                st.session_state.verification_data = None
+                st.session_state.total_exams = 0
+                st.session_state.total_semesters = 0
+                st.session_state.total_branches = 0
+                st.session_state.overall_date_range = 0
+                st.session_state.unique_exam_days = 0
                 st.rerun()
 
         # Statistics Overview
         st.markdown("""
         <div class="stats-section">
-            <h2>📈 Timetable Statistics</h2>
+            <h2>📈 Complete Timetable Statistics</h2>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1634,11 +1740,21 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Days Span</p></div>',
                         unsafe_allow_html=True)
 
+        # Show efficiency metrics
+        if st.session_state.unique_exam_days > 0 and st.session_state.overall_date_range > 0:
+            efficiency = (st.session_state.unique_exam_days / st.session_state.overall_date_range) * 100
+            if efficiency > 80:
+                st.success(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Excellent - most days are utilized)")
+            elif efficiency > 60:
+                st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
+            else:
+                st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
+
         # Timetable Results
         st.markdown("---")
         st.markdown("""
         <div class="results-section">
-            <h2>📊 Complete Timetable</h2>
+            <h2>📊 Complete Timetable Results</h2>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1693,12 +1809,13 @@ def main():
     <div class="footer">
         <p>🎓 <strong>Complete Timetable Generator</strong></p>
         <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Stream-wise scheduling • Circuit branch commonality • Parallel optimization • Conflict-free timetables</p>
+        <p style="font-size: 0.9em;">Stream-wise scheduling • All-branch commonality • Maximum optimization • Verification export • Conflict-free timetables</p>
     </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
 
 
 
