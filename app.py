@@ -1372,6 +1372,8 @@ def main():
             <ul>
                 <li>📊 Excel file processing</li>
                 <li>📅 Uncommon subject scheduling</li>
+                <li>🔄 Circuit branch common scheduling</li>
+                <li>⚡ Parallel non-circuit scheduling</li>
                 <li>📋 PDF generation</li>
                 <li>🎯 Stream-wise scheduling</li>
                 <li>📱 Mobile-friendly interface</li>
@@ -1391,22 +1393,42 @@ def main():
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None:
-                        st.write("Processing uncommon subjects only...")
+                        st.write("Processing subjects...")
                         
-                        # Only schedule uncommon subjects
+                        # First schedule uncommon subjects
                         df_scheduled = schedule_uncommon_subjects_first(df_non_elec, holidays_set, base_date)
                         
-                        # Create semester dictionary with only scheduled uncommon subjects
-                        scheduled_subjects = df_scheduled[df_scheduled['Exam Date'] != ""]
+                        # Find the latest date from scheduled uncommon subjects
+                        scheduled_uncommon = df_scheduled[df_scheduled['Exam Date'] != ""]
+                        if not scheduled_uncommon.empty:
+                            scheduled_dates = pd.to_datetime(scheduled_uncommon['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                            if not scheduled_dates.empty:
+                                latest_uncommon_date = max(scheduled_dates)
+                                # Start common subject scheduling from the day after the latest uncommon subject
+                                common_start_date = latest_uncommon_date + timedelta(days=1)
+                                st.write(f"📅 Latest uncommon subject scheduled on: {latest_uncommon_date.strftime('%d-%m-%Y')}")
+                                st.write(f"📅 Will start common subjects from: {common_start_date.strftime('%d-%m-%Y')}")
+                                
+                                # Schedule common subjects
+                                df_scheduled = schedule_common_subjects_after_uncommon(df_scheduled, holidays_set, common_start_date)
+                            else:
+                                common_start_date = base_date
+                                df_scheduled = schedule_common_subjects_after_uncommon(df_scheduled, holidays_set, common_start_date)
+                        else:
+                            common_start_date = base_date
+                            df_scheduled = schedule_common_subjects_after_uncommon(df_scheduled, holidays_set, common_start_date)
                         
-                        if not scheduled_subjects.empty:
+                        # Create semester dictionary with ALL scheduled subjects (uncommon + common)
+                        all_scheduled_subjects = df_scheduled[df_scheduled['Exam Date'] != ""]
+                        
+                        if not all_scheduled_subjects.empty:
                             # Sort by semester and date
-                            scheduled_subjects = scheduled_subjects.sort_values(["Semester", "Exam Date"], ascending=True)
+                            all_scheduled_subjects = all_scheduled_subjects.sort_values(["Semester", "Exam Date"], ascending=True)
                             
                             # Create semester dictionary
                             sem_dict = {}
-                            for s in sorted(scheduled_subjects["Semester"].unique()):
-                                sem_data = scheduled_subjects[scheduled_subjects["Semester"] == s].copy()
+                            for s in sorted(all_scheduled_subjects["Semester"].unique()):
+                                sem_data = all_scheduled_subjects[all_scheduled_subjects["Semester"] == s].copy()
                                 sem_dict[s] = sem_data
 
                             st.session_state.timetable_data = sem_dict
@@ -1414,11 +1436,11 @@ def main():
                             st.session_state.processing_complete = True
 
                             # Compute statistics
-                            total_exams = len(scheduled_subjects)
+                            total_exams = len(all_scheduled_subjects)
                             total_semesters = len(sem_dict)
-                            total_branches = len(set(scheduled_subjects['Branch'].unique()))
+                            total_branches = len(set(all_scheduled_subjects['Branch'].unique()))
 
-                            all_dates = pd.to_datetime(scheduled_subjects['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                            all_dates = pd.to_datetime(all_scheduled_subjects['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             overall_date_range = (max(all_dates) - min(all_dates)).days + 1 if all_dates.size > 0 else 0
                             unique_exam_days = len(all_dates.dt.date.unique())
 
@@ -1447,10 +1469,10 @@ def main():
                                     os.remove(temp_pdf_path)
                                 st.session_state.pdf_data = pdf_output.getvalue()
 
-                            st.markdown('<div class="status-success">🎉 Uncommon subjects timetable generated successfully!</div>',
+                            st.markdown('<div class="status-success">🎉 Timetable generated successfully!</div>',
                                         unsafe_allow_html=True)
                         else:
-                            st.warning("No uncommon subjects found to schedule.")
+                            st.warning("No subjects found to schedule.")
 
                     else:
                         st.markdown(
@@ -1475,7 +1497,7 @@ def main():
                 st.download_button(
                     label="📊 Download Excel File",
                     data=st.session_state.excel_data,
-                    file_name=f"uncommon_subjects_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     key="download_excel"
@@ -1486,7 +1508,7 @@ def main():
                 st.download_button(
                     label="📄 Download PDF File",
                     data=st.session_state.pdf_data,
-                    file_name=f"uncommon_subjects_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                     mime="application/pdf",
                     use_container_width=True,
                     key="download_pdf"
@@ -1505,7 +1527,7 @@ def main():
         # Statistics Overview
         st.markdown("""
         <div class="stats-section">
-            <h2>📈 Uncommon Subjects Statistics</h2>
+            <h2>📈 Timetable Statistics</h2>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1527,7 +1549,7 @@ def main():
         st.markdown("---")
         st.markdown("""
         <div class="results-section">
-            <h2>📊 Uncommon Subjects Timetable</h2>
+            <h2>📊 Complete Timetable</h2>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1568,7 +1590,7 @@ def main():
                     ).fillna("---")
                     
                     if not pivot_df.empty:
-                        st.markdown(f"#### {main_branch_full} - Uncommon Subjects")
+                        st.markdown(f"#### {main_branch_full}")
                         formatted_pivot = pivot_df.copy()
                         if len(formatted_pivot.index.levels) > 0:
                             formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
@@ -1580,9 +1602,9 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div class="footer">
-        <p>🎓 <strong>Uncommon Subjects Timetable Generator</strong></p>
+        <p>🎓 <strong>Complete Timetable Generator</strong></p>
         <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Stream-wise scheduling • Independent start dates • Conflict-free timetables</p>
+        <p style="font-size: 0.9em;">Stream-wise scheduling • Circuit branch commonality • Parallel optimization • Conflict-free timetables</p>
     </div>
     """, unsafe_allow_html=True)
 
