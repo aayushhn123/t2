@@ -700,75 +700,76 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                 attempts = 0
                 max_attempts = 200  # Increased from 100
                 
-                while not found_slot and attempts < max_attempts:test_date = find_next_valid_day(test_date, holidays)
-                   date_str = test_date.strftime("%d-%m-%Y")
-                   
-                   if date_str not in daily_scheduled:
-                       daily_scheduled[date_str] = set()
-                   
-                   subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
-                   
-                   if subbranch_sem_key not in daily_scheduled[date_str]:
-                       # Can schedule here
-                       semester = row['Semester']
-                       preferred_slot = get_preferred_slot(semester)
-                       
-                       df.loc[idx, 'Exam Date'] = date_str
-                       df.loc[idx, 'Time Slot'] = preferred_slot
-                       scheduled_count += 1
-                       
-                       daily_scheduled[date_str].add(subbranch_sem_key)
-                       
-                       # Check if this was originally a common subject
-                       original_common = "✓" if row['CommonAcrossSems'] else ""
-                       st.write(f"    ✅ Scheduled subject {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) on {date_str} {original_common}")
-                       found_slot = True
-                   else:
-                       test_date += timedelta(days=1)
-                       attempts += 1
-               
-               if not found_slot:
-                   st.error(f"❌ Could not schedule {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) after {max_attempts} attempts")
-   
-   # Final count of unscheduled subjects
-   final_unscheduled = df[
-       (df['Exam Date'] == "") & 
-       (df['Category'] != 'INTD')
-   ]
-   
-   if not final_unscheduled.empty:
-       st.error(f"❌ {len(final_unscheduled)} subjects remain unscheduled:")
-       for idx, row in final_unscheduled.iterrows():
-           common_status = "Common" if row['CommonAcrossSems'] else "Individual"
-           st.write(f"  • {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) - {common_status}")
-   else:
-       st.success("✅ All subjects successfully scheduled!")
-   
-   st.success(f"✅ Successfully scheduled {scheduled_count} subjects across all branches")
-   
-   # Display scheduling efficiency summary with subbranch details
-   if daily_scheduled:
-       st.markdown("### 📊 Daily Scheduling Summary")
-       total_days = len(daily_scheduled)
-       total_subjects_scheduled = sum(len([idx for idx in df.index if df.loc[idx, 'Exam Date'] == date_str]) for date_str in daily_scheduled.keys())
-       avg_subjects_per_day = total_subjects_scheduled / total_days if total_days > 0 else 0
-       
-       st.write(f"📈 **Overall Statistics:**")
-       st.write(f"  • Total exam days: {total_days}")
-       st.write(f"  • Total subjects scheduled: {total_subjects_scheduled}")
-       st.write(f"  • Average subjects per day: {avg_subjects_per_day:.1f}")
-       
-       st.write(f"\n📅 **Day-by-day breakdown (with subbranch constraint verification):**")
-       for date_str in sorted(daily_scheduled.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y")):
-           subjects_on_date = len([idx for idx in df.index if df.loc[idx, 'Exam Date'] == date_str])
-           date_obj = datetime.strptime(date_str, "%d-%m-%Y")
-           day_name = date_obj.strftime("%A")
-           
-           # Verify no subbranch-semester conflicts on this date
-           scheduled_subbranch_sems = daily_scheduled[date_str]
-           st.write(f"  • {day_name}, {date_str}: {subjects_on_date} subjects, {len(scheduled_subbranch_sems)} unique subbranch-semester combinations")
-   
-   return df
+                while not found_slot and attempts < max_attempts:
+                    test_date = find_next_valid_day(test_date, holidays)
+                    date_str = test_date.strftime("%d-%m-%Y")
+                    
+                    if date_str not in daily_scheduled:
+                        daily_scheduled[date_str] = set()
+                    
+                    subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
+                    
+                    if subbranch_sem_key not in daily_scheduled[date_str]:
+                        # Can schedule here
+                        semester = row['Semester']
+                        preferred_slot = get_preferred_slot(semester)
+                        
+                        df.loc[idx, 'Exam Date'] = date_str
+                        df.loc[idx, 'Time Slot'] = preferred_slot
+                        scheduled_count += 1
+                        
+                        daily_scheduled[date_str].add(subbranch_sem_key)
+                        
+                        # Check if this was originally a common subject
+                        original_common = "✓" if row['CommonAcrossSems'] else ""
+                        st.write(f"    ✅ Scheduled subject {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) on {date_str} {original_common}")
+                        found_slot = True
+                    else:
+                        test_date += timedelta(days=1)
+                        attempts += 1
+                
+                if not found_slot:
+                    st.error(f"❌ Could not schedule {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) after {max_attempts} attempts")
+    
+    # Final count of unscheduled subjects
+    final_unscheduled = df[
+        (df['Exam Date'] == "") & 
+        (df['Category'] != 'INTD')
+    ]
+    
+    if not final_unscheduled.empty:
+        st.error(f"❌ {len(final_unscheduled)} subjects remain unscheduled:")
+        for idx, row in final_unscheduled.iterrows():
+            common_status = "Common" if row['CommonAcrossSems'] else "Individual"
+            st.write(f"  • {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) - {common_status}")
+    else:
+        st.success("✅ All subjects successfully scheduled!")
+    
+    st.success(f"✅ Successfully scheduled {scheduled_count} subjects across all branches")
+    
+    # Display scheduling efficiency summary with subbranch details
+    if daily_scheduled:
+        st.markdown("### 📊 Daily Scheduling Summary")
+        total_days = len(daily_scheduled)
+        total_subjects_scheduled = sum(len([idx for idx in df.index if df.loc[idx, 'Exam Date'] == date_str]) for date_str in daily_scheduled.keys())
+        avg_subjects_per_day = total_subjects_scheduled / total_days if total_days > 0 else 0
+        
+        st.write(f"📈 **Overall Statistics:**")
+        st.write(f"  • Total exam days: {total_days}")
+        st.write(f"  • Total subjects scheduled: {total_subjects_scheduled}")
+        st.write(f"  • Average subjects per day: {avg_subjects_per_day:.1f}")
+        
+        st.write(f"\n📅 **Day-by-day breakdown (with subbranch constraint verification):**")
+        for date_str in sorted(daily_scheduled.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y")):
+            subjects_on_date = len([idx for idx in df.index if df.loc[idx, 'Exam Date'] == date_str])
+            date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+            day_name = date_obj.strftime("%A")
+            
+            # Verify no subbranch-semester conflicts on this date
+            scheduled_subbranch_sems = daily_scheduled[date_str]
+            st.write(f"  • {day_name}, {date_str}: {subjects_on_date} subjects, {len(scheduled_subbranch_sems)} unique subbranch-semester combinations")
+    
+    return df
    
 def wrap_text(pdf, text, col_width):
    cache_key = (text, col_width)
@@ -2421,3 +2422,4 @@ def main():
 
 if __name__ == "__main__":
    main()
+
