@@ -1350,67 +1350,174 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     columns_to_retain = [
         "School Name", "Campus", "Program", "Stream", "Current Academic Year",
-        "Current Session", "ModuleCode", "SubjectName", "Difficulty", "Category", "OE", "Exam mode", "Exam Duration", "Circuit"
+        "Current Session", "Module Description", "Module Abbreviation", "Difficulty Score", 
+        "Category", "OE", "Exam mode", "Exam Duration", "Student count", "Common across sems", "Circuit"
     ]
 
+    # Use available columns from the original dataframe
     available_columns = [col for col in columns_to_retain if col in original_df.columns]
     verification_df = original_df[available_columns].copy()
 
+    # Add new columns for scheduled information
     verification_df["Exam Date"] = ""
     verification_df["Exam Time"] = ""
+    verification_df["Time Slot"] = ""
     verification_df["Is Common"] = ""
+    verification_df["Scheduling Status"] = "Not Scheduled"
 
+    # Combine all scheduled data
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
     
     # Extract ModuleCode from Subject column (format: "Subject Name - (CODE)")
     scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\((.*?)\)', expand=False)
 
+    st.write(f"📊 Processing verification for {len(verification_df)} subjects...")
+    st.write(f"📊 Found {len(scheduled_data)} scheduled subjects...")
+
+    # Track statistics
+    matched_count = 0
+    unmatched_count = 0
+
     for idx, row in verification_df.iterrows():
-        module_code = row["ModuleCode"]
+        # Get module code from original data
+        module_code = row.get("Module Abbreviation", "")
         
         # Convert semester properly
-        semester_value = row["Current Session"] if "Current Session" in verification_df.columns else row.get("Semester", "")
+        semester_value = row.get("Current Session", "")
         
         # Convert semester string to number
         def convert_sem_for_verification(sem):
             if pd.isna(sem):
                 return 0
+            sem_str = str(sem).strip()
             m = {
                 "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
                 "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
                 "Sem IX": 9, "Sem X": 10, "Sem XI": 11
             }
-            return m.get(str(sem).strip(), 0)
+            return m.get(sem_str, 0)
         
         semester_num = convert_sem_for_verification(semester_value)
 
+        # Create branch identifier
+        program = row.get("Program", "")
+        stream = row.get("Stream", "")
+        branch = f"{program}-{stream}" if program and stream else ""
+
+        # Find matching scheduled subject
         match = scheduled_data[
             (scheduled_data["ExtractedModuleCode"] == module_code) &
-            (scheduled_data["Semester"] == semester_num)
+            (scheduled_data["Semester"] == semester_num) &
+            (scheduled_data["Branch"] == branch)
         ]
 
         if not match.empty:
-            exam_date = match.iloc[0]["Exam Date"]
-            time_slot = match.iloc[0]["Time Slot"]
-            duration = row["Exam Duration"] if pd.notna(row["Exam Duration"]) else 3.0
+            # Found a match - extract scheduling information
+            matched_subject = match.iloc[0]
+            exam_date = matched_subject["Exam Date"]
+            time_slot = matched_subject["Time Slot"]
+            duration = row.get("Exam Duration", 3.0)
             
-            if time_slot and time_slot.strip():
-                start_time = time_slot.split(" - ")[0]
-                end_time = calculate_end_time(start_time, duration)
-                exam_time = f"{start_time} to {end_time}"
+            # Handle duration
+            if pd.isna(duration):
+                duration = 3.0
+            else:
+                duration = float(duration)
+            
+            # Calculate exam time based on time slot and duration
+            if time_slot and time_slot.strip() and time_slot != "":
+                try:
+                    start_time = time_slot.split(" - ")[0].strip()
+                    end_time = calculate_end_time(start_time, duration)
+                    exam_time = f"{start_time} to {end_time}"
+                except:
+                    exam_time = time_slot  # Fallback to original time slot
             else:
                 exam_time = "TBD"
+                time_slot = "TBD"
             
+            # Update verification dataframe
             verification_df.at[idx, "Exam Date"] = exam_date
             verification_df.at[idx, "Exam Time"] = exam_time
+            verification_df.at[idx, "Time Slot"] = time_slot
+            verification_df.at[idx, "Scheduling Status"] = "Scheduled"
             
             # Check if it's common across branches
-            branch_count = len(scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]["Branch"].unique())
-            verification_df.at[idx, "Is Common"] = "YES" if branch_count > 1 else "NO"
+            same_module_scheduled = scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]
+            unique_branches = same_module_scheduled["Branch"].nunique()
+            verification_df.at[idx, "Is Common"] = "YES" if unique_branches > 1 else "NO"
+            
+            matched_count += 1
+            
+        else:
+            # No match found
+            verification_df.at[idx, "Exam Date"] = "Not Scheduled"
+            verification_df.at[idx, "Exam Time"] = "Not Scheduled"
+            verification_df.at[idx, "Time Slot"] = "Not Scheduled"
+            verification_df.at[idx, "Is Common"] = "N/A"
+            verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
+            unmatched_count += 1
 
+    st.write(f"✅ Matched {matched_count} subjects with schedules")
+    st.write(f"⚠️ {unmatched_count} subjects not found in schedule")
+
+    # Reorder columns to put scheduling info at the end
+    base_columns = [col for col in verification_df.columns if col not in ["Exam Date", "Exam Time", "Time Slot", "Is Common", "Scheduling Status"]]
+    final_columns = base_columns + ["Scheduling Status", "Exam Date", "Time Slot", "Exam Time", "Is Common"]
+    verification_df = verification_df[final_columns]
+
+    # Save to Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         verification_df.to_excel(writer, sheet_name="Verification", index=False)
+        
+        # Get the workbook and worksheet to apply formatting
+        workbook = writer.book
+        worksheet = writer.sheets["Verification"]
+        
+        # Apply some basic formatting
+        from openpyxl.styles import PatternFill, Font
+        
+        # Header formatting
+        header_fill = PatternFill(start_color="951C1C", end_color="951C1C", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        
+        # Highlight scheduled vs not scheduled
+        green_fill = PatternFill(start_color="D4EDDA", end_color="D4EDDA", fill_type="solid")
+        red_fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid")
+        
+        status_col = None
+        for idx, cell in enumerate(worksheet[1]):
+            if cell.value == "Scheduling Status":
+                status_col = idx + 1
+                break
+        
+        if status_col:
+            for row in range(2, len(verification_df) + 2):
+                status_cell = worksheet.cell(row=row, column=status_col)
+                if status_cell.value == "Scheduled":
+                    for col in range(1, len(final_columns) + 1):
+                        worksheet.cell(row=row, column=col).fill = green_fill
+                elif status_cell.value == "Not Scheduled":
+                    for col in range(1, len(final_columns) + 1):
+                        worksheet.cell(row=row, column=col).fill = red_fill
+        
+        # Auto-adjust column widths
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
 
     output.seek(0)
     return output
@@ -1815,6 +1922,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
