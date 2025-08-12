@@ -967,11 +967,24 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
 
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
-    start = datetime.strptime(start_time, "%I:%M %p")
-    duration = timedelta(hours=duration_hours)
-    end = start + duration
-    return end.strftime("%I:%M %p").replace("AM", "am").replace("PM", "pm")
-
+    try:
+        # Handle different time formats
+        start_time = str(start_time).strip()
+        
+        # Try to parse the time
+        if "AM" in start_time.upper() or "PM" in start_time.upper():
+            start = datetime.strptime(start_time, "%I:%M %p")
+        else:
+            # Try 24-hour format
+            start = datetime.strptime(start_time, "%H:%M")
+        
+        duration = timedelta(hours=float(duration_hours))
+        end = start + duration
+        return end.strftime("%I:%M %p").replace("AM", "AM").replace("PM", "PM")
+    except Exception as e:
+        st.write(f"⚠️ Error calculating end time for {start_time}, duration {duration_hours}: {e}")
+        return f"{start_time} + {duration_hours}h"
+        
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
@@ -1346,17 +1359,66 @@ def save_to_excel(semester_wise_timetable):
 
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
+        st.error("No timetable data provided for verification")
         return None
 
-    columns_to_retain = [
-        "School Name", "Campus", "Program", "Stream", "Current Academic Year",
-        "Current Session", "Module Description", "Module Abbreviation", "Difficulty Score", 
-        "Category", "OE", "Exam mode", "Exam Duration", "Student count", "Common across sems", "Circuit"
-    ]
+    st.write("🔍 **Debugging Verification Process...**")
+    
+    # Debug: Show what columns are available in original data
+    st.write(f"📋 Original dataframe columns: {list(original_df.columns)}")
+    st.write(f"📋 Original dataframe shape: {original_df.shape}")
+    
+    # Combine all scheduled data first
+    scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
+    st.write(f"📅 Scheduled data shape: {scheduled_data.shape}")
+    st.write(f"📅 Scheduled data columns: {list(scheduled_data.columns)}")
+    
+    # Debug: Show sample of scheduled data
+    if not scheduled_data.empty:
+        st.write("📅 **Sample scheduled data:**")
+        sample_scheduled = scheduled_data[['Subject', 'Branch', 'Semester', 'Exam Date', 'Time Slot']].head(3)
+        st.dataframe(sample_scheduled)
+    
+    # Extract ModuleCode from scheduled data more robustly
+    scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False)
+    
+    # Debug: Check ModuleCode extraction
+    st.write("🔍 **ModuleCode extraction check:**")
+    module_codes_sample = scheduled_data[['Subject', 'ExtractedModuleCode']].head(3)
+    st.dataframe(module_codes_sample)
 
-    # Use available columns from the original dataframe
-    available_columns = [col for col in columns_to_retain if col in original_df.columns]
-    verification_df = original_df[available_columns].copy()
+    # Handle different possible column names in original data
+    column_mapping = {
+        "Module Abbreviation": ["Module Abbreviation", "ModuleCode", "Module Code", "Code"],
+        "Current Session": ["Current Session", "Semester", "Current Academic Session"],
+        "Program": ["Program", "Programme"],
+        "Stream": ["Stream", "Specialization", "Branch"],
+        "Module Description": ["Module Description", "SubjectName", "Subject Name", "Subject"],
+        "Exam Duration": ["Exam Duration", "Duration", "Exam_Duration"],
+        "Student count": ["Student count", "StudentCount", "Student_count", "Count"],
+        "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems", "IsCommon"],
+        "Circuit": ["Circuit", "Is_Circuit", "CircuitBranch"]
+    }
+    
+    # Find actual column names
+    actual_columns = {}
+    for standard_name, possible_names in column_mapping.items():
+        for possible_name in possible_names:
+            if possible_name in original_df.columns:
+                actual_columns[standard_name] = possible_name
+                break
+        if standard_name not in actual_columns:
+            st.warning(f"⚠️ Column '{standard_name}' not found in original data")
+    
+    st.write(f"🔍 **Mapped columns:** {actual_columns}")
+
+    # Create verification dataframe with available columns
+    columns_to_include = list(actual_columns.values())
+    verification_df = original_df[columns_to_include].copy()
+    
+    # Standardize column names
+    reverse_mapping = {v: k for k, v in actual_columns.items()}
+    verification_df = verification_df.rename(columns=reverse_mapping)
 
     # Add new columns for scheduled information
     verification_df["Exam Date"] = ""
@@ -1365,163 +1427,163 @@ def save_verification_excel(original_df, semester_wise_timetable):
     verification_df["Is Common"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
 
-    # Combine all scheduled data
-    scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
-    
-    # Extract ModuleCode from Subject column (format: "Subject Name - (CODE)")
-    scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\((.*?)\)', expand=False)
-
-    st.write(f"📊 Processing verification for {len(verification_df)} subjects...")
-    st.write(f"📊 Found {len(scheduled_data)} scheduled subjects...")
+    # Debug: Show sample of verification data before processing
+    st.write("📋 **Sample verification data before processing:**")
+    if not verification_df.empty:
+        sample_verification = verification_df[['Module Abbreviation', 'Current Session', 'Program', 'Stream']].head(3)
+        st.dataframe(sample_verification)
 
     # Track statistics
     matched_count = 0
     unmatched_count = 0
-
+    
+    # Process each row for matching
     for idx, row in verification_df.iterrows():
-        # Get module code from original data
-        module_code = row.get("Module Abbreviation", "")
-        
-        # Convert semester properly
-        semester_value = row.get("Current Session", "")
-        
-        # Convert semester string to number
-        def convert_sem_for_verification(sem):
-            if pd.isna(sem):
-                return 0
-            sem_str = str(sem).strip()
-            m = {
-                "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
-                "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
-                "Sem IX": 9, "Sem X": 10, "Sem XI": 11
-            }
-            return m.get(sem_str, 0)
-        
-        semester_num = convert_sem_for_verification(semester_value)
-
-        # Create branch identifier
-        program = row.get("Program", "")
-        stream = row.get("Stream", "")
-        branch = f"{program}-{stream}" if program and stream else ""
-
-        # Find matching scheduled subject
-        match = scheduled_data[
-            (scheduled_data["ExtractedModuleCode"] == module_code) &
-            (scheduled_data["Semester"] == semester_num) &
-            (scheduled_data["Branch"] == branch)
-        ]
-
-        if not match.empty:
-            # Found a match - extract scheduling information
-            matched_subject = match.iloc[0]
-            exam_date = matched_subject["Exam Date"]
-            time_slot = matched_subject["Time Slot"]
-            duration = row.get("Exam Duration", 3.0)
+        try:
+            # Get module code
+            module_code = str(row.get("Module Abbreviation", "")).strip()
+            if not module_code or module_code == "nan":
+                unmatched_count += 1
+                continue
             
-            # Handle duration
-            if pd.isna(duration):
-                duration = 3.0
-            else:
-                duration = float(duration)
+            # Convert semester
+            semester_value = row.get("Current Session", "")
+            semester_num = convert_semester_to_number(semester_value)
             
-            # Calculate exam time based on time slot and duration
-            if time_slot and time_slot.strip() and time_slot != "":
+            # Create branch identifier
+            program = str(row.get("Program", "")).strip()
+            stream = str(row.get("Stream", "")).strip()
+            branch = f"{program}-{stream}" if program and stream and program != "nan" and stream != "nan" else ""
+            
+            if not branch:
+                st.write(f"⚠️ Empty branch for module {module_code}")
+                unmatched_count += 1
+                continue
+            
+            # Debug: Show what we're trying to match
+            if idx < 3:  # Show first 3 for debugging
+                st.write(f"🔍 **Matching attempt {idx+1}:**")
+                st.write(f"   Module Code: '{module_code}'")
+                st.write(f"   Semester: '{semester_value}' -> {semester_num}")
+                st.write(f"   Branch: '{branch}'")
+            
+            # Find matching scheduled subject
+            match_conditions = (
+                (scheduled_data["ExtractedModuleCode"] == module_code) &
+                (scheduled_data["Semester"] == semester_num) &
+                (scheduled_data["Branch"] == branch)
+            )
+            
+            match = scheduled_data[match_conditions]
+            
+            if not match.empty:
+                # Found a match
+                matched_subject = match.iloc[0]
+                exam_date = matched_subject["Exam Date"]
+                time_slot = matched_subject["Time Slot"]
+                duration = row.get("Exam Duration", 3.0)
+                
+                # Handle duration
                 try:
-                    start_time = time_slot.split(" - ")[0].strip()
-                    end_time = calculate_end_time(start_time, duration)
-                    exam_time = f"{start_time} to {end_time}"
+                    duration = float(duration) if pd.notna(duration) else 3.0
                 except:
-                    exam_time = time_slot  # Fallback to original time slot
+                    duration = 3.0
+                
+                # Calculate exam time
+                if time_slot and str(time_slot).strip() and str(time_slot) != "nan":
+                    try:
+                        start_time = str(time_slot).split(" - ")[0].strip()
+                        end_time = calculate_end_time(start_time, duration)
+                        exam_time = f"{start_time} to {end_time}"
+                    except Exception as e:
+                        st.write(f"⚠️ Error calculating time for {module_code}: {e}")
+                        exam_time = str(time_slot)
+                else:
+                    exam_time = "TBD"
+                    time_slot = "TBD"
+                
+                # Update verification dataframe
+                verification_df.at[idx, "Exam Date"] = str(exam_date)
+                verification_df.at[idx, "Exam Time"] = exam_time
+                verification_df.at[idx, "Time Slot"] = str(time_slot)
+                verification_df.at[idx, "Scheduling Status"] = "Scheduled"
+                
+                # Check commonality
+                same_module_scheduled = scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]
+                unique_branches = same_module_scheduled["Branch"].nunique()
+                verification_df.at[idx, "Is Common"] = "YES" if unique_branches > 1 else "NO"
+                
+                matched_count += 1
+                
+                if idx < 3:  # Debug first few matches
+                    st.write(f"   ✅ **MATCH FOUND!**")
+                    st.write(f"   Exam Date: {exam_date}")
+                    st.write(f"   Time Slot: {time_slot}")
+                    st.write(f"   Exam Time: {exam_time}")
+                
             else:
-                exam_time = "TBD"
-                time_slot = "TBD"
-            
-            # Update verification dataframe
-            verification_df.at[idx, "Exam Date"] = exam_date
-            verification_df.at[idx, "Exam Time"] = exam_time
-            verification_df.at[idx, "Time Slot"] = time_slot
-            verification_df.at[idx, "Scheduling Status"] = "Scheduled"
-            
-            # Check if it's common across branches
-            same_module_scheduled = scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]
-            unique_branches = same_module_scheduled["Branch"].nunique()
-            verification_df.at[idx, "Is Common"] = "YES" if unique_branches > 1 else "NO"
-            
-            matched_count += 1
-            
-        else:
-            # No match found
-            verification_df.at[idx, "Exam Date"] = "Not Scheduled"
-            verification_df.at[idx, "Exam Time"] = "Not Scheduled"
-            verification_df.at[idx, "Time Slot"] = "Not Scheduled"
-            verification_df.at[idx, "Is Common"] = "N/A"
-            verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
+                # No match found
+                verification_df.at[idx, "Exam Date"] = "Not Scheduled"
+                verification_df.at[idx, "Exam Time"] = "Not Scheduled"
+                verification_df.at[idx, "Time Slot"] = "Not Scheduled"
+                verification_df.at[idx, "Is Common"] = "N/A"
+                verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
+                unmatched_count += 1
+                
+                if idx < 5:  # Debug first few non-matches
+                    st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
+                    
+                    # Show what scheduled data we have for this module code
+                    module_matches = scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]
+                    if not module_matches.empty:
+                        st.write(f"   📋 Available matches for {module_code}:")
+                        for _, match_row in module_matches.iterrows():
+                            st.write(f"      - Branch: {match_row['Branch']}, Semester: {match_row['Semester']}")
+                    else:
+                        st.write(f"   📋 No scheduled data found for module code: {module_code}")
+                        
+        except Exception as e:
+            st.error(f"Error processing row {idx}: {e}")
             unmatched_count += 1
 
-    st.write(f"✅ Matched {matched_count} subjects with schedules")
-    st.write(f"⚠️ {unmatched_count} subjects not found in schedule")
-
-    # Reorder columns to put scheduling info at the end
-    base_columns = [col for col in verification_df.columns if col not in ["Exam Date", "Exam Time", "Time Slot", "Is Common", "Scheduling Status"]]
-    final_columns = base_columns + ["Scheduling Status", "Exam Date", "Time Slot", "Exam Time", "Is Common"]
-    verification_df = verification_df[final_columns]
+    st.success(f"✅ **Verification Results:**")
+    st.write(f"   📊 Matched: {matched_count} subjects")
+    st.write(f"   ⚠️ Unmatched: {unmatched_count} subjects")
+    st.write(f"   📈 Match rate: {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
 
     # Save to Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         verification_df.to_excel(writer, sheet_name="Verification", index=False)
         
-        # Get the workbook and worksheet to apply formatting
-        workbook = writer.book
-        worksheet = writer.sheets["Verification"]
-        
-        # Apply some basic formatting
-        from openpyxl.styles import PatternFill, Font
-        
-        # Header formatting
-        header_fill = PatternFill(start_color="951C1C", end_color="951C1C", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        
-        for cell in worksheet[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-        
-        # Highlight scheduled vs not scheduled
-        green_fill = PatternFill(start_color="D4EDDA", end_color="D4EDDA", fill_type="solid")
-        red_fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid")
-        
-        status_col = None
-        for idx, cell in enumerate(worksheet[1]):
-            if cell.value == "Scheduling Status":
-                status_col = idx + 1
-                break
-        
-        if status_col:
-            for row in range(2, len(verification_df) + 2):
-                status_cell = worksheet.cell(row=row, column=status_col)
-                if status_cell.value == "Scheduled":
-                    for col in range(1, len(final_columns) + 1):
-                        worksheet.cell(row=row, column=col).fill = green_fill
-                elif status_cell.value == "Not Scheduled":
-                    for col in range(1, len(final_columns) + 1):
-                        worksheet.cell(row=row, column=col).fill = red_fill
-        
-        # Auto-adjust column widths
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            worksheet.column_dimensions[column_letter].width = adjusted_width
+        # Add a summary sheet
+        summary_data = {
+            "Metric": ["Total Subjects", "Scheduled Subjects", "Unscheduled Subjects", "Match Rate (%)"],
+            "Value": [matched_count + unmatched_count, matched_count, unmatched_count, 
+                     round(matched_count/(matched_count+unmatched_count)*100, 1) if (matched_count+unmatched_count) > 0 else 0]
+        }
+        summary_df = pd.DataFrame(summary_data)
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
     output.seek(0)
     return output
 
+def convert_semester_to_number(semester_value):
+    """Convert semester string to number with better error handling"""
+    if pd.isna(semester_value):
+        return 0
+    
+    semester_str = str(semester_value).strip()
+    
+    semester_map = {
+        "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
+        "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
+        "Sem IX": 9, "Sem X": 10, "Sem XI": 11,
+        "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "11": 11
+    }
+    
+    return semester_map.get(semester_str, 0)
+    
 def main():
     st.markdown("""
     <div class="main-header">
@@ -1922,6 +1984,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
