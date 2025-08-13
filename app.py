@@ -1157,7 +1157,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-                # UPDATED: Modify subjects to handle non-standard durations and common subjects properly
+                # ENHANCED: Modify subjects to ALWAYS show timing when different from semester default
                 default_time_slot = get_semester_default_time_slot(semester, main_branch)
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
@@ -1169,21 +1169,24 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         for subject in subjects:
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            # Get subject-specific time slot
+                            # Get subject-specific time slot for this row
                             subject_time_slot = chunk_df.at[idx, "Time Slot"] if pd.notna(chunk_df.at[idx, "Time Slot"]) else None
                             
-                            # Handle non-standard durations: show specific time range
-                            if duration != 3 and subject_time_slot and subject_time_slot.strip():
-                                start_time = subject_time_slot.split(" - ")[0]
-                                end_time = calculate_end_time(start_time, duration)
-                                modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
-                            # Handle common subjects with different time slots
-                            elif subject_time_slot and default_time_slot and subject_time_slot.strip() and default_time_slot.strip():
-                                if subject_time_slot != default_time_slot:
+                            # CRITICAL FIX: Always show timing for subjects when it differs from default
+                            if subject_time_slot and subject_time_slot.strip():
+                                # Case 1: Non-standard duration - show calculated time range
+                                if duration != 3:
+                                    start_time = subject_time_slot.split(" - ")[0]
+                                    end_time = calculate_end_time(start_time, duration)
+                                    modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
+                                # Case 2: Different time slot from semester default - ALWAYS show it
+                                elif subject_time_slot != default_time_slot:
                                     modified_subjects.append(f"{base_subject} ({subject_time_slot})")
+                                # Case 3: Same as default time slot - no need to show timing
                                 else:
                                     modified_subjects.append(base_subject)
                             else:
+                                # No time slot data available
                                 modified_subjects.append(base_subject)
                         
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
@@ -1206,7 +1209,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 print_table_custom(pdf, chunk_df[cols_to_print], cols_to_print, col_widths, line_height=line_height, 
                                  header_content=header_content, branches=chunk, time_slot=time_slot)
 
-        # Handle electives with updated table structure - OPTIMIZED for OE display
+        # Handle electives with enhanced time display
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             
@@ -1218,13 +1221,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             # Convert Exam Date to desired format
             elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-            # Clean 'SubjectDisplay' to remove [OE] from each subject and optimize OE display
+            # Clean 'SubjectDisplay' to remove [OE] from each subject and handle timing
             elective_data['SubjectDisplay'] = elective_data.apply(
                 lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in row['SubjectDisplay'].split(", ")]),
                 axis=1
             )
 
-            # UPDATED: Handle OE subjects - only show duration if non-standard, remove redundant time display
+            # ENHANCED: Handle OE subjects timing display - always show if non-standard duration
             default_time_slot = get_semester_default_time_slot(semester, main_branch)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
             for idx in elective_data.index:
@@ -1239,14 +1242,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     # Get subject-specific time slot
                     subject_time_slot = elective_data.at[idx, "Time Slot"] if pd.notna(elective_data.at[idx, "Time Slot"]) else None
                     
-                    # OPTIMIZED: For OE subjects, only show custom time if duration is non-standard
-                    # Remove redundant time slot display as requested
+                    # For OE subjects, show timing if duration is non-standard OR if differs from default
                     if duration != 3 and subject_time_slot and subject_time_slot.strip():
                         start_time = subject_time_slot.split(" - ")[0]
                         end_time = calculate_end_time(start_time, duration)
                         modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
+                    elif subject_time_slot and subject_time_slot != default_time_slot:
+                        # Show timing if different from semester default (for common OE subjects)
+                        modified_subjects.append(f"{base_subject} ({subject_time_slot})")
                     else:
-                        # For OE subjects, don't show time slot in parentheses - time is in header
+                        # Standard duration and standard timing - no need to show time
                         modified_subjects.append(base_subject)
                 
                 elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
@@ -2425,6 +2430,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
