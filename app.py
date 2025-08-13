@@ -2214,128 +2214,128 @@ def main():
             elif efficiency > 60:
                 st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
             else:
-               st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
+                st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
 
-       # Timetable Results
-       st.markdown("---")
-       st.markdown("""
-       <div class="results-section">
-           <h2>📊 Complete Timetable Results</h2>
-       </div>
-       """, unsafe_allow_html=True)
+        # Timetable Results
+        st.markdown("---")
+        st.markdown("""
+        <div class="results-section">
+            <h2>📊 Complete Timetable Results</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-       # Define the subject display formatting functions for Streamlit display
-       def format_subject_display(row):
-           """Format subject display for non-electives in Streamlit interface"""
-           subject = row['Subject']
-           time_slot = row['Time Slot']
-           duration = row.get('Exam Duration', 3)
-           is_common = row.get('CommonAcrossSems', False)
-           semester = row['Semester']
-           
-           # Get preferred slot for this semester
-           preferred_slot = get_preferred_slot(semester)
-           
-           time_range = ""
-           
-           # Handle non-standard durations: show specific time range
-           if duration != 3 and time_slot and time_slot.strip():
-               start_time = time_slot.split(' - ')[0].strip()
-               end_time = calculate_end_time(start_time, duration)
-               time_range = f" ({start_time} - {end_time})"
-           # Handle common subjects with different time slots
-           elif is_common and time_slot != preferred_slot and time_slot and time_slot.strip():
-               time_range = f" ({time_slot})"
-           
-           return subject + time_range
+        # Define the subject display formatting functions for Streamlit display
+        def format_subject_display(row):
+            """Format subject display for non-electives in Streamlit interface"""
+            subject = row['Subject']
+            time_slot = row['Time Slot']
+            duration = row.get('Exam Duration', 3)
+            is_common = row.get('CommonAcrossSems', False)
+            semester = row['Semester']
+            
+            # Get preferred slot for this semester
+            preferred_slot = get_preferred_slot(semester)
+            
+            time_range = ""
+            
+            # Handle non-standard durations: show specific time range
+            if duration != 3 and time_slot and time_slot.strip():
+                start_time = time_slot.split(' - ')[0].strip()
+                end_time = calculate_end_time(start_time, duration)
+                time_range = f" ({start_time} - {end_time})"
+            # Handle common subjects with different time slots
+            elif is_common and time_slot != preferred_slot and time_slot and time_slot.strip():
+                time_range = f" ({time_slot})"
+            
+            return subject + time_range
 
-       def format_elective_display(row):
-           """Format subject display for electives in Streamlit interface"""
-           subject = row['Subject']
-           oe_type = row.get('OE', '')
-           base_display = f"{subject} [{oe_type}]" if oe_type else subject
-           
-           duration = row.get('Exam Duration', 3)
-           time_slot = row['Time Slot']
-           
-           # OPTIMIZED: For OE subjects in Streamlit, only show time if duration is non-standard
-           if duration != 3 and time_slot and time_slot.strip():
-               start_time = time_slot.split(' - ')[0].strip()
-               end_time = calculate_end_time(start_time, duration)
-               time_range = f" ({start_time} - {end_time})"
-           else:
-               time_range = ""
-           
-           return base_display + time_range
+        def format_elective_display(row):
+            """Format subject display for electives in Streamlit interface"""
+            subject = row['Subject']
+            oe_type = row.get('OE', '')
+            base_display = f"{subject} [{oe_type}]" if oe_type else subject
+            
+            duration = row.get('Exam Duration', 3)
+            time_slot = row['Time Slot']
+            
+            # OPTIMIZED: For OE subjects in Streamlit, only show time if duration is non-standard
+            if duration != 3 and time_slot and time_slot.strip():
+                start_time = time_slot.split(' - ')[0].strip()
+                end_time = calculate_end_time(start_time, duration)
+                time_range = f" ({start_time} - {end_time})"
+            else:
+                time_range = ""
+            
+            return base_display + time_range
 
-       for sem, df_sem in st.session_state.timetable_data.items():
-           st.markdown(f"### 📚 Semester {sem}")
+        for sem, df_sem in st.session_state.timetable_data.items():
+            st.markdown(f"### 📚 Semester {sem}")
 
-           for main_branch in df_sem["MainBranch"].unique():
-               main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
-               df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+            for main_branch in df_sem["MainBranch"].unique():
+                main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
 
-               if not df_mb.empty:
-                   # Separate non-electives and electives for display
-                   df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                   df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+                if not df_mb.empty:
+                    # Separate non-electives and electives for display
+                    df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                    df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
-                   # Display non-electives
-                   if not df_non_elec.empty:
-                       # Apply formatting using the updated function
-                       df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
-                       df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                       df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                       
-                       # Create pivot table for non-electives
-                       pivot_df = df_non_elec.pivot_table(
-                           index=["Exam Date", "Time Slot"],
-                           columns="SubBranch",
-                           values="SubjectDisplay",
-                           aggfunc=lambda x: ", ".join(x)
-                       ).fillna("---")
-                       
-                       if not pivot_df.empty:
-                           st.markdown(f"#### {main_branch_full} - Core Subjects")
-                           formatted_pivot = pivot_df.copy()
-                           if len(formatted_pivot.index.levels) > 0:
-                               formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
-                                                  formatted_pivot.index.levels[0]]
-                               formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
-                           st.dataframe(formatted_pivot, use_container_width=True)
+                    # Display non-electives
+                    if not df_non_elec.empty:
+                        # Apply formatting using the updated function
+                        df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
+                        df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                        df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                        
+                        # Create pivot table for non-electives
+                        pivot_df = df_non_elec.pivot_table(
+                            index=["Exam Date", "Time Slot"],
+                            columns="SubBranch",
+                            values="SubjectDisplay",
+                            aggfunc=lambda x: ", ".join(x)
+                        ).fillna("---")
+                        
+                        if not pivot_df.empty:
+                            st.markdown(f"#### {main_branch_full} - Core Subjects")
+                            formatted_pivot = pivot_df.copy()
+                            if len(formatted_pivot.index.levels) > 0:
+                                formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
+                                                   formatted_pivot.index.levels[0]]
+                                formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
+                            st.dataframe(formatted_pivot, use_container_width=True)
 
-                   # Display electives
-                   if not df_elec.empty:
-                       # Apply formatting using the updated function
-                       df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
-                       df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                       df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
-                       
-                       # Create elective pivot
-                       elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-                           lambda x: ", ".join(x)
-                       ).reset_index()
-                       
-                       if not elec_pivot.empty:
-                           st.markdown(f"#### {main_branch_full} - Open Electives")
-                           # Format dates for display
-                           elec_pivot['Formatted_Date'] = elec_pivot['Exam Date'].dt.strftime("%d-%m-%Y")
-                           elec_pivot_display = elec_pivot[['Formatted_Date', 'Time Slot', 'OE', 'SubjectDisplay']].rename(columns={
-                               'Formatted_Date': 'Exam Date',
-                               'OE': 'OE Type',
-                               'SubjectDisplay': 'Subjects'
-                           })
-                           st.dataframe(elec_pivot_display, use_container_width=True)
+                    # Display electives
+                    if not df_elec.empty:
+                        # Apply formatting using the updated function
+                        df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
+                        df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                        df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                        
+                        # Create elective pivot
+                        elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                            lambda x: ", ".join(x)
+                        ).reset_index()
+                        
+                        if not elec_pivot.empty:
+                            st.markdown(f"#### {main_branch_full} - Open Electives")
+                            # Format dates for display
+                            elec_pivot['Formatted_Date'] = elec_pivot['Exam Date'].dt.strftime("%d-%m-%Y")
+                            elec_pivot_display = elec_pivot[['Formatted_Date', 'Time Slot', 'OE', 'SubjectDisplay']].rename(columns={
+                                'Formatted_Date': 'Exam Date',
+                                'OE': 'OE Type',
+                                'SubjectDisplay': 'Subjects'
+                            })
+                            st.dataframe(elec_pivot_display, use_container_width=True)
 
-   # Display footer
-   st.markdown("---")
-   st.markdown("""
-   <div class="footer">
-       <p>🎓 <strong>Complete Timetable Generator</strong></p>
-       <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-       <p style="font-size: 0.9em;">Common subjects first • Gap-filling optimization • Stream-wise scheduling • OE optimization • Maximum efficiency • Verification export</p>
-   </div>
-   """, unsafe_allow_html=True)
+    # Display footer
+    st.markdown("---")
+    st.markdown("""
+    <div class="footer">
+        <p>🎓 <strong>Complete Timetable Generator</strong></p>
+        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
+        <p style="font-size: 0.9em;">Common subjects first • Gap-filling optimization • Stream-wise scheduling • OE optimization • Maximum efficiency • Verification export</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
-   main()
+    main()
