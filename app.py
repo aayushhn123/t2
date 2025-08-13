@@ -275,205 +275,145 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 # Cache for text wrapping results
 wrap_text_cache = {}
 
-def schedule_uncommon_subjects_first(df, holidays, base_date):
+def get_preferred_slot(semester):
+    """Calculate preferred time slot based on semester number"""
+    if semester % 2 != 0:  # Odd semester
+        odd_sem_position = (semester + 1) // 2
+        return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+    else:  # Even semester
+        even_sem_position = semester // 2
+        return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+
+def schedule_common_subjects_first(df, holidays, base_date):
     """
-    Schedule uncommon subjects (CommonAcrossSems = FALSE) first, semester-wise for each stream
-    Base date resets for each semester AND each sub-branch/stream
+    Schedule common subjects FIRST across ALL branches starting from base date
+    Priority: Schedule maximum common subjects per day while respecting constraints
     """
-    st.info("🔧 Scheduling uncommon subjects first...")
+    st.info("🔧 Scheduling common subjects FIRST from base date...")
     
-    # Filter uncommon subjects only
-    uncommon_subjects = df[df['CommonAcrossSems'] == False].copy()
+    # Filter only common subjects for initial scheduling
+    common_subjects = df[df['CommonAcrossSems'] == True].copy()
     
-    if uncommon_subjects.empty:
-        st.info("No uncommon subjects to schedule")
+    if common_subjects.empty:
+        st.info("No common subjects to schedule first")
         return df
     
-    st.write(f"Found {len(uncommon_subjects)} uncommon subjects to schedule")
+    st.write(f"Found {len(common_subjects)} common subjects to schedule first")
     
-    # Initialize exam_days tracker for each branch (this will track across all scheduling)
-    all_branches = df['Branch'].unique()
-    exam_days = {branch: set() for branch in all_branches}
+    scheduled_count = 0
+    current_scheduling_date = base_date
     
-    # Track all scheduled dates for span calculation
-    all_scheduled_dates = []
-    semester_statistics = {}
-    
-    # Helper function to find next valid day (skip Sundays and holidays)
+    # Helper function to find next valid day
     def find_next_valid_day(start_date, holidays_set):
         current_date = start_date
         while True:
-            # Skip Sundays (weekday 6) and holidays
             if current_date.weekday() != 6 and current_date.date() not in holidays_set:
                 return current_date
             current_date += timedelta(days=1)
     
-    # Schedule by semester, then by stream within each semester
-    scheduled_count = 0
+    # Helper function to get subbranch-semester key
+    def get_subbranch_semester_key(subbranch, semester):
+        return f"{subbranch}_{semester}"
     
-    for semester in sorted(uncommon_subjects['Semester'].unique()):
-        semester_data = uncommon_subjects[uncommon_subjects['Semester'] == semester]
-        
-        st.write(f"📚 Scheduling Semester {semester} uncommon subjects...")
-        
-        # Track dates for this semester
-        semester_dates = []
-        semester_branch_stats = {}
-        
-        # Get time slot based on semester
-        if semester % 2 != 0:  # Odd semester
-            odd_sem_position = (semester + 1) // 2
-            preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        else:  # Even semester
-            even_sem_position = semester // 2
-            preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        
-        # Group by stream/branch within this semester
-        for branch in sorted(semester_data['Branch'].unique()):
-            branch_subjects = semester_data[semester_data['Branch'] == branch]
-            
-            st.write(f"  🔧 Scheduling {len(branch_subjects)} subjects for {branch}")
-            
-            # RESET TO BASE DATE FOR EACH BRANCH/STREAM - KEY CHANGE!
-            branch_scheduling_date = base_date
-            branch_dates = []
-            
-            st.write(f"    📅 Starting {branch} from base date: {base_date.strftime('%d-%m-%Y')}")
-            
-            # Schedule each subject for this branch back-to-back
-            for idx, row in branch_subjects.iterrows():
-                # Find a valid day starting from base date for this branch
-                exam_date = find_next_valid_day(branch_scheduling_date, holidays)
-                
-                # Since each branch starts independently, no need to check exam_days conflicts
-                # Just find next valid calendar day
-                
-                # Schedule the exam
-                date_str = exam_date.strftime("%d-%m-%Y")
-                df.loc[idx, 'Exam Date'] = date_str
-                df.loc[idx, 'Time Slot'] = preferred_slot
-                
-                # Mark this date as occupied for this branch (for future reference)
-                exam_days[branch].add(exam_date.date())
-                
-                # Track the scheduled date
-                all_scheduled_dates.append(exam_date.date())
-                semester_dates.append(exam_date.date())
-                branch_dates.append(exam_date.date())
-                
-                scheduled_count += 1
-                st.write(f"    ✅ Scheduled {row['Subject']} on {date_str}")
-                
-                # Move to next day for next subject of this branch
-                branch_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
-            
-            # Track branch statistics
-            if branch_dates:
-                branch_start = min(branch_dates)
-                branch_end = max(branch_dates)
-                branch_span = (branch_end - branch_start).days + 1
-                branch_unique_days = len(set(branch_dates))
-                
-                semester_branch_stats[branch] = {
-                    'count': len(branch_subjects),
-                    'start': branch_start,
-                    'end': branch_end,
-                    'span': branch_span,
-                    'unique_days': branch_unique_days
-                }
-                
-                st.write(f"    📊 {branch} span: {branch_span} days ({branch_start.strftime('%d-%m-%Y')} to {branch_end.strftime('%d-%m-%Y')})")
-                st.write(f"    📅 {branch} subjects scheduled on {branch_unique_days} days")
-        
-        # Store semester statistics
-        if semester_dates:
-            semester_start = min(semester_dates)
-            semester_end = max(semester_dates)
-            semester_span = (semester_end - semester_start).days + 1
-            semester_unique_days = len(set(semester_dates))
-            
-            semester_statistics[semester] = {
-                'count': len(semester_data),
-                'start': semester_start,
-                'end': semester_end,
-                'span': semester_span,
-                'unique_days': semester_unique_days,
-                'branches': semester_branch_stats
-            }
-            
-            st.write(f"  📊 Semester {semester} overall span: {semester_span} days ({semester_start.strftime('%d-%m-%Y')} to {semester_end.strftime('%d-%m-%Y')})")
-            st.write(f"  📅 Semester {semester} unique exam days: {semester_unique_days}")
-        
-        st.write(f"✅ Completed Semester {semester} scheduling")
+    # Track scheduled subbranch-semester combinations per day
+    daily_scheduled = {}  # date -> set of subbranch_semester keys
     
-    # Calculate and display overall span for uncommon subjects
-    if all_scheduled_dates:
-        overall_start = min(all_scheduled_dates)
-        overall_end = max(all_scheduled_dates)
-        overall_span = (overall_end - overall_start).days + 1
-        unique_exam_days = len(set(all_scheduled_dates))
-        total_exam_dates = len(all_scheduled_dates)
-        
-        st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
-        
-        # Display comprehensive statistics
-        st.markdown("### 📊 Uncommon Subjects Scheduling Statistics")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Subjects", scheduled_count)
-        with col2:
-            st.metric("Overall Span", f"{overall_span} days")
-        with col3:
-            st.metric("Unique Exam Days", unique_exam_days)
-        with col4:
-            st.metric("Total Streams", len(set(uncommon_subjects['Branch'])))
-        
-        st.info(f"📅 **Overall Date Range:** {overall_start.strftime('%d %B %Y')} to {overall_end.strftime('%d %B %Y')}")
-        
-        # Show efficiency metrics
-        efficiency = (unique_exam_days / overall_span) * 100 if overall_span > 0 else 0
-        if efficiency > 80:
-            st.success(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Excellent - most days are utilized)")
-        elif efficiency > 60:
-            st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
-        else:
-            st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
-        
-        # Additional insights
-        with st.expander("📈 Detailed Statistics"):
-            st.write(f"• **Base date used for all streams:** {base_date.strftime('%d %B %Y')}")
-            st.write(f"• **First exam scheduled on:** {overall_start.strftime('%d %B %Y')}")
-            st.write(f"• **Last exam scheduled on:** {overall_end.strftime('%d %B %Y')}")
-            st.write(f"• **Days with no exams:** {overall_span - unique_exam_days}")
-            st.write(f"• **Average exams per active day:** {total_exam_dates / unique_exam_days:.1f}")
-            
-            # Show detailed semester and branch breakdown
-            st.write("\n**📚 Semester & Stream-wise Breakdown:**")
-            for semester in sorted(semester_statistics.keys()):
-                stats = semester_statistics[semester]
-                st.write(f"\n**Semester {semester}:** {stats['count']} subjects, {stats['span']} days span")
-                
-                for branch, branch_stats in stats['branches'].items():
-                    st.write(f"  • **{branch}:** {branch_stats['count']} subjects")
-                    st.write(f"    - Date range: {branch_stats['start'].strftime('%d-%m-%Y')} to {branch_stats['end'].strftime('%d-%m-%Y')}")
-                    st.write(f"    - Span: {branch_stats['span']} days, Active days: {branch_stats['unique_days']}")
-        
-        # Show stream independence verification
-        with st.expander("🔍 Stream Independence Verification"):
-            st.write("**Verification that each stream started from base date:**")
-            for semester in sorted(semester_statistics.keys()):
-                st.write(f"\n**Semester {semester}:**")
-                for branch, branch_stats in semester_statistics[semester]['branches'].items():
-                    days_from_base = (branch_stats['start'] - base_date.date()).days
-                    st.write(f"  • {branch}: Started {days_from_base} days from base date")
-                    if days_from_base == 0:
-                        st.write(f"    ✅ Started exactly on base date")
-                    else:
-                        st.write(f"    ℹ️ Started {days_from_base} days after base date (due to holidays/weekends)")
-    else:
-        st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects")
+    # Group by ModuleCode to find truly common subjects across ALL branches
+    common_subject_groups = {}
+    for module_code, group in common_subjects.groupby('ModuleCode'):
+        branches_for_this_subject = group['Branch'].unique()
+        common_subject_groups[module_code] = group
+        st.write(f"  📋 Found common subject {group['Subject'].iloc[0]} across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
     
+    # Create a list of unscheduled common subject groups
+    unscheduled_groups = list(common_subject_groups.keys())
+    st.write(f"📊 Total common subject groups to schedule: {len(unscheduled_groups)}")
+    
+    # Schedule day by day, maximizing subjects per day
+    scheduling_attempts = 0
+    max_scheduling_attempts = 200
+    
+    while unscheduled_groups and scheduling_attempts < max_scheduling_attempts:
+        scheduling_attempts += 1
+        exam_date = find_next_valid_day(current_scheduling_date, holidays)
+        date_str = exam_date.strftime("%d-%m-%Y")
+        
+        if date_str not in daily_scheduled:
+            daily_scheduled[date_str] = set()
+        
+        # Available time slots for this date
+        available_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
+        subjects_scheduled_today = 0
+        
+        st.write(f"  📅 Attempting to schedule common subjects on {date_str} (Attempt {scheduling_attempts})")
+        
+        # Try to schedule as many common subjects as possible on this day
+        day_had_scheduling = False
+        
+        for time_slot in available_slots:
+            groups_scheduled_in_slot = []
+            
+            st.write(f"    🕐 Checking {time_slot} slot")
+            
+            # Check which groups can be scheduled in this time slot
+            for module_code in unscheduled_groups[:]:
+                group = common_subject_groups[module_code]
+                can_schedule = True
+                conflicting_subbranches = []
+                
+                # Check if any subbranch-semester combination conflicts
+                for idx, row in group.iterrows():
+                    subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
+                    if subbranch_sem_key in daily_scheduled[date_str]:
+                        can_schedule = False
+                        conflicting_subbranches.append(f"{row['SubBranch']} (Sem {row['Semester']})")
+                
+                if can_schedule:
+                    # Schedule this group in this time slot
+                    semester = group['Semester'].iloc[0]
+                    
+                    # Calculate preferred slot based on semester
+                    preferred_slot = get_preferred_slot(semester)
+                    
+                    # Use the preferred slot if it matches current slot, otherwise use current slot
+                    actual_slot = preferred_slot if preferred_slot == time_slot else time_slot
+                    
+                    # Schedule all instances of this common subject
+                    subbranches_scheduled = []
+                    for idx in group.index:
+                        df.loc[idx, 'Exam Date'] = date_str
+                        df.loc[idx, 'Time Slot'] = actual_slot
+                        scheduled_count += 1
+                        
+                        # Mark this subbranch-semester as scheduled for this date
+                        subbranch_sem_key = get_subbranch_semester_key(group.loc[idx, 'SubBranch'], group.loc[idx, 'Semester'])
+                        daily_scheduled[date_str].add(subbranch_sem_key)
+                        subbranches_scheduled.append(f"{group.loc[idx, 'SubBranch']} (Sem {group.loc[idx, 'Semester']})")
+                    
+                    groups_scheduled_in_slot.append(module_code)
+                    subjects_scheduled_today += 1
+                    day_had_scheduling = True
+                    
+                    st.write(f"      ✅ Scheduled common subject {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {actual_slot}")
+                else:
+                    st.write(f"      ❌ Cannot schedule {group['Subject'].iloc[0]} - conflicts with subbranches: {', '.join(conflicting_subbranches)}")
+            
+            # Remove scheduled groups from unscheduled list
+            for module_code in groups_scheduled_in_slot:
+                unscheduled_groups.remove(module_code)
+        
+        total_scheduled_today = subjects_scheduled_today
+        st.write(f"  📊 Total common subjects scheduled on {date_str}: {total_scheduled_today}")
+        
+        # Move to next day
+        current_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+        
+        # If no scheduling happened this day and we still have unscheduled groups, continue to next day
+        if not day_had_scheduling and unscheduled_groups:
+            st.write(f"  ⚠️ No common subjects could be scheduled on {date_str}, moving to next day")
+            continue
+    
+    st.success(f"✅ Successfully scheduled {scheduled_count} common subjects FIRST")
     return df
 
 
@@ -584,12 +524,7 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                         semester = group['Semester'].iloc[0]
                         
                         # Calculate preferred slot based on semester
-                        if semester % 2 != 0:  # Odd semester
-                            odd_sem_position = (semester + 1) // 2
-                            preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-                        else:  # Even semester
-                            even_sem_position = semester // 2
-                            preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+                        preferred_slot = get_preferred_slot(semester)
                         
                         # Use the preferred slot if it matches current slot, otherwise use current slot
                         actual_slot = preferred_slot if preferred_slot == time_slot else time_slot
@@ -648,12 +583,7 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                             
                             # Calculate preferred slot for this subject
                             semester = row['Semester']
-                            if semester % 2 != 0:  # Odd semester
-                                odd_sem_position = (semester + 1) // 2
-                                preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-                            else:  # Even semester
-                                even_sem_position = semester // 2
-                                preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+                            preferred_slot = get_preferred_slot(semester)
                             
                             df.loc[idx_to_schedule, 'Exam Date'] = date_str
                             df.loc[idx_to_schedule, 'Time Slot'] = preferred_slot
@@ -709,28 +639,23 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                 while not found_slot and attempts < max_attempts:
                     test_date = find_next_valid_day(test_date, holidays)
                     date_str = test_date.strftime("%d-%m-%Y")
-                    
+                   
                     if date_str not in daily_scheduled:
                         daily_scheduled[date_str] = set()
-                    
+                   
                     subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
-                    
+                   
                     if subbranch_sem_key not in daily_scheduled[date_str]:
                         # Can schedule here
                         semester = row['Semester']
-                        if semester % 2 != 0:  # Odd semester
-                            odd_sem_position = (semester + 1) // 2
-                            preferred_slot = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-                        else:  # Even semester
-                            even_sem_position = semester // 2
-                            preferred_slot = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-                        
+                        preferred_slot = get_preferred_slot(semester)
+                       
                         df.loc[idx, 'Exam Date'] = date_str
                         df.loc[idx, 'Time Slot'] = preferred_slot
                         scheduled_count += 1
-                        
+                       
                         daily_scheduled[date_str].add(subbranch_sem_key)
-                        
+                       
                         # Check if this was originally a common subject
                         original_common = "✓" if row['CommonAcrossSems'] else ""
                         st.write(f"    ✅ Scheduled subject {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) on {date_str} {original_common}")
@@ -741,13 +666,13 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
                 
                 if not found_slot:
                     st.error(f"❌ Could not schedule {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) after {max_attempts} attempts")
-    
+   
     # Final count of unscheduled subjects
     final_unscheduled = df[
         (df['Exam Date'] == "") & 
         (df['Category'] != 'INTD')
     ]
-    
+   
     if not final_unscheduled.empty:
         st.error(f"❌ {len(final_unscheduled)} subjects remain unscheduled:")
         for idx, row in final_unscheduled.iterrows():
@@ -755,9 +680,9 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
             st.write(f"  • {row['Subject']} ({row['SubBranch']}, Sem {row['Semester']}) - {common_status}")
     else:
         st.success("✅ All subjects successfully scheduled!")
-    
+   
     st.success(f"✅ Successfully scheduled {scheduled_count} subjects across all branches")
-    
+   
     # Display scheduling efficiency summary with subbranch details
     if daily_scheduled:
         st.markdown("### 📊 Daily Scheduling Summary")
@@ -779,9 +704,71 @@ def schedule_common_subjects_after_uncommon(df, holidays, base_date):
             # Verify no subbranch-semester conflicts on this date
             scheduled_subbranch_sems = daily_scheduled[date_str]
             st.write(f"  • {day_name}, {date_str}: {subjects_on_date} subjects, {len(scheduled_subbranch_sems)} unique subbranch-semester combinations")
-    
+   
     return df
-    
+
+def read_timetable(uploaded_file):
+    try:
+        df = pd.read_excel(uploaded_file, engine='openpyxl')
+        df = df.rename(columns={
+            "Program": "Program",
+            "Stream": "Stream",
+            "Current Session": "Semester",
+            "Module Description": "SubjectName",
+            "Module Abbreviation": "ModuleCode",
+            "Campus Name": "Campus",
+            "Difficulty Score": "Difficulty",
+            "Exam Duration": "Exam Duration",
+            "Student count": "StudentCount",
+            "Common across sems": "CommonAcrossSems",  # Updated column name
+            "Circuit": "Circuit"  # ADD THIS LINE
+        })
+        
+        def convert_sem(sem):
+            if pd.isna(sem):
+                return 0
+            m = {
+                "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
+                "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
+                "Sem IX": 9, "Sem X": 10, "Sem XI": 11
+            }
+            return m.get(sem.strip(), 0)
+        
+        df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
+        df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
+        df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
+        
+        comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
+        df["Difficulty"] = None
+        df.loc[comp_mask, "Difficulty"] = df.loc[comp_mask, "Difficulty"]
+        
+        df["Exam Date"] = ""
+        df["Time Slot"] = ""
+        df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)
+        df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
+        df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)  # Handle the new column
+        df["Circuit"] = df["Circuit"].fillna(False).astype(bool) 
+        
+        df_non = df[df["Category"] != "INTD"].copy()
+        df_ele = df[df["Category"] == "INTD"].copy()
+        
+        def split_br(b):
+            p = b.split("-", 1)
+            return pd.Series([p[0].strip(), p[1].strip() if len(p) > 1 else ""])
+        
+        for d in (df_non, df_ele):
+            d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
+        
+        cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
+                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode","Circuit"]
+        
+        return df_non[cols], df_ele[cols], df
+        
+    except Exception as e:
+        st.error(f"Error reading the Excel file: {str(e)}")
+        return None, None, None
+
+   
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
@@ -1066,14 +1053,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             return 3.0
 
     def get_semester_default_time_slot(semester, branch):
-        # Placeholder function: Replace with actual logic or data source
-        # Example: B.Tech Semester 5 EXTC defaults to "10:00 AM - 1:00 PM"
-        default_timings = {
-            ("5", "EXTC"): "10:00 AM - 1:00 PM",
-            ("6", "COMP"): "10:00 AM - 1:00 PM",  # Add for other semesters/branches
-            # Add more as needed
-        }
-        return default_timings.get((semester, branch), "10:00 AM - 1:00 PM")  # Default fallback
+        # Get default time slot based on semester
+        if semester.isdigit():
+            sem_num = int(semester)
+            return get_preferred_slot(sem_num)
+        return "10:00 AM - 1:00 PM"  # Default fallback
 
     for sheet_name, pivot_df in df_dict.items():
         if pivot_df.empty:
@@ -1088,7 +1072,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         # Handle normal subjects
         if not sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            fixed_cols = ["Exam Date", "Time Slot"]  # Include Time Slot as a fixed column
+            fixed_cols = ["Exam Date", "Time Slot"]
             sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols]
             exam_date_width = 60
             table_font_size = 12
@@ -1109,7 +1093,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 # Convert Exam Date to desired format
                 chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-                # FIXED: Modify subjects to show only the specific time range, not both formats
+                # UPDATED: Modify subjects to handle non-standard durations and common subjects properly
                 default_time_slot = get_semester_default_time_slot(semester, main_branch)
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
@@ -1124,20 +1108,19 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                             # Get subject-specific time slot
                             subject_time_slot = chunk_df.at[idx, "Time Slot"] if pd.notna(chunk_df.at[idx, "Time Slot"]) else None
                             
-                            # FIXED: Only show custom time if different from 3 hours, don't show both formats
+                            # Handle non-standard durations: show specific time range
                             if duration != 3 and subject_time_slot and subject_time_slot.strip():
                                 start_time = subject_time_slot.split(" - ")[0]
                                 end_time = calculate_end_time(start_time, duration)
-                                modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
-                            else:
-                                # For 3-hour exams, check if time slot is different from default
-                                if subject_time_slot and default_time_slot and subject_time_slot.strip() and default_time_slot.strip():
-                                    if subject_time_slot != default_time_slot:
-                                        modified_subjects.append(f"{base_subject} ({subject_time_slot})")
-                                    else:
-                                        modified_subjects.append(base_subject)
+                                modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
+                            # Handle common subjects with different time slots
+                            elif subject_time_slot and default_time_slot and subject_time_slot.strip() and default_time_slot.strip():
+                                if subject_time_slot != default_time_slot:
+                                    modified_subjects.append(f"{base_subject} ({subject_time_slot})")
                                 else:
                                     modified_subjects.append(base_subject)
+                            else:
+                                modified_subjects.append(base_subject)
                         
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
@@ -1159,7 +1142,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 print_table_custom(pdf, chunk_df[cols_to_print], cols_to_print, col_widths, line_height=line_height, 
                                  header_content=header_content, branches=chunk, time_slot=time_slot)
 
-        # Handle electives with updated table structure
+        # Handle electives with updated table structure - OPTIMIZED for OE display
         if sheet_name.endswith('_Electives'):
             pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
             
@@ -1171,13 +1154,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             # Convert Exam Date to desired format
             elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
 
-            # Clean 'SubjectDisplay' to remove [OE] from each subject
+            # Clean 'SubjectDisplay' to remove [OE] from each subject and optimize OE display
             elective_data['SubjectDisplay'] = elective_data.apply(
                 lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in row['SubjectDisplay'].split(", ")]),
                 axis=1
             )
 
-            # FIXED: Modify subjects for timing overrides - only show specific time range, not both formats
+            # UPDATED: Handle OE subjects - only show duration if non-standard, remove redundant time display
             default_time_slot = get_semester_default_time_slot(semester, main_branch)
             time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
             for idx in elective_data.index:
@@ -1192,20 +1175,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     # Get subject-specific time slot
                     subject_time_slot = elective_data.at[idx, "Time Slot"] if pd.notna(elective_data.at[idx, "Time Slot"]) else None
                     
-                    # FIXED: Only show custom time if different from 3 hours, don't show both formats
+                    # OPTIMIZED: For OE subjects, only show custom time if duration is non-standard
+                    # Remove redundant time slot display as requested
                     if duration != 3 and subject_time_slot and subject_time_slot.strip():
                         start_time = subject_time_slot.split(" - ")[0]
                         end_time = calculate_end_time(start_time, duration)
-                        modified_subjects.append(f"{base_subject} ({start_time} to {end_time})")
+                        modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
                     else:
-                        # For 3-hour exams, check if time slot is different from default
-                        if subject_time_slot and default_time_slot and subject_time_slot.strip() and default_time_slot.strip():
-                            if subject_time_slot != default_time_slot:
-                                modified_subjects.append(f"{base_subject} ({subject_time_slot})")
-                            else:
-                                modified_subjects.append(base_subject)
-                        else:
-                            modified_subjects.append(base_subject)
+                        # For OE subjects, don't show time slot in parentheses - time is in header
+                        modified_subjects.append(base_subject)
                 
                 elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
 
@@ -1229,7 +1207,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                              header_content=header_content, branches=['All Streams'], time_slot=time_slot)
 
     pdf.output(pdf_path)
-    
+   
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
     excel_data = save_to_excel(semester_wise_timetable)
@@ -1267,146 +1245,6 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             st.warning("Warning: All pages were filtered out - keeping original PDF")
     except Exception as e:
         st.error(f"Error during PDF post-processing: {str(e)}")
-
-def read_timetable(uploaded_file):
-    try:
-        df = pd.read_excel(uploaded_file, engine='openpyxl')
-        df = df.rename(columns={
-            "Program": "Program",
-            "Stream": "Stream",
-            "Current Session": "Semester",
-            "Module Description": "SubjectName",
-            "Module Abbreviation": "ModuleCode",
-            "Campus Name": "Campus",
-            "Difficulty Score": "Difficulty",
-            "Exam Duration": "Exam Duration",
-            "Student count": "StudentCount",
-            "Common across sems": "CommonAcrossSems",  # Updated column name
-            "Circuit": "Circuit"  # ADD THIS LINE
-        })
-        
-        def convert_sem(sem):
-            if pd.isna(sem):
-                return 0
-            m = {
-                "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
-                "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
-                "Sem IX": 9, "Sem X": 10, "Sem XI": 11
-            }
-            return m.get(sem.strip(), 0)
-        
-        df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
-        df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
-        df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
-        
-        comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
-        df["Difficulty"] = None
-        df.loc[comp_mask, "Difficulty"] = df.loc[comp_mask, "Difficulty"]
-        
-        df["Exam Date"] = ""
-        df["Time Slot"] = ""
-        df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)
-        df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
-        df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)  # Handle the new column
-        df["Circuit"] = df["Circuit"].fillna(False).astype(bool) 
-        
-        df_non = df[df["Category"] != "INTD"].copy()
-        df_ele = df[df["Category"] == "INTD"].copy()
-        
-        def split_br(b):
-            p = b.split("-", 1)
-            return pd.Series([p[0].strip(), p[1].strip() if len(p) > 1 else ""])
-        
-        for d in (df_non, df_ele):
-            d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
-        
-        cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode","Circuit"]
-        
-        return df_non[cols], df_ele[cols], df
-        
-    except Exception as e:
-        st.error(f"Error reading the Excel file: {str(e)}")
-        return None, None, None
-
-def save_to_excel(semester_wise_timetable):
-    if not semester_wise_timetable:
-        return None
-
-    def int_to_roman(num):
-        roman_values = [
-            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
-        ]
-        result = ""
-        for value, numeral in roman_values:
-            while num >= value:
-                result += numeral
-                num -= value
-        return result
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for sem, df_sem in semester_wise_timetable.items():
-            for main_branch in df_sem["MainBranch"].unique():
-                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-                # Separate non-electives and electives
-                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
-
-                # Process non-electives
-                if not df_non_elec.empty:
-                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    
-                    # Only show duration info for Excel
-                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
-                    duration_suffix = df_non_elec.apply(
-                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
-                    df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
-                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
-                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                    pivot_df = df_non_elec.pivot_table(
-                        index=["Exam Date", "Time Slot"],
-                        columns="SubBranch",
-                        values="SubjectDisplay",
-                        aggfunc=lambda x: ", ".join(str(i) for i in x)
-                    ).fillna("---")
-                    pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
-                    formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
-                    pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
-                    roman_sem = int_to_roman(sem)
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
-                    if len(sheet_name) > 31:
-                        sheet_name = sheet_name[:31]
-                    pivot_df.to_excel(writer, sheet_name=sheet_name)
-
-                # Process electives in a separate sheet
-                if not df_elec.empty:
-                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    
-                    # Only show duration info for Excel
-                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]"
-                    duration_suffix = df_elec.apply(
-                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
-                    df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
-                        lambda x: ", ".join(sorted(set(x)))
-                    ).reset_index()
-                    elec_pivot['Exam Date'] = pd.to_datetime(
-                        elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
-                    ).dt.strftime("%d-%m-%Y")
-                    elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
-                    roman_sem = int_to_roman(sem)
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
-                    if len(sheet_name) > 31:
-                        sheet_name = sheet_name[:31]
-                    elec_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
-
-    output.seek(0)
-    return output
 
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
@@ -1582,12 +1420,27 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 except:
                     duration = 3.0
                 
-                # Calculate exam time
+                # UPDATED: Calculate exam time based on duration and common subject rules
                 if time_slot and str(time_slot).strip() and str(time_slot) != "nan":
                     try:
-                        start_time = str(time_slot).split(" - ")[0].strip()
-                        end_time = calculate_end_time(start_time, duration)
-                        exam_time = f"{start_time} to {end_time}"
+                        # For non-standard durations, show specific time range
+                        if duration != 3:
+                            start_time = str(time_slot).split(" - ")[0].strip()
+                            end_time = calculate_end_time(start_time, duration)
+                            exam_time = f"{start_time} - {end_time}"
+                        # For common subjects, show the actual assigned time slot
+                        elif matched_subject.get('CommonAcrossSems', False):
+                            semester_default = get_preferred_slot(semester_num)
+                            if time_slot != semester_default:
+                                exam_time = str(time_slot)
+                            else:
+                                start_time = str(time_slot).split(" - ")[0].strip()
+                                end_time = calculate_end_time(start_time, duration)
+                                exam_time = f"{start_time} - {end_time}"
+                        else:
+                            start_time = str(time_slot).split(" - ")[0].strip()
+                            end_time = calculate_end_time(start_time, duration)
+                            exam_time = f"{start_time} - {end_time}"
                     except Exception as e:
                         st.write(f"⚠️ Error calculating time for {module_code}: {e}")
                         exam_time = str(time_slot)
@@ -1625,7 +1478,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 
                 if unmatched_count <= 10:  # Show first 10 unmatched for debugging
                     st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
-                        
+                     
         except Exception as e:
             st.error(f"Error processing row {idx}: {e}")
             unmatched_count += 1
@@ -1672,6 +1525,85 @@ def convert_semester_to_number(semester_value):
     }
     
     return semester_map.get(semester_str, 0)
+
+def save_to_excel(semester_wise_timetable):
+    if not semester_wise_timetable:
+        return None
+
+    def int_to_roman(num):
+        roman_values = [
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
+        ]
+        result = ""
+        for value, numeral in roman_values:
+            while num >= value:
+                result += numeral
+                num -= value
+        return result
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sem, df_sem in semester_wise_timetable.items():
+            for main_branch in df_sem["MainBranch"].unique():
+                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+                # Separate non-electives and electives
+                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+
+                # Process non-electives
+                if not df_non_elec.empty:
+                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    
+                    # Only show duration info for Excel
+                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
+                    duration_suffix = df_non_elec.apply(
+                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
+                    df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
+                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                    pivot_df = df_non_elec.pivot_table(
+                        index=["Exam Date", "Time Slot"],
+                        columns="SubBranch",
+                        values="SubjectDisplay",
+                        aggfunc=lambda x: ", ".join(str(i) for i in x)
+                    ).fillna("---")
+                    pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
+                    formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
+                    pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
+                    roman_sem = int_to_roman(sem)
+                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
+                    if len(sheet_name) > 31:
+                        sheet_name = sheet_name[:31]
+                    pivot_df.to_excel(writer, sheet_name=sheet_name)
+
+                # Process electives in a separate sheet
+                if not df_elec.empty:
+                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                    
+                    # Only show duration info for Excel
+                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]"
+                    duration_suffix = df_elec.apply(
+                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
+                    df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                        lambda x: ", ".join(sorted(set(x)))
+                    ).reset_index()
+                    elec_pivot['Exam Date'] = pd.to_datetime(
+                        elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
+                    ).dt.strftime("%d-%m-%Y")
+                    elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
+                    roman_sem = int_to_roman(sem)
+                    sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
+                    if len(sheet_name) > 31:
+                        sheet_name = sheet_name[:31]
+                    elec_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    output.seek(0)
+    return output
 
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
@@ -1830,7 +1762,6 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
         
         sorted_dates = sorted(schedule_grid.keys(), 
                             key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
-        
         for check_date_str in sorted_dates:
             check_date_obj = datetime.strptime(check_date_str, "%d-%m-%Y")
             
@@ -1946,6 +1877,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     
     return sem_dict, moves_made, optimization_log
     
+
 
 def main():
     st.markdown("""
@@ -2075,13 +2007,13 @@ def main():
             <h4>🚀 Features</h4>
             <ul>
                 <li>📊 Excel file processing</li>
-                <li>📅 Uncommon subject scheduling</li>
-                <li>🔄 All-branch common scheduling</li>
+                <li>🎯 Common subjects first scheduling</li>
+                <li>📄 Stream-wise uncommon scheduling</li>
                 <li>🎓 OE elective optimization</li>
                 <li>⚡ Maximum subjects per day</li>
                 <li>📋 PDF generation</li>
                 <li>✅ Verification file export</li>
-                <li>🎯 Stream-wise scheduling</li>
+                <li>🎯 Priority-based scheduling</li>
                 <li>📱 Mobile-friendly interface</li>
             </ul>
         </div>
@@ -2101,30 +2033,59 @@ def main():
                     if df_non_elec is not None:
                         st.write("Processing subjects...")
                         
-                        # Step 1: Schedule uncommon subjects
-                        df_scheduled = schedule_uncommon_subjects_first(df_non_elec, holidays_set, base_date)
+                        # NEW SCHEDULING ORDER:
+                        # Step 1: Schedule COMMON subjects FIRST from base date
+                        st.info("🎯 NEW SCHEDULING ORDER: Common → Uncommon → Electives")
+                        df_scheduled = schedule_common_subjects_first(df_non_elec, holidays_set, base_date)
                         
-                        # Step 2: Find the latest date from scheduled uncommon subjects
-                        scheduled_uncommon = df_scheduled[df_scheduled['Exam Date'] != ""]
-                        if not scheduled_uncommon.empty:
-                            scheduled_dates = pd.to_datetime(scheduled_uncommon['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                        # Step 2: Find the latest date from scheduled common subjects
+                        scheduled_common = df_scheduled[
+                            (df_scheduled['Exam Date'] != "") & 
+                            (df_scheduled['CommonAcrossSems'] == True)
+                        ]
+                        
+                        if not scheduled_common.empty:
+                            scheduled_dates = pd.to_datetime(scheduled_common['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             if not scheduled_dates.empty:
-                                latest_uncommon_date = max(scheduled_dates)
-                                # Start common subject scheduling from the day after the latest uncommon subject
-                                common_start_date = latest_uncommon_date + timedelta(days=1)
-                                st.write(f"📅 Latest uncommon subject scheduled on: {latest_uncommon_date.strftime('%d-%m-%Y')}")
-                                st.write(f"📅 Will start common subjects from: {common_start_date.strftime('%d-%m-%Y')}")
+                                latest_common_date = max(scheduled_dates)
+                                # Start uncommon subject scheduling from the day after the latest common subject
+                                uncommon_start_date = latest_common_date + timedelta(days=1)
+                                st.write(f"📅 Latest common subject scheduled on: {latest_common_date.strftime('%d-%m-%Y')}")
+                                st.write(f"📅 Will start uncommon subjects from: {uncommon_start_date.strftime('%d-%m-%Y')}")
                                 
-                                # Step 3: Schedule common subjects
-                                df_scheduled = schedule_common_subjects_after_uncommon(df_scheduled, holidays_set, common_start_date)
+                                # Step 3: Schedule UNCOMMON subjects AFTER common subjects
+                                df_scheduled = schedule_uncommon_subjects_after_common(df_scheduled, holidays_set, uncommon_start_date)
                             else:
-                                common_start_date = base_date
-                                df_scheduled = schedule_common_subjects_after_uncommon(df_scheduled, holidays_set, common_start_date)
+                                # No common subjects were actually scheduled, start uncommon from base date
+                                st.info("No common subjects were scheduled, starting uncommon subjects from base date")
+                                df_scheduled = schedule_uncommon_subjects_after_common(df_scheduled, holidays_set, base_date)
                         else:
-                            common_start_date = base_date
-                            df_scheduled = schedule_common_subjects_after_uncommon(df_scheduled, holidays_set, common_start_date)
+                            # No common subjects found, start uncommon from base date
+                            st.info("No common subjects found, starting uncommon subjects from base date")
+                            df_scheduled = schedule_uncommon_subjects_after_common(df_scheduled, holidays_set, base_date)
                         
-                        # Step 4: Handle electives if they exist
+                        # Step 4: Handle any remaining unscheduled subjects (individual subjects that couldn't be scheduled in groups)
+                        remaining_subjects = df_scheduled[
+                            (df_scheduled['Exam Date'] == "") & 
+                            (df_scheduled['Category'] != 'INTD')
+                        ].copy()
+
+                        if not remaining_subjects.empty:
+                            st.warning(f"⚠️ {len(remaining_subjects)} subjects could not be scheduled in their preferred groups. Scheduling them individually...")
+                            
+                            # Find the latest date from all scheduled subjects
+                            all_scheduled = df_scheduled[df_scheduled['Exam Date'] != ""]
+                            if not all_scheduled.empty:
+                                scheduled_dates = pd.to_datetime(all_scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                                if not scheduled_dates.empty:
+                                    latest_date = max(scheduled_dates) + timedelta(days=1)
+                                    df_scheduled = schedule_remaining_individual_subjects(df_scheduled, holidays_set, latest_date)
+                                else:
+                                    df_scheduled = schedule_remaining_individual_subjects(df_scheduled, holidays_set, base_date)
+                            else:
+                                df_scheduled = schedule_remaining_individual_subjects(df_scheduled, holidays_set, base_date)
+                        
+                        # Step 5: Handle electives if they exist
                         if df_ele is not None and not df_ele.empty:
                             # Find the maximum date from non-elective scheduling
                             non_elec_dates = pd.to_datetime(df_scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
@@ -2142,7 +2103,7 @@ def main():
                         else:
                             all_scheduled_subjects = df_scheduled
                         
-                        # Step 5: Create semester dictionary
+                        # Step 6: Create semester dictionary
                         all_scheduled_subjects = all_scheduled_subjects[all_scheduled_subjects['Exam Date'] != ""]
                         
                         if not all_scheduled_subjects.empty:
@@ -2155,7 +2116,7 @@ def main():
                                 sem_data = all_scheduled_subjects[all_scheduled_subjects["Semester"] == s].copy()
                                 sem_dict[s] = sem_data
                             
-                            # Step 6: Optimize OE subjects if they exist
+                            # Step 7: Optimize OE subjects if they exist
                             if df_ele is not None and not df_ele.empty:
                                 st.write("Optimizing OE subjects...")
                                 sem_dict, moves_made, optimization_log = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)
@@ -2204,8 +2165,11 @@ def main():
                                     os.remove(temp_pdf_path)
                                 st.session_state.pdf_data = pdf_output.getvalue()
 
-                            st.markdown('<div class="status-success">🎉 Complete timetable generated successfully!</div>',
+                            st.markdown('<div class="status-success">🎉 Complete timetable generated successfully with NEW PRIORITY ORDER!</div>',
                                         unsafe_allow_html=True)
+                            
+                            # Show scheduling order summary
+                            st.info("✅ **Scheduling Order Applied:**\n1. 🎯 Common subjects scheduled FIRST from base date\n2. 📄 Uncommon subjects scheduled AFTER common subjects\n3. 🎓 Electives scheduled LAST")
                         else:
                             st.warning("No subjects found to schedule.")
 
@@ -2315,6 +2279,50 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
+        # Define the subject display formatting functions for Streamlit display
+        def format_subject_display(row):
+            """Format subject display for non-electives in Streamlit interface"""
+            subject = row['Subject']
+            time_slot = row['Time Slot']
+            duration = row.get('Exam Duration', 3)
+            is_common = row.get('CommonAcrossSems', False)
+            semester = row['Semester']
+            
+            # Get preferred slot for this semester
+            preferred_slot = get_preferred_slot(semester)
+            
+            time_range = ""
+            
+            # Handle non-standard durations: show specific time range
+            if duration != 3 and time_slot and time_slot.strip():
+                start_time = time_slot.split(' - ')[0].strip()
+                end_time = calculate_end_time(start_time, duration)
+                time_range = f" ({start_time} - {end_time})"
+            # Handle common subjects with different time slots
+            elif is_common and time_slot != preferred_slot and time_slot and time_slot.strip():
+                time_range = f" ({time_slot})"
+            
+            return subject + time_range
+
+        def format_elective_display(row):
+            """Format subject display for electives in Streamlit interface"""
+            subject = row['Subject']
+            oe_type = row.get('OE', '')
+            base_display = f"{subject} [{oe_type}]" if oe_type else subject
+            
+            duration = row.get('Exam Duration', 3)
+            time_slot = row['Time Slot']
+            
+            # OPTIMIZED: For OE subjects in Streamlit, only show time if duration is non-standard
+            if duration != 3 and time_slot and time_slot.strip():
+                start_time = time_slot.split(' - ')[0].strip()
+                end_time = calculate_end_time(start_time, duration)
+                time_range = f" ({start_time} - {end_time})"
+            else:
+                time_range = ""
+            
+            return base_display + time_range
+
         for sem, df_sem in st.session_state.timetable_data.items():
             st.markdown(f"### 📚 Semester {sem}")
 
@@ -2329,22 +2337,7 @@ def main():
 
                     # Display non-electives
                     if not df_non_elec.empty:
-                        # Format subject display
-                        def format_subject_display(row):
-                            subject = row['Subject']
-                            time_slot = row['Time Slot']
-                            duration = row['Exam Duration']
-                            
-                            # If duration is not 3 hours, show the specific time range
-                            if duration != 3 and time_slot and time_slot.strip():
-                                start_time = time_slot.split(' - ')[0]
-                                end_time = calculate_end_time(start_time, duration)
-                                time_range = f" ({start_time} to {end_time})"
-                            else:
-                                time_range = ""
-                            
-                            return subject + time_range
-                        
+                        # Apply formatting using the updated function
                         df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
                         df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                         df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
@@ -2368,25 +2361,7 @@ def main():
 
                     # Display electives
                     if not df_elec.empty:
-                        # Format elective display
-                        def format_elective_display(row):
-                            subject = row['Subject']
-                            oe_type = row['OE']
-                            time_slot = row['Time Slot']
-                            duration = row['Exam Duration']
-                            
-                            base_display = f"{subject} [{oe_type}]"
-                            
-                            # If duration is not 3 hours, show the specific time range
-                            if duration != 3 and time_slot and time_slot.strip():
-                                start_time = time_slot.split(' - ')[0]
-                                end_time = calculate_end_time(start_time, duration)
-                                time_range = f" ({start_time} to {end_time})"
-                            else:
-                                time_range = ""
-                            
-                            return base_display + time_range
-                        
+                        # Apply formatting using the updated function
                         df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
                         df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                         df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
@@ -2413,7 +2388,7 @@ def main():
     <div class="footer">
         <p>🎓 <strong>Complete Timetable Generator</strong></p>
         <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Stream-wise scheduling • All-branch commonality • OE optimization • Maximum efficiency • Verification export</p>
+        <p style="font-size: 0.9em;">Common subjects first • Uncommon subjects second • OE optimization • Maximum efficiency • Verification export</p>
     </div>
     """, unsafe_allow_html=True)
 
