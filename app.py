@@ -2212,7 +2212,8 @@ def main():
             if efficiency > 80:
                 st.success(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Excellent - most days are utilized)")
             elif efficiency > 60:
-                st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")else:
+                st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
+            else:
                st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
 
        # Timetable Results
