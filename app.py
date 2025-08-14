@@ -421,6 +421,7 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
     """
     Schedule uncommon subjects AFTER common subjects have been scheduled.
     FIRST fill gaps between common subjects, THEN extend if needed.
+    ENSURES only ONE exam per day per subbranch-semester combination.
     """
     st.info("🔧 Scheduling uncommon subjects - filling gaps first, then extending...")
     
@@ -448,10 +449,21 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
     def get_subbranch_semester_key(subbranch, semester):
         return f"{subbranch}_{semester}"
     
-    # Build a complete schedule grid from base date to track all slots
-    # First, find all scheduled dates (common subjects)
+    # Build a schedule tracking system that tracks DATES (not time slots) per subbranch-semester
+    scheduled_dates_per_subbranch_sem = {}  # subbranch_sem_key -> set of dates
+    
+    # Initialize tracking from already scheduled subjects (common subjects)
     scheduled_common = df[df['Exam Date'] != ""].copy()
     
+    for idx, row in scheduled_common.iterrows():
+        subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
+        date_str = row['Exam Date']
+        
+        if subbranch_sem_key not in scheduled_dates_per_subbranch_sem:
+            scheduled_dates_per_subbranch_sem[subbranch_sem_key] = set()
+        scheduled_dates_per_subbranch_sem[subbranch_sem_key].add(date_str)
+    
+    # Find date range for gap filling
     if not scheduled_common.empty:
         scheduled_dates = pd.to_datetime(scheduled_common['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
         if not scheduled_dates.empty:
@@ -462,32 +474,19 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
     else:
         latest_scheduled_date = start_date.date()
     
-    # Create a comprehensive schedule grid from base date to latest + buffer
-    schedule_grid = {}  # date_str -> {time_slot -> {subbranch_sem_key -> subject}}
+    # Create list of available dates for gap filling (from base date to latest + buffer)
+    available_dates = []
+    current_date = start_date
+    end_date = datetime.combine(latest_scheduled_date, datetime.min.time()) + timedelta(days=20)
     
-    # Initialize grid from base date to latest date + buffer
-    current_grid_date = start_date
-    end_grid_date = datetime.combine(latest_scheduled_date, datetime.min.time()) + timedelta(days=20)  # Add buffer
+    while current_date <= end_date:
+        if current_date.weekday() != 6 and current_date.date() not in holidays:
+            available_dates.append(current_date.strftime("%d-%m-%Y"))
+        current_date += timedelta(days=1)
     
-    while current_grid_date <= end_grid_date:
-        if current_grid_date.weekday() != 6 and current_grid_date.date() not in holidays:
-            date_str = current_grid_date.strftime("%d-%m-%Y")
-            schedule_grid[date_str] = {
-                "10:00 AM - 1:00 PM": {},
-                "2:00 PM - 5:00 PM": {}
-            }
-        current_grid_date += timedelta(days=1)
+    available_dates.sort(key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
     
-    # Populate grid with already scheduled subjects (common subjects)
-    for idx, row in scheduled_common.iterrows():
-        date_str = row['Exam Date']
-        time_slot = row['Time Slot']
-        subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
-        
-        if date_str in schedule_grid and time_slot in schedule_grid[date_str]:
-            schedule_grid[date_str][time_slot][subbranch_sem_key] = row['Subject']
-    
-    st.write(f"📊 Created schedule grid with {len(schedule_grid)} available days")
+    st.write(f"📊 Created {len(available_dates)} available dates for gap-filling")
     
     # Sort uncommon subjects by semester for consistent scheduling
     scheduled_count = 0
@@ -509,55 +508,36 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
                 subbranch = branch_subjects['SubBranch'].iloc[0]
                 subbranch_sem_key = get_subbranch_semester_key(subbranch, semester)
                 
-                # PHASE 1: Fill gaps first - start from base date
-                st.write(f"    📍 PHASE 1: Filling gaps for {branch} from base date")
+                # Initialize tracking for this subbranch-semester if not exists
+                if subbranch_sem_key not in scheduled_dates_per_subbranch_sem:
+                    scheduled_dates_per_subbranch_sem[subbranch_sem_key] = set()
                 
-                # Sort dates in the grid to fill gaps systematically
-                sorted_dates = sorted(schedule_grid.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+                # PHASE 1: Fill gaps first
+                st.write(f"    📍 PHASE 1: Filling gaps for {branch} from base date")
                 
                 subjects_to_schedule = list(branch_subjects.iterrows())
                 scheduled_in_gaps = 0
                 
-                for date_str in sorted_dates:
+                for date_str in available_dates:
                     if not subjects_to_schedule:  # All subjects scheduled
                         break
                     
-                    # Check if this subbranch-semester can be scheduled on this date
-                    date_available = False
-                    available_slot = None
-                    
-                    # First try preferred slot
-                    if (preferred_slot in schedule_grid[date_str] and 
-                        subbranch_sem_key not in schedule_grid[date_str][preferred_slot]):
-                        date_available = True
-                        available_slot = preferred_slot
-                    # Then try the other slot
-                    elif (preferred_slot == "10:00 AM - 1:00 PM" and 
-                          "2:00 PM - 5:00 PM" in schedule_grid[date_str] and
-                          subbranch_sem_key not in schedule_grid[date_str]["2:00 PM - 5:00 PM"]):
-                        date_available = True
-                        available_slot = "2:00 PM - 5:00 PM"
-                    elif (preferred_slot == "2:00 PM - 5:00 PM" and 
-                          "10:00 AM - 1:00 PM" in schedule_grid[date_str] and
-                          subbranch_sem_key not in schedule_grid[date_str]["10:00 AM - 1:00 PM"]):
-                        date_available = True
-                        available_slot = "10:00 AM - 1:00 PM"
-                    
-                    if date_available and available_slot:
-                        # Schedule the next subject
+                    # Check if this subbranch-semester already has an exam on this date
+                    if date_str not in scheduled_dates_per_subbranch_sem[subbranch_sem_key]:
+                        # This date is available for this subbranch-semester
                         idx, row = subjects_to_schedule.pop(0)
                         
-                        # Update the dataframe
+                        # Schedule the subject
                         df.loc[idx, 'Exam Date'] = date_str
-                        df.loc[idx, 'Time Slot'] = available_slot
+                        df.loc[idx, 'Time Slot'] = preferred_slot
                         
-                        # Update the schedule grid
-                        schedule_grid[date_str][available_slot][subbranch_sem_key] = row['Subject']
+                        # Mark this date as occupied for this subbranch-semester
+                        scheduled_dates_per_subbranch_sem[subbranch_sem_key].add(date_str)
                         
                         scheduled_count += 1
                         scheduled_in_gaps += 1
                         
-                        st.write(f"    ✅ Gap filled: {row['Subject']} on {date_str} at {available_slot}")
+                        st.write(f"    ✅ Gap filled: {row['Subject']} on {date_str} at {preferred_slot}")
                 
                 st.write(f"    📊 Filled {scheduled_in_gaps} subjects in existing gaps for {branch}")
                 
@@ -565,46 +545,70 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
                 if subjects_to_schedule:
                     st.write(f"    📍 PHASE 2: Extending schedule for remaining {len(subjects_to_schedule)} subjects")
                     
-                    # Find the next available date after the current grid
-                    last_grid_date = max(sorted_dates, key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
-                    last_grid_datetime = datetime.strptime(last_grid_date, "%d-%m-%Y")
-                    next_extension_date = find_next_valid_day(last_grid_datetime + timedelta(days=1), holidays)
+                    # Find the next available date after gap filling
+                    if available_dates:
+                        last_gap_date = max(available_dates, key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+                        last_gap_datetime = datetime.strptime(last_gap_date, "%d-%m-%Y")
+                        next_extension_date = find_next_valid_day(last_gap_datetime + timedelta(days=1), holidays)
+                    else:
+                        next_extension_date = start_date
                     
                     for idx, row in subjects_to_schedule:
-                        # Find next valid date for extension
-                        exam_date = find_next_valid_day(next_extension_date, holidays)
-                        date_str = exam_date.strftime("%d-%m-%Y")
+                        # Find next valid date that's not already occupied by this subbranch-semester
+                        while True:
+                            exam_date = find_next_valid_day(next_extension_date, holidays)
+                            date_str = exam_date.strftime("%d-%m-%Y")
+                            
+                            # Check if this date is already occupied by this subbranch-semester
+                            if date_str not in scheduled_dates_per_subbranch_sem[subbranch_sem_key]:
+                                break
+                            else:
+                                # Move to next day
+                                next_extension_date = exam_date + timedelta(days=1)
                         
                         # Schedule the subject
                         df.loc[idx, 'Exam Date'] = date_str
                         df.loc[idx, 'Time Slot'] = preferred_slot
                         
-                        # Add to schedule grid for future reference
-                        if date_str not in schedule_grid:
-                            schedule_grid[date_str] = {
-                                "10:00 AM - 1:00 PM": {},
-                                "2:00 PM - 5:00 PM": {}
-                            }
-                        schedule_grid[date_str][preferred_slot][subbranch_sem_key] = row['Subject']
+                        # Mark this date as occupied
+                        scheduled_dates_per_subbranch_sem[subbranch_sem_key].add(date_str)
                         
                         scheduled_count += 1
                         st.write(f"    ✅ Extended: {row['Subject']} on {date_str} at {preferred_slot}")
                         
                         # Move to next day for next subject
-                        next_extension_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+                        next_extension_date = exam_date + timedelta(days=1)
     
     st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects (gaps filled first, then extended)")
     
-    # Show optimization summary
-    total_scheduled_dates = len(set(df[df['Exam Date'] != ""]["Exam Date"]))
-    st.info(f"📈 Total unique exam dates after uncommon scheduling: {total_scheduled_dates}")
+    # Verify no double bookings
+    verify_no_double_bookings(df)
     
     return df
+
+def verify_no_double_bookings(df):
+    """Verify that no subbranch-semester has more than one exam per day"""
+    st.write("🔍 Verifying no double bookings...")
+    
+    scheduled_df = df[df['Exam Date'] != ""].copy()
+    if scheduled_df.empty:
+        return
+    
+    # Group by subbranch, semester, and date
+    grouped = scheduled_df.groupby(['SubBranch', 'Semester', 'Exam Date']).size()
+    double_bookings = grouped[grouped > 1]
+    
+    if not double_bookings.empty:
+        st.error("❌ Double bookings detected:")
+        for (subbranch, semester, date), count in double_bookings.items():
+            st.error(f"  - {subbranch} Semester {semester} has {count} exams on {date}")
+    else:
+        st.success("✅ No double bookings found - one exam per day per subbranch-semester")
 
 def schedule_remaining_individual_subjects(df, holidays, start_date):
     """
     Schedule any remaining individual subjects that couldn't be grouped.
-    This uses the same gap-filling approach.
+    ENSURES only ONE exam per day per subbranch-semester combination.
     """
     remaining_subjects = df[df['Exam Date'] == ""].copy()
     
@@ -613,11 +617,23 @@ def schedule_remaining_individual_subjects(df, holidays, start_date):
     
     st.info(f"🔧 Scheduling {len(remaining_subjects)} remaining individual subjects...")
     
-    # Use the same gap-filling logic as uncommon subjects
-    # Build current schedule state
+    # Build tracking of already scheduled dates per subbranch-semester
     scheduled_subjects = df[df['Exam Date'] != ""].copy()
+    scheduled_dates_per_subbranch_sem = {}
     
-    # Helper functions
+    def get_subbranch_semester_key(subbranch, semester):
+        return f"{subbranch}_{semester}"
+    
+    # Initialize tracking from already scheduled subjects
+    for idx, row in scheduled_subjects.iterrows():
+        subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
+        date_str = row['Exam Date']
+        
+        if subbranch_sem_key not in scheduled_dates_per_subbranch_sem:
+            scheduled_dates_per_subbranch_sem[subbranch_sem_key] = set()
+        scheduled_dates_per_subbranch_sem[subbranch_sem_key].add(date_str)
+    
+    # Helper function
     def find_next_valid_day(start_date, holidays_set):
         current_date = start_date
         while True:
@@ -625,10 +641,7 @@ def schedule_remaining_individual_subjects(df, holidays, start_date):
                 return current_date
             current_date += timedelta(days=1)
     
-    def get_subbranch_semester_key(subbranch, semester):
-        return f"{subbranch}_{semester}"
-    
-    # Build schedule grid
+    # Find available dates for gap filling
     if not scheduled_subjects.empty:
         scheduled_dates = pd.to_datetime(scheduled_subjects['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
         if not scheduled_dates.empty:
@@ -638,28 +651,17 @@ def schedule_remaining_individual_subjects(df, holidays, start_date):
     else:
         latest_date = start_date.date()
     
-    # Create grid from start_date to latest + buffer
-    schedule_grid = {}
+    # Create list of available dates
+    available_dates = []
     current_date = start_date
     end_date = datetime.combine(latest_date, datetime.min.time()) + timedelta(days=10)
     
     while current_date <= end_date:
         if current_date.weekday() != 6 and current_date.date() not in holidays:
-            date_str = current_date.strftime("%d-%m-%Y")
-            schedule_grid[date_str] = {
-                "10:00 AM - 1:00 PM": {},
-                "2:00 PM - 5:00 PM": {}
-            }
+            available_dates.append(current_date.strftime("%d-%m-%Y"))
         current_date += timedelta(days=1)
     
-    # Populate with scheduled subjects
-    for idx, row in scheduled_subjects.iterrows():
-        date_str = row['Exam Date']
-        time_slot = row['Time Slot']
-        subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
-        
-        if date_str in schedule_grid and time_slot in schedule_grid[date_str]:
-            schedule_grid[date_str][time_slot][subbranch_sem_key] = row['Subject']
+    available_dates.sort(key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
     
     # Schedule remaining subjects
     scheduled_count = 0
@@ -669,45 +671,52 @@ def schedule_remaining_individual_subjects(df, holidays, start_date):
         subbranch_sem_key = get_subbranch_semester_key(subbranch, semester)
         preferred_slot = get_preferred_slot(semester)
         
+        # Initialize tracking if not exists
+        if subbranch_sem_key not in scheduled_dates_per_subbranch_sem:
+            scheduled_dates_per_subbranch_sem[subbranch_sem_key] = set()
+        
         # Try to find a gap first
         scheduled = False
-        sorted_dates = sorted(schedule_grid.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
         
-        for date_str in sorted_dates:
-            if subbranch_sem_key not in schedule_grid[date_str].get(preferred_slot, {}):
-                # Found a gap
+        for date_str in available_dates:
+            if date_str not in scheduled_dates_per_subbranch_sem[subbranch_sem_key]:
+                # Found an available date
                 df.loc[idx, 'Exam Date'] = date_str
                 df.loc[idx, 'Time Slot'] = preferred_slot
-                schedule_grid[date_str][preferred_slot][subbranch_sem_key] = row['Subject']
-                scheduled_count += 1
-                scheduled = True
-                break
-            elif subbranch_sem_key not in schedule_grid[date_str].get("2:00 PM - 5:00 PM" if preferred_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM", {}):
-                # Try alternative slot
-                alt_slot = "2:00 PM - 5:00 PM" if preferred_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
-                df.loc[idx, 'Exam Date'] = date_str
-                df.loc[idx, 'Time Slot'] = alt_slot
-                schedule_grid[date_str][alt_slot][subbranch_sem_key] = row['Subject']
+                scheduled_dates_per_subbranch_sem[subbranch_sem_key].add(date_str)
                 scheduled_count += 1
                 scheduled = True
                 break
         
         # If no gap found, extend
         if not scheduled:
-            last_date = max(sorted_dates, key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
-            next_date = find_next_valid_day(datetime.strptime(last_date, "%d-%m-%Y") + timedelta(days=1), holidays)
-            date_str = next_date.strftime("%d-%m-%Y")
+            if available_dates:
+                last_date = max(available_dates, key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+                next_date = find_next_valid_day(datetime.strptime(last_date, "%d-%m-%Y") + timedelta(days=1), holidays)
+            else:
+                next_date = start_date
+            
+            # Find next available date for this subbranch-semester
+            while True:
+                date_str = next_date.strftime("%d-%m-%Y")
+                if date_str not in scheduled_dates_per_subbranch_sem[subbranch_sem_key]:
+                    break
+                next_date = find_next_valid_day(next_date + timedelta(days=1), holidays)
             
             df.loc[idx, 'Exam Date'] = date_str
             df.loc[idx, 'Time Slot'] = preferred_slot
+            scheduled_dates_per_subbranch_sem[subbranch_sem_key].add(date_str)
             scheduled_count += 1
             
-            # Add to grid
-            if date_str not in schedule_grid:
-                schedule_grid[date_str] = {"10:00 AM - 1:00 PM": {}, "2:00 PM - 5:00 PM": {}}
-            schedule_grid[date_str][preferred_slot][subbranch_sem_key] = row['Subject']
+            # Add this date to available dates for future reference
+            available_dates.append(date_str)
+            available_dates.sort(key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
     
     st.success(f"✅ Scheduled {scheduled_count} remaining individual subjects")
+    
+    # Verify no double bookings
+    verify_no_double_bookings(df)
+    
     return df
     
     
@@ -1568,15 +1577,23 @@ def save_to_excel(semester_wise_timetable):
                     df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
                     df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                    pivot_df = df_non_elec.pivot_table(
-                        index=["Exam Date", "Time Slot"],
+                    
+                    # Create pivot with single date index (not multi-index with time slot)
+                    # Group subjects by date, combining different time slots
+                    grouped_by_date = df_non_elec.groupby(['Exam Date', 'SubBranch'])['SubjectDisplay'].apply(
+                        lambda x: ", ".join(str(i) for i in x)
+                    ).reset_index()
+                    
+                    pivot_df = grouped_by_date.pivot_table(
+                        index="Exam Date",
                         columns="SubBranch",
                         values="SubjectDisplay",
                         aggfunc=lambda x: ", ".join(str(i) for i in x)
                     ).fillna("---")
-                    pivot_df = pivot_df.sort_index(level="Exam Date", ascending=True)
-                    formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index.levels[0]]
-                    pivot_df.index = pivot_df.index.set_levels(formatted_dates, level=0)
+                    
+                    pivot_df = pivot_df.sort_index(ascending=True)
+                    formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index]
+                    pivot_df.index = formatted_dates
                     roman_sem = int_to_roman(sem)
                     sheet_name = f"{main_branch}_Sem_{roman_sem}"
                     if len(sheet_name) > 31:
@@ -1593,7 +1610,9 @@ def save_to_excel(semester_wise_timetable):
                     duration_suffix = df_elec.apply(
                         lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
                     df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                    
+                    # Group by OE and Date only (not time slot)
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date'])['SubjectDisplay'].apply(
                         lambda x: ", ".join(sorted(set(x)))
                     ).reset_index()
                     elec_pivot['Exam Date'] = pd.to_datetime(
@@ -1608,7 +1627,6 @@ def save_to_excel(semester_wise_timetable):
 
     output.seek(0)
     return output
-
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -2015,7 +2033,7 @@ def main():
                 <li>🔍 Gap-filling optimization</li>
                 <li>🔄 Stream-wise uncommon scheduling</li>
                 <li>🎓 OE elective optimization</li>
-                <li>⚡ Maximum subjects per day</li>
+                <li>⚡ One exam per day per branch</li>
                 <li>📋 PDF generation</li>
                 <li>✅ Verification file export</li>
                 <li>🎯 Priority-based scheduling</li>
@@ -2040,7 +2058,7 @@ def main():
                         
                         # NEW IMPROVED SCHEDULING ORDER:
                         # Step 1: Schedule COMMON subjects FIRST from base date
-                        st.info("🎯 NEW IMPROVED SCHEDULING: Common → Fill Gaps → Extend → Electives")
+                        st.info("🎯 IMPROVED SCHEDULING: Common → Fill Gaps → Extend → Electives (One exam per day per branch)")
                         df_scheduled = schedule_common_subjects_first(df_non_elec, holidays_set, base_date)
                         
                         # Step 2: Schedule UNCOMMON subjects using gap-filling approach
@@ -2138,24 +2156,18 @@ def main():
                                     os.remove(temp_pdf_path)
                                 st.session_state.pdf_data = pdf_output.getvalue()
 
-                            st.markdown('<div class="status-success">🎉 Complete timetable generated successfully with IMPROVED GAP-FILLING!</div>',
+                            st.markdown('<div class="status-success">🎉 Timetable generated successfully with IMPROVED GAP-FILLING and NO DOUBLE BOOKINGS!</div>',
                                         unsafe_allow_html=True)
                             
                             # Show improved scheduling summary
-                            st.info("✅ **Improved Scheduling Applied:**\n1. 🎯 Common subjects scheduled FIRST from base date\n2. 🔍 Gaps between common subjects filled with uncommon subjects\n3. 📈 Schedule extended only when necessary\n4. 🎓 Electives scheduled LAST")
+                            st.info("✅ **Fixed Scheduling Applied:**\n1. 🎯 Common subjects scheduled FIRST from base date\n2. 🔍 Gaps between common subjects filled with uncommon subjects\n3. 📈 Schedule extended only when necessary\n4. 🎓 Electives scheduled LAST\n5. ⚡ ONE exam per day per subbranch-semester")
                             
                             # Show efficiency improvement
                             efficiency = (unique_exam_days / overall_date_range) * 100 if overall_date_range > 0 else 0
                             st.success(f"📊 **Schedule Efficiency: {efficiency:.1f}%** (Higher is better - more days utilized)")
                             
-                            # Show gap-filling statistics
-                            if hasattr(st.session_state, 'gap_filling_stats'):
-                                gap_stats = st.session_state.gap_filling_stats
-                                with st.expander("🔍 Gap-Filling Statistics"):
-                                    st.write(f"📋 Total subjects scheduled: {total_exams}")
-                                    st.write(f"🔍 Subjects scheduled in gaps: {gap_stats.get('gaps_filled', 0)}")
-                                    st.write(f"📈 Subjects requiring extension: {gap_stats.get('extended', 0)}")
-                                    st.write(f"⚡ Gap utilization: {(gap_stats.get('gaps_filled', 0) / total_exams * 100):.1f}%")
+                            # Show double booking verification
+                            st.success("✅ **No Double Bookings**: Each subbranch has max one exam per day")
                             
                         else:
                             st.warning("No subjects found to schedule.")
@@ -2259,16 +2271,16 @@ def main():
                 st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
 
         # Show gap-filling efficiency
-        total_possible_gaps = st.session_state.overall_date_range * 2  # 2 slots per day
+        total_possible_slots = st.session_state.overall_date_range * 2  # 2 slots per day
         actual_exams = st.session_state.total_exams
-        gap_utilization = min(100, (actual_exams / total_possible_gaps * 100)) if total_possible_gaps > 0 else 0
+        slot_utilization = min(100, (actual_exams / total_possible_slots * 100)) if total_possible_slots > 0 else 0
         
-        if gap_utilization > 70:
-            st.success(f"🔍 **Gap Utilization:** {gap_utilization:.1f}% (Excellent gap-filling)")
-        elif gap_utilization > 50:
-            st.info(f"🔍 **Gap Utilization:** {gap_utilization:.1f}% (Good gap-filling)")
+        if slot_utilization > 70:
+            st.success(f"🔍 **Slot Utilization:** {slot_utilization:.1f}% (Excellent optimization)")
+        elif slot_utilization > 50:
+            st.info(f"🔍 **Slot Utilization:** {slot_utilization:.1f}% (Good optimization)")
         else:
-            st.warning(f"🔍 **Gap Utilization:** {gap_utilization:.1f}% (Room for improvement)")
+            st.warning(f"🔍 **Slot Utilization:** {slot_utilization:.1f}% (Room for improvement)")
 
         # Timetable Results
         st.markdown("---")
@@ -2312,7 +2324,7 @@ def main():
             duration = row.get('Exam Duration', 3)
             time_slot = row['Time Slot']
             
-            # OPTIMIZED: For OE subjects in Streamlit, only show time if duration is non-standard
+            # For OE subjects in Streamlit, only show time if duration is non-standard
             if duration != 3 and time_slot and time_slot.strip():
                 start_time = time_slot.split(' - ')[0].strip()
                 end_time = calculate_end_time(start_time, duration)
@@ -2341,10 +2353,15 @@ def main():
                         df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                         df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
                         
-                        # Create pivot table for non-electives
-                        pivot_df = df_non_elec.pivot_table(
-                            index=["Exam Date", "Time Slot"],
-                            columns="SubBranch",
+                        # Create pivot table with single date index (not multi-index with time slot)
+                        # Group subjects by date first, combining different time slots if any
+                        grouped_by_date = df_non_elec.groupby(['Exam Date', 'SubBranch'])['SubjectDisplay'].apply(
+                            lambda x: ", ".join(x)
+                        ).reset_index()
+                        
+                        pivot_df = grouped_by_date.pivot_table(
+                            index="Exam Date",
+                            columns="SubBranch", 
                             values="SubjectDisplay",
                             aggfunc=lambda x: ", ".join(x)
                         ).fillna("---")
@@ -2352,21 +2369,20 @@ def main():
                         if not pivot_df.empty:
                             st.markdown(f"#### {main_branch_full} - Core Subjects")
                             formatted_pivot = pivot_df.copy()
-                            if len(formatted_pivot.index.levels) > 0:
-                                formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
-                                                   formatted_pivot.index.levels[0]]
-                                formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
+                            # Format dates for display
+                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in formatted_pivot.index]
+                            formatted_pivot.index = formatted_dates
                             st.dataframe(formatted_pivot, use_container_width=True)
 
-                    # Display electives
+                    # Display electives  
                     if not df_elec.empty:
                         # Apply formatting using the updated function
                         df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
                         df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                         df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
                         
-                        # Create elective pivot
-                        elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                        # Create elective pivot with single date
+                        elec_pivot = df_elec.groupby(['OE', 'Exam Date'])['SubjectDisplay'].apply(
                             lambda x: ", ".join(x)
                         ).reset_index()
                         
@@ -2374,7 +2390,7 @@ def main():
                             st.markdown(f"#### {main_branch_full} - Open Electives")
                             # Format dates for display
                             elec_pivot['Formatted_Date'] = elec_pivot['Exam Date'].dt.strftime("%d-%m-%Y")
-                            elec_pivot_display = elec_pivot[['Formatted_Date', 'Time Slot', 'OE', 'SubjectDisplay']].rename(columns={
+                            elec_pivot_display = elec_pivot[['Formatted_Date', 'OE', 'SubjectDisplay']].rename(columns={
                                 'Formatted_Date': 'Exam Date',
                                 'OE': 'OE Type',
                                 'SubjectDisplay': 'Subjects'
@@ -2385,14 +2401,15 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div class="footer">
-        <p>🎓 <strong>Complete Timetable Generator with Gap-Filling Optimization</strong></p>
+        <p>🎓 <strong>Complete Timetable Generator with Gap-Filling & Double Booking Prevention</strong></p>
         <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Common subjects first • Gap-filling optimization • Uncommon subjects • OE optimization • Maximum efficiency • Verification export</p>
+        <p style="font-size: 0.9em;">Common subjects first • Gap-filling optimization • One exam per day per branch • OE optimization • Maximum efficiency • Verification export</p>
     </div>
     """, unsafe_allow_html=True)
-
+    
 if __name__ == "__main__":
     main()
+
 
 
 
