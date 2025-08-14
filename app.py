@@ -897,6 +897,7 @@ def verify_no_double_bookings(df):
     if not double_bookings.empty:
         #st.error("❌ Double bookings detected:")
         for (subbranch, semester, date), count in double_bookings.items():
+            pass
             #st.error(f"  - {subbranch} Semester {semester} has {count} exams on {date}")
     else:
         pass
@@ -3093,6 +3094,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
