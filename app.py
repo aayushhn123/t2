@@ -2148,6 +2148,10 @@ def save_to_excel(semester_wise_timetable):
                         # Reset index to make 'Exam Date' a column
                         pivot_df = pivot_df.reset_index()
                         
+                        # Ensure the first column is named 'Exam Date' (in case it got renamed to 'index')
+                        if pivot_df.columns[0] != 'Exam Date':
+                            pivot_df = pivot_df.rename(columns={pivot_df.columns[0]: 'Exam Date'})
+                        
                         # Save to Excel
                         pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
@@ -3086,6 +3090,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
