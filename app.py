@@ -2115,7 +2115,7 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = sheet_name[:31]
                     
                     if not df_non_elec.empty:
-                        st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
+                        #st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
                         
                         # Add difficulty and duration info
                         difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
@@ -2158,11 +2158,11 @@ def save_to_excel(semester_wise_timetable):
                         
                         # Save to Excel
                         pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                        st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
+                        #st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
                         
                     else:
                         # CRITICAL FIX: Create empty sheet structure for branches with no subjects
-                        st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
+                        #st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
                         
                         # Get all possible subbranches for this main branch from the semester
                         all_subbranches = df_sem[df_sem["MainBranch"] == main_branch]["SubBranch"].unique()
@@ -2179,7 +2179,7 @@ def save_to_excel(semester_wise_timetable):
                             
                             empty_df = pd.DataFrame(empty_data)
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            st.write(f"✅ Created empty sheet {sheet_name} with structure for subbranches: {', '.join(all_subbranches)}")
+                            #st.write(f"✅ Created empty sheet {sheet_name} with structure for subbranches: {', '.join(all_subbranches)}")
                         else:
                             # If no subbranches, create minimal structure
                             empty_df = pd.DataFrame({
@@ -2187,11 +2187,11 @@ def save_to_excel(semester_wise_timetable):
                                 'Subjects': ['No subjects available']
                             })
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            st.write(f"✅ Created minimal empty sheet {sheet_name}")
+                            #st.write(f"✅ Created minimal empty sheet {sheet_name}")
 
                     # Process electives in a separate sheet (only if electives exist)
                     if not df_elec.empty:
-                        st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
+                        #st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
                         
                         difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                         difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
@@ -3094,6 +3094,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
