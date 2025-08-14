@@ -1490,9 +1490,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 
                 # Filter out empty rows and rows with "No exams scheduled"
                 mask = chunk_df[chunk].apply(lambda row: 
-                    row.astype(str).str.strip() != "" and 
-                    row.astype(str).str.strip() != "---" and
-                    row.astype(str).str.strip() != "No subjects available"
+                    (row.astype(str).str.strip() != "") & 
+                    (row.astype(str).str.strip() != "---") &
+                    (row.astype(str).str.strip() != "No subjects available")
                 ).any(axis=1)
                 
                 # Also filter out "No exams scheduled" rows
@@ -3090,6 +3090,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
