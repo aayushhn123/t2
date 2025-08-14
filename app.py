@@ -419,29 +419,58 @@ def schedule_common_subjects_first(df, holidays, base_date):
 def schedule_common_within_semester_subjects(df, holidays, start_date):
     """
     Schedule subjects that are common within their semester but not across all semesters.
-    These are subjects with CommonAcrossSems=False but are COMP/ELEC category and appear 
-    across multiple branches within the same semester.
+    These are subjects with CommonAcrossSems=False but have IsCommon='YES' and are COMP/ELEC category.
     """
     st.info("🔧 Scheduling common-within-semester subjects...")
     
+    # Debug: Show data before filtering
+    st.write("🔍 **Debug - Data overview before filtering:**")
+    st.write(f"Total subjects: {len(df)}")
+    st.write(f"CommonAcrossSems distribution: {df['CommonAcrossSems'].value_counts()}")
+    if 'IsCommon' in df.columns:
+        st.write(f"IsCommon distribution: {df['IsCommon'].value_counts()}")
+    else:
+        st.error("❌ IsCommon column missing from dataframe")
+        return df
+    
     # Filter subjects that are:
     # 1. Not common across semesters (CommonAcrossSems = False)
-    # 2. Category is COMP or ELEC 
-    # 3. Not already scheduled
-    # 4. Appear in multiple branches within the same semester
+    # 2. Have IsCommon = 'YES'
+    # 3. Category is COMP or ELEC 
+    # 4. Not already scheduled
     
     candidate_subjects = df[
         (df['CommonAcrossSems'] == False) & 
-        (df["IsCommon"]=='YES') &
+        (df["IsCommon"] == 'YES') &
         (df['Category'].isin(['COMP', 'ELEC'])) &
         (df['Exam Date'] == "")
     ].copy()
     
     if candidate_subjects.empty:
         st.info("No common-within-semester subjects to schedule")
+        st.write("🔍 **Debug - Why no candidates found:**")
+        
+        # Debug breakdown
+        not_common_across = df[df['CommonAcrossSems'] == False]
+        st.write(f"• Subjects not common across semesters: {len(not_common_across)}")
+        
+        is_common_yes = not_common_across[not_common_across['IsCommon'] == 'YES']
+        st.write(f"• Of those, with IsCommon='YES': {len(is_common_yes)}")
+        
+        comp_elec = is_common_yes[is_common_yes['Category'].isin(['COMP', 'ELEC'])]
+        st.write(f"• Of those, COMP/ELEC category: {len(comp_elec)}")
+        
+        not_scheduled = comp_elec[comp_elec['Exam Date'] == ""]
+        st.write(f"• Of those, not yet scheduled: {len(not_scheduled)}")
+        
         return df
     
     st.write(f"Found {len(candidate_subjects)} candidate subjects for common-within-semester scheduling")
+    
+    # Show sample of candidates
+    st.write("📋 **Sample candidate subjects:**")
+    sample_candidates = candidate_subjects[['Subject', 'Branch', 'Semester', 'Category', 'IsCommon']].head(3)
+    st.dataframe(sample_candidates)
     
     # Helper functions
     def find_next_valid_day(start_date, holidays_set):
@@ -479,6 +508,11 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
             group_key = f"sem_{semester}_{module_code}"
             common_within_sem_groups[group_key] = group
             st.write(f"  📋 Found common-within-semester subject {group['Subject'].iloc[0]} (Sem {semester}) across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
+        else:
+            # Even if only in one branch but marked as IsCommon=YES, include it
+            group_key = f"sem_{semester}_{module_code}"
+            common_within_sem_groups[group_key] = group
+            st.write(f"  📋 Found marked common subject {group['Subject'].iloc[0]} (Sem {semester}) in branch: {branches_for_this_subject[0]}")
     
     if not common_within_sem_groups:
         st.info("No subjects found that are common within their semester")
@@ -654,21 +688,48 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
     """
     st.info("🔧 Scheduling truly uncommon subjects - filling gaps first, then extending...")
     
+    # Debug: Show data before filtering
+    st.write("🔍 **Debug - Filtering uncommon subjects:**")
+    st.write(f"Total subjects: {len(df)}")
+    
     # Filter uncommon subjects that haven't been scheduled yet
-    # Exclude subjects that are common within semester (handled by previous function)
+    # These are subjects where:
+    # 1. CommonAcrossSems = False (not common across all semesters)
+    # 2. IsCommon = 'NO' (not common within semester either)
+    # 3. Not already scheduled
+    
+    if 'IsCommon' not in df.columns:
+        st.error("❌ IsCommon column missing from dataframe")
+        return df
+    
     uncommon_subjects = df[
         (df['CommonAcrossSems'] == False) &
-        (df["IsCommon"]=='NO') &
-        (df['Exam Date'] == "") &
-        # Exclude subjects that were handled as common-within-semester
-        ~((df['Category'].isin(['COMP', 'ELEC'])) & (df.groupby(['Semester', 'ModuleCode'])['Branch'].transform('nunique') > 1))
+        (df["IsCommon"] == 'NO') &
+        (df['Exam Date'] == "")
     ].copy()
     
     if uncommon_subjects.empty:
         st.info("No truly uncommon subjects to schedule")
+        
+        # Debug breakdown
+        st.write("🔍 **Debug - Why no uncommon subjects found:**")
+        not_common_across = df[df['CommonAcrossSems'] == False]
+        st.write(f"• Subjects not common across semesters: {len(not_common_across)}")
+        
+        is_common_no = not_common_across[not_common_across['IsCommon'] == 'NO']
+        st.write(f"• Of those, with IsCommon='NO': {len(is_common_no)}")
+        
+        not_scheduled = is_common_no[is_common_no['Exam Date'] == ""]
+        st.write(f"• Of those, not yet scheduled: {len(not_scheduled)}")
+        
         return df
     
     st.write(f"Found {len(uncommon_subjects)} truly uncommon subjects to schedule after common subjects")
+    
+    # Show sample of uncommon subjects
+    st.write("📋 **Sample uncommon subjects:**")
+    sample_uncommon = uncommon_subjects[['Subject', 'Branch', 'Semester', 'Category', 'IsCommon']].head(3)
+    st.dataframe(sample_uncommon)
     
     # Helper function to find next valid day
     def find_next_valid_day(start_date, holidays_set):
@@ -956,9 +1017,15 @@ def schedule_remaining_individual_subjects(df, holidays, start_date):
 def read_timetable(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file, engine='openpyxl')
-        df = df.rename(columns={
+        
+        # Debug: Show actual column names from the Excel file
+        st.write("📋 **Actual columns in uploaded file:**")
+        st.write(list(df.columns))
+        
+        # Create a flexible column mapping that handles variations
+        column_mapping = {
             "Program": "Program",
-            "Stream": "Stream",
+            "Stream": "Stream", 
             "Current Session": "Semester",
             "Module Description": "SubjectName",
             "Module Abbreviation": "ModuleCode",
@@ -967,9 +1034,21 @@ def read_timetable(uploaded_file):
             "Exam Duration": "Exam Duration",
             "Student count": "StudentCount",
             "Common across sems": "CommonAcrossSems",
-            "Is Common" : "IsCommon",# Updated column name
-            "Circuit": "Circuit"  # ADD THIS LINE
-        })
+            "Circuit": "Circuit"
+        }
+        
+        # Handle the "Is Common" column with flexible naming
+        is_common_variations = ["Is Common", "IsCommon", "is common", "Is_Common", "is_common"]
+        for variation in is_common_variations:
+            if variation in df.columns:
+                column_mapping[variation] = "IsCommon"
+                st.write(f"✅ Found 'Is Common' column as: '{variation}'")
+                break
+        else:
+            st.warning("⚠️ 'Is Common' column not found in uploaded file. Will create default values.")
+        
+        # Apply the column mapping
+        df = df.rename(columns=column_mapping)
         
         def convert_sem(sem):
             if pd.isna(sem):
@@ -993,8 +1072,33 @@ def read_timetable(uploaded_file):
         df["Time Slot"] = ""
         df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)
         df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
-        df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)  # Handle the new column
-        df["Circuit"] = df["Circuit"].fillna(False).astype(bool) 
+        df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
+        df["Circuit"] = df["Circuit"].fillna(False).astype(bool)
+        
+        # Handle IsCommon column - create if it doesn't exist
+        if "IsCommon" not in df.columns:
+            st.info("ℹ️ Creating 'IsCommon' column with default values")
+            # Default logic: if CommonAcrossSems is True, then IsCommon should be YES
+            # Otherwise, check if the subject appears in multiple branches within the same semester
+            df["IsCommon"] = "NO"  # Default value
+            
+            # Set YES for subjects that are common across semesters
+            df.loc[df["CommonAcrossSems"] == True, "IsCommon"] = "YES"
+            
+            # Check for subjects common within semester
+            for (semester, module_code), group in df.groupby(['Semester', 'ModuleCode']):
+                if len(group['Branch'].unique()) > 1:
+                    # This subject appears in multiple branches within the same semester
+                    df.loc[group.index, "IsCommon"] = "YES"
+        else:
+            # Clean up the IsCommon column values
+            df["IsCommon"] = df["IsCommon"].astype(str).str.strip().str.upper()
+            df["IsCommon"] = df["IsCommon"].replace({"TRUE": "YES", "FALSE": "NO", "1": "YES", "0": "NO"})
+            df["IsCommon"] = df["IsCommon"].fillna("NO")
+        
+        # Debug: Show IsCommon value distribution
+        st.write("📊 **IsCommon value distribution:**")
+        st.write(df["IsCommon"].value_counts())
         
         df_non = df[df["Category"] != "INTD"].copy()
         df_ele = df[df["Category"] == "INTD"].copy()
@@ -1007,12 +1111,20 @@ def read_timetable(uploaded_file):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
         
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode","Circuit"]
+                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "Circuit", "IsCommon"]
         
-        return df_non[cols], df_ele[cols], df
+        # Ensure all required columns exist before selecting
+        available_cols = [col for col in cols if col in df_non.columns]
+        missing_cols = [col for col in cols if col not in df_non.columns]
+        
+        if missing_cols:
+            st.warning(f"⚠️ Missing columns: {missing_cols}")
+        
+        return df_non[available_cols], df_ele[available_cols] if available_cols else df_ele, df
         
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
+        st.error(f"Error details: {type(e).__name__}")
         return None, None, None
 
    
@@ -1576,7 +1688,8 @@ def save_verification_excel(original_df, semester_wise_timetable):
         "Module Description": ["Module Description", "SubjectName", "Subject Name", "Subject"],
         "Exam Duration": ["Exam Duration", "Duration", "Exam_Duration"],
         "Student count": ["Student count", "StudentCount", "Student_count", "Count"],
-        "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems", "IsCommon"],
+        "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems"],
+        "Is Common": ["Is Common", "IsCommon", "is common", "Is_Common", "is_common"],
         "Circuit": ["Circuit", "Is_Circuit", "CircuitBranch"]
     }
     
@@ -1604,7 +1717,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
     verification_df["Exam Date"] = ""
     verification_df["Exam Time"] = ""
     verification_df["Time Slot"] = ""
-    verification_df["Is Common"] = ""
+    verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
 
     # Debug: Show sample of verification data before processing
@@ -1745,11 +1858,16 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 verification_df.at[idx, "Time Slot"] = str(time_slot)
                 verification_df.at[idx, "Scheduling Status"] = "Scheduled"
                 
-                # Check commonality - improved logic
-                same_module_scheduled = scheduled_data[scheduled_data["ExtractedModuleCode"] == module_code]
-                unique_branches = same_module_scheduled["Branch"].nunique()
-                is_marked_common = row.get("Common across sems", False)
-                verification_df.at[idx, "Is Common"] = "YES" if (unique_branches > 1 or is_marked_common) else "NO"
+                # Determine commonality status based on both columns
+                common_across_sems = matched_subject.get('CommonAcrossSems', False)
+                is_common_within = matched_subject.get('IsCommon', 'NO') == 'YES'
+                
+                if common_across_sems:
+                    verification_df.at[idx, "Is Common Status"] = "Common Across Semesters"
+                elif is_common_within:
+                    verification_df.at[idx, "Is Common Status"] = "Common Within Semester"
+                else:
+                    verification_df.at[idx, "Is Common Status"] = "Uncommon"
                 
                 matched_count += 1
                 
@@ -1763,7 +1881,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 verification_df.at[idx, "Exam Date"] = "Not Scheduled"
                 verification_df.at[idx, "Exam Time"] = "Not Scheduled" 
                 verification_df.at[idx, "Time Slot"] = "Not Scheduled"
-                verification_df.at[idx, "Is Common"] = "N/A"
+                verification_df.at[idx, "Is Common Status"] = "N/A"
                 verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
                 unmatched_count += 1
                 
@@ -1784,11 +1902,19 @@ def save_verification_excel(original_df, semester_wise_timetable):
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         verification_df.to_excel(writer, sheet_name="Verification", index=False)
         
-        # Add a summary sheet
+        # Add a summary sheet with breakdown by commonality
         summary_data = {
-            "Metric": ["Total Subjects", "Scheduled Subjects", "Unscheduled Subjects", "Match Rate (%)"],
-            "Value": [matched_count + unmatched_count, matched_count, unmatched_count, 
-                     round(matched_count/(matched_count+unmatched_count)*100, 1) if (matched_count+unmatched_count) > 0 else 0]
+            "Metric": ["Total Subjects", "Scheduled Subjects", "Unscheduled Subjects", "Match Rate (%)",
+                      "Common Across Semesters", "Common Within Semester", "Uncommon Subjects"],
+            "Value": [
+                matched_count + unmatched_count, 
+                matched_count, 
+                unmatched_count, 
+                round(matched_count/(matched_count+unmatched_count)*100, 1) if (matched_count+unmatched_count) > 0 else 0,
+                len(verification_df[verification_df["Is Common Status"] == "Common Across Semesters"]),
+                len(verification_df[verification_df["Is Common Status"] == "Common Within Semester"]),
+                len(verification_df[verification_df["Is Common Status"] == "Uncommon"])
+            ]
         }
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
@@ -2785,6 +2911,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
