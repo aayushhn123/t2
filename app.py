@@ -1043,7 +1043,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     # Enable automatic page numbering with alias
     pdf.alias_nb_pages()
     
-    df_dict = pd.read_excel(excel_path, sheet_name=None, index_col=[0, 1])
+    try:
+        df_dict = pd.read_excel(excel_path, sheet_name=None)
+    except Exception as e:
+        st.error(f"Error reading Excel file for PDF generation: {e}")
+        return
 
     def int_to_roman(num):
         roman_values = [
@@ -1072,9 +1076,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             return get_preferred_slot(sem_num)
         return "10:00 AM - 1:00 PM"  # Default fallback
 
-    for sheet_name, pivot_df in df_dict.items():
-        if pivot_df.empty:
+    for sheet_name, sheet_df in df_dict.items():
+        if sheet_df.empty:
             continue
+            
+        # Reset index to make sure we're working with a clean DataFrame
+        if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
+            sheet_df = sheet_df.reset_index()
+        
         parts = sheet_name.split('_Sem_')
         main_branch = parts[0]
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
@@ -1082,61 +1091,75 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
         header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
 
-        # Handle normal subjects
+        # Handle normal subjects (non-electives)
         if not sheet_name.endswith('_Electives'):
-            pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
-            fixed_cols = ["Exam Date", "Time Slot"]
-            sub_branch_cols = [c for c in pivot_df.columns if c not in fixed_cols]
+            # Ensure we have the right columns
+            if 'Exam Date' not in sheet_df.columns:
+                st.warning(f"Missing 'Exam Date' column in sheet {sheet_name}")
+                continue
+                
+            # Remove any completely empty rows
+            sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
+            
+            # Get column structure
+            fixed_cols = ["Exam Date"]
+            sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and not c.startswith('Unnamed')]
+            
+            if not sub_branch_cols:
+                st.warning(f"No subject columns found in sheet {sheet_name}")
+                continue
+            
             exam_date_width = 60
-            table_font_size = 12
             line_height = 10
 
+            # Process in chunks if needed
             for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
                 chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
-                cols_to_print = fixed_cols[:1] + chunk  # Exclude Time Slot from display but use it
-                chunk_df = pivot_df[fixed_cols + chunk].copy()
+                cols_to_print = fixed_cols + chunk
+                chunk_df = sheet_df[cols_to_print].copy()
+                
+                # Filter out empty rows
                 mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
                 chunk_df = chunk_df[mask].reset_index(drop=True)
+                
                 if chunk_df.empty:
                     continue
 
-                # Get the time slot for this chunk
-                time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
+                # Get the default time slot for this semester
+                default_time_slot = get_semester_default_time_slot(semester, main_branch)
 
                 # Convert Exam Date to desired format
-                chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+                try:
+                    chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+                except Exception as e:
+                    st.warning(f"Date conversion error in {sheet_name}: {e}")
+                    # Try alternative date parsing
+                    chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
 
-                # UPDATED: Modify subjects to handle non-standard durations and common subjects properly
-                default_time_slot = get_semester_default_time_slot(semester, main_branch)
+                # Process subjects to handle duration and timing information
                 for sub_branch in chunk:
                     for idx in chunk_df.index:
                         cell_value = chunk_df.at[idx, sub_branch]
-                        if pd.isna(cell_value) or cell_value.strip() == "---":
+                        if pd.isna(cell_value) or str(cell_value).strip() == "---" or str(cell_value).strip() == "":
                             continue
-                        subjects = cell_value.split(", ")
+                            
+                        subjects = str(cell_value).split(", ")
                         modified_subjects = []
                         for subject in subjects:
                             duration = extract_duration(subject)
                             base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            # Get subject-specific time slot
-                            subject_time_slot = chunk_df.at[idx, "Time Slot"] if pd.notna(chunk_df.at[idx, "Time Slot"]) else None
                             
                             # Handle non-standard durations: show specific time range
-                            if duration != 3 and subject_time_slot and subject_time_slot.strip():
-                                start_time = subject_time_slot.split(" - ")[0]
+                            if duration != 3:
+                                start_time = default_time_slot.split(" - ")[0]
                                 end_time = calculate_end_time(start_time, duration)
                                 modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
-                            # Handle common subjects with different time slots
-                            elif subject_time_slot and default_time_slot and subject_time_slot.strip() and default_time_slot.strip():
-                                if subject_time_slot != default_time_slot:
-                                    modified_subjects.append(f"{base_subject} ({subject_time_slot})")
-                                else:
-                                    modified_subjects.append(base_subject)
                             else:
                                 modified_subjects.append(base_subject)
                         
                         chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
 
+                # Calculate column widths
                 page_width = pdf.w - 2 * pdf.l_margin
                 remaining = page_width - exam_date_width
                 sub_width = remaining / max(len(chunk), 1)
@@ -1146,80 +1169,101 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     factor = page_width / total_w
                     col_widths = [w * factor for w in col_widths]
                 
-                # Add page before printing the table
+                # Add page and print table
                 pdf.add_page()
-                # Add footer with page number to the new page
                 footer_height = 25
                 add_footer_with_page_number(pdf, footer_height)
                 
-                print_table_custom(pdf, chunk_df[cols_to_print], cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, time_slot=time_slot)
+                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
+                                 header_content=header_content, branches=chunk, time_slot=default_time_slot)
 
-        # Handle electives with updated table structure - OPTIMIZED for OE display
-        if sheet_name.endswith('_Electives'):
-            pivot_df = pivot_df.reset_index().dropna(how='all', axis=0).reset_index(drop=True)
+        # Handle electives
+        elif sheet_name.endswith('_Electives'):
+            # Ensure we have the required columns
+            required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
+            available_cols = [col for col in required_cols if col in sheet_df.columns]
             
-            # Group by 'OE' and 'Exam Date' to handle multiple subjects per OE type
-            elective_data = pivot_df.groupby(['OE', 'Exam Date', 'Time Slot']).agg({
-                'SubjectDisplay': lambda x: ", ".join(x)
-            }).reset_index()
+            if len(available_cols) < 2:
+                st.warning(f"Missing required columns in electives sheet {sheet_name}")
+                continue
+            
+            # Use available columns
+            elective_data = sheet_df[available_cols].copy()
+            elective_data = elective_data.dropna(how='all').reset_index(drop=True)
+            
+            if elective_data.empty:
+                continue
 
             # Convert Exam Date to desired format
-            elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+            try:
+                elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+            except Exception as e:
+                st.warning(f"Date conversion error in electives {sheet_name}: {e}")
+                elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
 
-            # Clean 'SubjectDisplay' to remove [OE] from each subject and optimize OE display
-            elective_data['SubjectDisplay'] = elective_data.apply(
-                lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in row['SubjectDisplay'].split(", ")]),
-                axis=1
-            )
-
-            # UPDATED: Handle OE subjects - only show duration if non-standard, remove redundant time display
+            # Clean subject display if SubjectDisplay column exists
+            if 'SubjectDisplay' in elective_data.columns and 'OE' in elective_data.columns:
+                elective_data['SubjectDisplay'] = elective_data.apply(
+                    lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in str(row['SubjectDisplay']).split(", ") if str(s).strip()]),
+                    axis=1
+                )
+            
+            # Handle subjects with non-standard durations
             default_time_slot = get_semester_default_time_slot(semester, main_branch)
-            time_slot = pivot_df['Time Slot'].iloc[0] if 'Time Slot' in pivot_df.columns and not pivot_df['Time Slot'].empty else None
-            for idx in elective_data.index:
-                cell_value = elective_data.at[idx, 'SubjectDisplay']
-                if pd.isna(cell_value) or cell_value.strip() == "---":
-                    continue
-                subjects = cell_value.split(", ")
-                modified_subjects = []
-                for subject in subjects:
-                    duration = extract_duration(subject)
-                    base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                    # Get subject-specific time slot
-                    subject_time_slot = elective_data.at[idx, "Time Slot"] if pd.notna(elective_data.at[idx, "Time Slot"]) else None
+            if 'SubjectDisplay' in elective_data.columns:
+                for idx in elective_data.index:
+                    cell_value = elective_data.at[idx, 'SubjectDisplay']
+                    if pd.isna(cell_value) or str(cell_value).strip() == "---":
+                        continue
+                    subjects = str(cell_value).split(", ")
+                    modified_subjects = []
+                    for subject in subjects:
+                        duration = extract_duration(subject)
+                        base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
+                        
+                        if duration != 3:
+                            start_time = default_time_slot.split(" - ")[0]
+                            end_time = calculate_end_time(start_time, duration)
+                            modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
+                        else:
+                            modified_subjects.append(base_subject)
                     
-                    # OPTIMIZED: For OE subjects, only show custom time if duration is non-standard
-                    # Remove redundant time slot display as requested
-                    if duration != 3 and subject_time_slot and subject_time_slot.strip():
-                        start_time = subject_time_slot.split(" - ")[0]
-                        end_time = calculate_end_time(start_time, duration)
-                        modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
-                    else:
-                        # For OE subjects, don't show time slot in parentheses - time is in header
-                        modified_subjects.append(base_subject)
-                
-                elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
+                    elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
 
             # Rename columns for clarity in the PDF
-            elective_data = elective_data.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
+            column_mapping = {
+                'OE': 'OE Type',
+                'SubjectDisplay': 'Subjects'
+            }
+            
+            for old_col, new_col in column_mapping.items():
+                if old_col in elective_data.columns:
+                    elective_data = elective_data.rename(columns={old_col: new_col})
 
-            # Set column widths for three columns
+            # Set column widths
             exam_date_width = 60
             oe_width = 30
             subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
             col_widths = [exam_date_width, oe_width, subject_width]
-            cols_to_print = ['Exam Date', 'OE Type', 'Subjects']
+            cols_to_print = [col for col in ['Exam Date', 'OE Type', 'Subjects'] if col in elective_data.columns]
             
-            # Add page before printing the electives table
+            # Adjust column widths based on available columns
+            if len(cols_to_print) == 2:
+                col_widths = col_widths[:2]
+                col_widths[1] = subject_width + oe_width
+            
+            # Add page and print table
             pdf.add_page()
-            # Add footer with page number to the new page
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
             
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                             header_content=header_content, branches=['All Streams'], time_slot=time_slot)
+                             header_content=header_content, branches=['All Streams'], time_slot=default_time_slot)
 
-    pdf.output(pdf_path)
+    try:
+        pdf.output(pdf_path)
+    except Exception as e:
+        st.error(f"Error saving PDF: {e}")
    
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
@@ -1557,76 +1601,91 @@ def save_to_excel(semester_wise_timetable):
         return result
 
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for sem, df_sem in semester_wise_timetable.items():
-            for main_branch in df_sem["MainBranch"].unique():
-                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-                # Separate non-electives and electives
-                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+    
+    try:
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for sem, df_sem in semester_wise_timetable.items():
+                for main_branch in df_sem["MainBranch"].unique():
+                    df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+                    # Separate non-electives and electives
+                    df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                    df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
-                # Process non-electives
-                if not df_non_elec.empty:
-                    difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    
-                    # Only show duration info for Excel
-                    df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
-                    duration_suffix = df_non_elec.apply(
-                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
-                    df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
-                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
-                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                    
-                    # Create pivot with single date index (not multi-index with time slot)
-                    # Group subjects by date, combining different time slots
-                    grouped_by_date = df_non_elec.groupby(['Exam Date', 'SubBranch'])['SubjectDisplay'].apply(
-                        lambda x: ", ".join(str(i) for i in x)
-                    ).reset_index()
-                    
-                    pivot_df = grouped_by_date.pivot_table(
-                        index="Exam Date",
-                        columns="SubBranch",
-                        values="SubjectDisplay",
-                        aggfunc=lambda x: ", ".join(str(i) for i in x)
-                    ).fillna("---")
-                    
-                    pivot_df = pivot_df.sort_index(ascending=True)
-                    formatted_dates = [d.strftime("%d-%m-%Y") for d in pivot_df.index]
-                    pivot_df.index = formatted_dates
-                    roman_sem = int_to_roman(sem)
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
-                    if len(sheet_name) > 31:
-                        sheet_name = sheet_name[:31]
-                    pivot_df.to_excel(writer, sheet_name=sheet_name)
+                    # Process non-electives
+                    if not df_non_elec.empty:
+                        difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                        difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                        
+                        # Create subject display with duration info
+                        df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
+                        duration_suffix = df_non_elec.apply(
+                            lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
+                        df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                        
+                        # Convert and sort by date
+                        df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
+                        df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                        
+                        # Group subjects by date, combining any multiple subjects per branch per day
+                        grouped_by_date = df_non_elec.groupby(['Exam Date', 'SubBranch'])['SubjectDisplay'].apply(
+                            lambda x: ", ".join(str(i) for i in x)
+                        ).reset_index()
+                        
+                        # Create pivot with single date index
+                        pivot_df = grouped_by_date.pivot_table(
+                            index="Exam Date",
+                            columns="SubBranch",
+                            values="SubjectDisplay",
+                            aggfunc=lambda x: ", ".join(str(i) for i in x)
+                        ).fillna("---")
+                        
+                        # Sort and format
+                        pivot_df = pivot_df.sort_index(ascending=True)
+                        formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in pivot_df.index]
+                        pivot_df.index = formatted_dates
+                        
+                        # Save to Excel
+                        roman_sem = int_to_roman(sem)
+                        sheet_name = f"{main_branch}_Sem_{roman_sem}"
+                        if len(sheet_name) > 31:
+                            sheet_name = sheet_name[:31]
+                        pivot_df.to_excel(writer, sheet_name=sheet_name)
 
-                # Process electives in a separate sheet
-                if not df_elec.empty:
-                    difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
-                    difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
-                    
-                    # Only show duration info for Excel
-                    df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]"
-                    duration_suffix = df_elec.apply(
-                        lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
-                    df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
-                    
-                    # Group by OE and Date only (not time slot)
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date'])['SubjectDisplay'].apply(
-                        lambda x: ", ".join(sorted(set(x)))
-                    ).reset_index()
-                    elec_pivot['Exam Date'] = pd.to_datetime(
-                        elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
-                    ).dt.strftime("%d-%m-%Y")
-                    elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
-                    roman_sem = int_to_roman(sem)
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
-                    if len(sheet_name) > 31:
-                        sheet_name = sheet_name[:31]
-                    elec_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
+                    # Process electives in a separate sheet
+                    if not df_elec.empty:
+                        difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
+                        difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
+                        
+                        # Create subject display with OE and duration info
+                        df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]"
+                        duration_suffix = df_elec.apply(
+                            lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
+                        df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                        
+                        # Group by OE and Date only (no time slot)
+                        elec_pivot = df_elec.groupby(['OE', 'Exam Date'])['SubjectDisplay'].apply(
+                            lambda x: ", ".join(sorted(set(x)))
+                        ).reset_index()
+                        
+                        # Format dates
+                        elec_pivot['Exam Date'] = pd.to_datetime(
+                            elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
+                        ).dt.strftime("%d-%m-%Y")
+                        elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
+                        
+                        # Save to Excel
+                        roman_sem = int_to_roman(sem)
+                        sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
+                        if len(sheet_name) > 31:
+                            sheet_name = sheet_name[:31]
+                        elec_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
 
-    output.seek(0)
-    return output
+        output.seek(0)
+        return output
+        
+    except Exception as e:
+        st.error(f"Error creating Excel file: {e}")
+        return None
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -2135,26 +2194,55 @@ def main():
 
                             # Generate and store downloadable files
                             st.write("Generating Excel...")
-                            excel_data = save_to_excel(sem_dict)
-                            if excel_data:
-                                st.session_state.excel_data = excel_data.getvalue()
+                            try:
+                                excel_data = save_to_excel(sem_dict)
+                                if excel_data:
+                                    st.session_state.excel_data = excel_data.getvalue()
+                                    st.success("✅ Excel file generated successfully")
+                                else:
+                                    st.warning("⚠️ Excel generation completed but no data returned")
+                                    st.session_state.excel_data = None
+                            except Exception as e:
+                                st.error(f"❌ Excel generation failed: {str(e)}")
+                                st.session_state.excel_data = None
 
                             st.write("Generating verification file...")
-                            verification_data = save_verification_excel(original_df, sem_dict)
-                            if verification_data:
-                                st.session_state.verification_data = verification_data.getvalue()
+                            try:
+                                verification_data = save_verification_excel(original_df, sem_dict)
+                                if verification_data:
+                                    st.session_state.verification_data = verification_data.getvalue()
+                                    st.success("✅ Verification file generated successfully")
+                                else:
+                                    st.warning("⚠️ Verification file generation completed but no data returned")
+                                    st.session_state.verification_data = None
+                            except Exception as e:
+                                st.error(f"❌ Verification file generation failed: {str(e)}")
+                                st.session_state.verification_data = None
 
                             st.write("Generating PDF...")
-                            if sem_dict:
-                                pdf_output = io.BytesIO()
-                                temp_pdf_path = "temp_timetable.pdf"
-                                generate_pdf_timetable(sem_dict, temp_pdf_path)
-                                with open(temp_pdf_path, "rb") as f:
-                                    pdf_output.write(f.read())
-                                pdf_output.seek(0)
-                                if os.path.exists(temp_pdf_path):
-                                    os.remove(temp_pdf_path)
-                                st.session_state.pdf_data = pdf_output.getvalue()
+                            try:
+                                if sem_dict:
+                                    pdf_output = io.BytesIO()
+                                    temp_pdf_path = "temp_timetable.pdf"
+                                    generate_pdf_timetable(sem_dict, temp_pdf_path)
+                                    
+                                    # Check if PDF was created successfully
+                                    if os.path.exists(temp_pdf_path):
+                                        with open(temp_pdf_path, "rb") as f:
+                                            pdf_output.write(f.read())
+                                        pdf_output.seek(0)
+                                        st.session_state.pdf_data = pdf_output.getvalue()
+                                        os.remove(temp_pdf_path)
+                                        st.success("✅ PDF generated successfully")
+                                    else:
+                                        st.warning("⚠️ PDF generation completed but file not found")
+                                        st.session_state.pdf_data = None
+                                else:
+                                    st.warning("⚠️ No data available for PDF generation")
+                                    st.session_state.pdf_data = None
+                            except Exception as e:
+                                st.error(f"❌ PDF generation failed: {str(e)}")
+                                st.session_state.pdf_data = None
 
                             st.markdown('<div class="status-success">🎉 Timetable generated successfully with IMPROVED GAP-FILLING and NO DOUBLE BOOKINGS!</div>',
                                         unsafe_allow_html=True)
@@ -2200,6 +2288,8 @@ def main():
                     use_container_width=True,
                     key="download_excel"
                 )
+            else:
+                st.button("📊 Excel Not Available", disabled=True, use_container_width=True)
 
         with col2:
             if st.session_state.pdf_data:
@@ -2211,6 +2301,8 @@ def main():
                     use_container_width=True,
                     key="download_pdf"
                 )
+            else:
+                st.button("📄 PDF Not Available", disabled=True, use_container_width=True)
 
         with col3:
             if st.session_state.verification_data:
@@ -2222,6 +2314,8 @@ def main():
                     use_container_width=True,
                     key="download_verification"
                 )
+            else:
+                st.button("📋 Verification Not Available", disabled=True, use_container_width=True)
 
         with col4:
             if st.button("🔄 Generate New Timetable", use_container_width=True):
@@ -2432,6 +2526,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
