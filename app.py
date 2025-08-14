@@ -899,6 +899,7 @@ def verify_no_double_bookings(df):
         for (subbranch, semester, date), count in double_bookings.items():
             #st.error(f"  - {subbranch} Semester {semester} has {count} exams on {date}")
     else:
+        pass
         #st.success("✅ No double bookings found - one exam per day per subbranch-semester")
 
 def schedule_remaining_individual_subjects(df, holidays, start_date):
@@ -3092,6 +3093,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
