@@ -1430,7 +1430,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     sheets_processed = 0
     
     for sheet_name, sheet_df in df_dict.items():
-        st.write(f"🔄 Processing sheet: {sheet_name}")
+        #st.write(f"🔄 Processing sheet: {sheet_name}")
         
         if sheet_df.empty:
             st.warning(f"⚠️ Sheet {sheet_name} is empty, skipping")
@@ -1509,7 +1509,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
 
-                st.write(f"📄 Creating PDF page for {sheet_name} with {len(chunk_df)} exam dates")
+                #st.write(f"📄 Creating PDF page for {sheet_name} with {len(chunk_df)} exam dates")
 
                 # Get the default time slot for this semester
                 default_time_slot = get_semester_default_time_slot(semester, main_branch)
@@ -1564,11 +1564,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                                  header_content=header_content, branches=chunk, time_slot=default_time_slot)
                 
                 sheets_processed += 1
-                st.write(f"✅ Added PDF page for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
+                #st.write(f"✅ Added PDF page for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
 
         # Handle electives
         elif sheet_name.endswith('_Electives'):
-            st.write(f"🎓 Processing electives for {sheet_name}")
+            #st.write(f"🎓 Processing electives for {sheet_name}")
             
             # Ensure we have the required columns
             required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
@@ -2218,7 +2218,7 @@ def save_to_excel(semester_wise_timetable):
                         if len(elective_sheet_name) > 31:
                             elective_sheet_name = elective_sheet_name[:31]
                         elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
-                        st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
+                        #st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
 
         output.seek(0)
         st.success("✅ Excel file created successfully with all required sheets")
@@ -3094,6 +3094,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
