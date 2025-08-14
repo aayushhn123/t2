@@ -1391,6 +1391,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
+        st.write(f"📊 Read Excel file with {len(df_dict)} sheets: {list(df_dict.keys())}")
     except Exception as e:
         st.error(f"Error reading Excel file for PDF generation: {e}")
         return
@@ -1422,27 +1423,48 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             return get_preferred_slot(sem_num)
         return "10:00 AM - 1:00 PM"  # Default fallback
 
+    sheets_processed = 0
+    
     for sheet_name, sheet_df in df_dict.items():
+        st.write(f"🔄 Processing sheet: {sheet_name}")
+        
         if sheet_df.empty:
+            st.warning(f"⚠️ Sheet {sheet_name} is empty, skipping")
             continue
             
         # Reset index to make sure we're working with a clean DataFrame
         if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
             sheet_df = sheet_df.reset_index()
         
+        # Parse sheet name
         parts = sheet_name.split('_Sem_')
         main_branch = parts[0]
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
         semester = parts[1] if len(parts) > 1 else ""
+        
+        # Remove '_Electives' suffix if present
+        if semester.endswith('_Electives'):
+            semester = semester.replace('_Electives', '')
+            
         semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
         header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
 
         # Handle normal subjects (non-electives)
         if not sheet_name.endswith('_Electives'):
-            # Ensure we have the right columns
+            st.write(f"📋 Processing core subjects for {sheet_name}")
+            
+            # Check if 'Exam Date' column exists
             if 'Exam Date' not in sheet_df.columns:
-                st.warning(f"Missing 'Exam Date' column in sheet {sheet_name}")
-                continue
+                st.warning(f"⚠️ Missing 'Exam Date' column in sheet {sheet_name}")
+                st.write(f"Available columns: {list(sheet_df.columns)}")
+                
+                # Try to handle sheets with no exams
+                if len(sheet_df.columns) >= 2 and 'No exams scheduled' in str(sheet_df.iloc[0, 0]):
+                    st.info(f"ℹ️ Sheet {sheet_name} has no scheduled exams, skipping PDF generation for this sheet")
+                    continue
+                else:
+                    st.error(f"❌ Cannot process sheet {sheet_name} due to missing 'Exam Date' column")
+                    continue
                 
             # Remove any completely empty rows
             sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
@@ -1452,8 +1474,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and not c.startswith('Unnamed')]
             
             if not sub_branch_cols:
-                st.warning(f"No subject columns found in sheet {sheet_name}")
+                st.warning(f"⚠️ No subject columns found in sheet {sheet_name}")
                 continue
+            
+            st.write(f"📊 Found {len(sub_branch_cols)} subbranch columns: {sub_branch_cols}")
             
             exam_date_width = 60
             line_height = 10
@@ -1464,12 +1488,24 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 cols_to_print = fixed_cols + chunk
                 chunk_df = sheet_df[cols_to_print].copy()
                 
-                # Filter out empty rows
-                mask = chunk_df[chunk].apply(lambda row: row.astype(str).str.strip() != "").any(axis=1)
-                chunk_df = chunk_df[mask].reset_index(drop=True)
+                # Filter out empty rows and rows with "No exams scheduled"
+                mask = chunk_df[chunk].apply(lambda row: 
+                    row.astype(str).str.strip() != "" and 
+                    row.astype(str).str.strip() != "---" and
+                    row.astype(str).str.strip() != "No subjects available"
+                ).any(axis=1)
+                
+                # Also filter out "No exams scheduled" rows
+                exam_date_mask = ~chunk_df['Exam Date'].astype(str).str.contains('No exams scheduled', na=False)
+                
+                final_mask = mask & exam_date_mask
+                chunk_df = chunk_df[final_mask].reset_index(drop=True)
                 
                 if chunk_df.empty:
+                    st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
+
+                st.write(f"📄 Creating PDF page for {sheet_name} with {len(chunk_df)} exam dates")
 
                 # Get the default time slot for this semester
                 default_time_slot = get_semester_default_time_slot(semester, main_branch)
@@ -1522,15 +1558,22 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
                                  header_content=header_content, branches=chunk, time_slot=default_time_slot)
+                
+                sheets_processed += 1
+                st.write(f"✅ Added PDF page for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
 
         # Handle electives
         elif sheet_name.endswith('_Electives'):
+            st.write(f"🎓 Processing electives for {sheet_name}")
+            
             # Ensure we have the required columns
             required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
             available_cols = [col for col in required_cols if col in sheet_df.columns]
             
             if len(available_cols) < 2:
-                st.warning(f"Missing required columns in electives sheet {sheet_name}")
+                st.warning(f"⚠️ Missing required columns in electives sheet {sheet_name}")
+                st.write(f"Available columns: {list(sheet_df.columns)}")
+                st.write(f"Required columns: {required_cols}")
                 continue
             
             # Use available columns
@@ -1538,7 +1581,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             elective_data = elective_data.dropna(how='all').reset_index(drop=True)
             
             if elective_data.empty:
+                st.info(f"ℹ️ No elective data found for {sheet_name}")
                 continue
+
+            st.write(f"📊 Processing {len(elective_data)} elective entries")
 
             # Convert Exam Date to desired format
             try:
@@ -1605,28 +1651,98 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
                              header_content=header_content, branches=['All Streams'], time_slot=default_time_slot)
+            
+            sheets_processed += 1
+            st.write(f"✅ Added PDF page for electives {sheet_name}")
 
+    if sheets_processed == 0:
+        st.error("❌ No sheets were processed for PDF generation!")
+        return
+    
     try:
         pdf.output(pdf_path)
+        st.success(f"✅ PDF generated successfully with {sheets_processed} pages")
     except Exception as e:
-        st.error(f"Error saving PDF: {e}")
+        st.error(f"❌ Error saving PDF: {e}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
    
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
+    st.write("🔄 Starting PDF generation process...")
+    
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
+    
+    st.write("📊 Generating Excel file first...")
     excel_data = save_to_excel(semester_wise_timetable)
+    
     if excel_data:
-        with open(temp_excel, "wb") as f:
-            f.write(excel_data.getvalue())
-        convert_excel_to_pdf(temp_excel, output_pdf)
-        if os.path.exists(temp_excel):
-            os.remove(temp_excel)
+        st.write(f"💾 Saving temporary Excel file to: {temp_excel}")
+        try:
+            with open(temp_excel, "wb") as f:
+                f.write(excel_data.getvalue())
+            st.write("✅ Temporary Excel file saved successfully")
+            
+            # Verify the Excel file was created and has content
+            if os.path.exists(temp_excel):
+                file_size = os.path.getsize(temp_excel)
+                st.write(f"📋 Excel file size: {file_size} bytes")
+                
+                # Read back and verify sheets
+                try:
+                    test_sheets = pd.read_excel(temp_excel, sheet_name=None)
+                    st.write(f"📊 Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
+                    
+                    # Show structure of first few sheets
+                    for i, (sheet_name, sheet_df) in enumerate(test_sheets.items()):
+                        if i < 3:  # Only show first 3 sheets
+                            st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
+                            
+                except Exception as e:
+                    st.error(f"❌ Error reading back Excel file for verification: {e}")
+            else:
+                st.error(f"❌ Temporary Excel file was not created at {temp_excel}")
+                return
+            
+        except Exception as e:
+            st.error(f"❌ Error saving temporary Excel file: {e}")
+            return
+            
+        st.write("🎨 Converting Excel to PDF...")
+        try:
+            convert_excel_to_pdf(temp_excel, output_pdf)
+            st.write("✅ PDF conversion completed")
+        except Exception as e:
+            st.error(f"❌ Error during Excel to PDF conversion: {e}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
+            return
+        
+        # Clean up temporary file
+        try:
+            if os.path.exists(temp_excel):
+                os.remove(temp_excel)
+                st.write("🗑️ Temporary Excel file cleaned up")
+        except Exception as e:
+            st.warning(f"⚠️ Could not remove temporary file: {e}")
     else:
-        st.error("No data to save to Excel.")
+        st.error("❌ No Excel data generated - cannot create PDF")
         return
+    
+    # Post-process PDF to remove blank pages
+    st.write("🔧 Post-processing PDF to remove blank pages...")
     try:
+        if not os.path.exists(output_pdf):
+            st.error(f"❌ PDF file was not created at {output_pdf}")
+            return
+            
         reader = PdfReader(output_pdf)
         writer = PdfWriter()
         page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
+        
+        original_pages = len(reader.pages)
+        st.write(f"📄 Original PDF has {original_pages} pages")
+        
+        pages_kept = 0
         for page_num in range(len(reader.pages)):
             page = reader.pages[page_num]
             try:
@@ -1641,13 +1757,29 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             )
             if not is_blank_or_page_number:
                 writer.add_page(page)
+                pages_kept += 1
+                
+        st.write(f"📄 Kept {pages_kept} pages out of {original_pages}")
+        
         if len(writer.pages) > 0:
             with open(output_pdf, 'wb') as output_file:
                 writer.write(output_file)
+            st.success(f"✅ PDF post-processing completed - final PDF has {len(writer.pages)} pages")
         else:
-            st.warning("Warning: All pages were filtered out - keeping original PDF")
+            st.warning("⚠️ All pages were filtered out - keeping original PDF")
+            
     except Exception as e:
-        st.error(f"Error during PDF post-processing: {str(e)}")
+        st.error(f"❌ Error during PDF post-processing: {str(e)}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
+        
+    # Final verification
+    if os.path.exists(output_pdf):
+        final_size = os.path.getsize(output_pdf)
+        st.write(f"📄 Final PDF size: {final_size} bytes")
+        st.success("🎉 PDF generation process completed successfully!")
+    else:
+        st.error("❌ Final PDF file does not exist!")
 
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
@@ -1967,12 +2099,21 @@ def save_to_excel(semester_wise_timetable):
             for sem, df_sem in semester_wise_timetable.items():
                 for main_branch in df_sem["MainBranch"].unique():
                     df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+                    
                     # Separate non-electives and electives
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
-                    # Process non-electives
+                    # Process non-electives (CRITICAL FIX: Always create sheet even if empty)
+                    roman_sem = int_to_roman(sem)
+                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
+                    if len(sheet_name) > 31:
+                        sheet_name = sheet_name[:31]
+                    
                     if not df_non_elec.empty:
+                        st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
+                        
+                        # Add difficulty and duration info
                         difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                         difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                         
@@ -1999,20 +2140,51 @@ def save_to_excel(semester_wise_timetable):
                             aggfunc=lambda x: ", ".join(str(i) for i in x)
                         ).fillna("---")
                         
-                        # Sort and format
+                        # Sort and format dates
                         pivot_df = pivot_df.sort_index(ascending=True)
                         formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in pivot_df.index]
                         pivot_df.index = formatted_dates
                         
+                        # Reset index to make 'Exam Date' a column
+                        pivot_df = pivot_df.reset_index()
+                        
                         # Save to Excel
-                        roman_sem = int_to_roman(sem)
-                        sheet_name = f"{main_branch}_Sem_{roman_sem}"
-                        if len(sheet_name) > 31:
-                            sheet_name = sheet_name[:31]
-                        pivot_df.to_excel(writer, sheet_name=sheet_name)
+                        pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
+                        
+                    else:
+                        # CRITICAL FIX: Create empty sheet structure for branches with no subjects
+                        st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
+                        
+                        # Get all possible subbranches for this main branch from the semester
+                        all_subbranches = df_sem[df_sem["MainBranch"] == main_branch]["SubBranch"].unique()
+                        
+                        if len(all_subbranches) > 0:
+                            # Create empty dataframe with proper structure
+                            empty_data = {
+                                'Exam Date': ['No exams scheduled'],
+                            }
+                            
+                            # Add columns for each subbranch
+                            for subbranch in sorted(all_subbranches):
+                                empty_data[subbranch] = ['---']
+                            
+                            empty_df = pd.DataFrame(empty_data)
+                            empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            st.write(f"✅ Created empty sheet {sheet_name} with structure for subbranches: {', '.join(all_subbranches)}")
+                        else:
+                            # If no subbranches, create minimal structure
+                            empty_df = pd.DataFrame({
+                                'Exam Date': ['No exams scheduled'],
+                                'Subjects': ['No subjects available']
+                            })
+                            empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            st.write(f"✅ Created minimal empty sheet {sheet_name}")
 
-                    # Process electives in a separate sheet
+                    # Process electives in a separate sheet (only if electives exist)
                     if not df_elec.empty:
+                        st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
+                        
                         difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                         difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                         
@@ -2034,17 +2206,20 @@ def save_to_excel(semester_wise_timetable):
                         elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
                         
                         # Save to Excel
-                        roman_sem = int_to_roman(sem)
-                        sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
-                        if len(sheet_name) > 31:
-                            sheet_name = sheet_name[:31]
-                        elec_pivot.to_excel(writer, sheet_name=sheet_name, index=False)
+                        elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
+                        if len(elective_sheet_name) > 31:
+                            elective_sheet_name = elective_sheet_name[:31]
+                        elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
+                        st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
 
         output.seek(0)
+        st.success("✅ Excel file created successfully with all required sheets")
         return output
         
     except Exception as e:
         st.error(f"Error creating Excel file: {e}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
         return None
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
@@ -2911,6 +3086,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
