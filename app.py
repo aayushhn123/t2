@@ -396,6 +396,7 @@ def schedule_common_subjects_first(df, holidays, base_date):
                     
                     #st.write(f"      ✅ Scheduled common subject {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {actual_slot}")
                 else:
+                    pass
                     #st.write(f"      ❌ Cannot schedule {group['Subject'].iloc[0]} - conflicts with subbranches: {', '.join(conflicting_subbranches)}")
             
             # Remove scheduled groups from unscheduled list
@@ -3090,6 +3091,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
