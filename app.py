@@ -2334,6 +2334,7 @@ def main():
             
             return base_display + time_range
 
+        # Display timetable data
         for sem, df_sem in st.session_state.timetable_data.items():
             st.markdown(f"### 📚 Semester {sem}")
 
@@ -2348,54 +2349,76 @@ def main():
 
                     # Display non-electives
                     if not df_non_elec.empty:
-                        # Apply formatting using the updated function
-                        df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
-                        df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                        df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                        st.markdown(f"#### {main_branch_full} - Core Subjects")
                         
-                        # Create pivot table with single date index (not multi-index with time slot)
-                        # Group subjects by date first, combining different time slots if any
-                        grouped_by_date = df_non_elec.groupby(['Exam Date', 'SubBranch'])['SubjectDisplay'].apply(
-                            lambda x: ", ".join(x)
-                        ).reset_index()
-                        
-                        pivot_df = grouped_by_date.pivot_table(
-                            index="Exam Date",
-                            columns="SubBranch", 
-                            values="SubjectDisplay",
-                            aggfunc=lambda x: ", ".join(x)
-                        ).fillna("---")
-                        
-                        if not pivot_df.empty:
-                            st.markdown(f"#### {main_branch_full} - Core Subjects")
-                            formatted_pivot = pivot_df.copy()
-                            # Format dates for display
-                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in formatted_pivot.index]
-                            formatted_pivot.index = formatted_dates
-                            st.dataframe(formatted_pivot, use_container_width=True)
+                        try:
+                            # Apply formatting
+                            df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
+                            df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                            df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                            
+                            # Create a simple table format
+                            display_data = []
+                            for date, group in df_non_elec.groupby('Exam Date'):
+                                date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
+                                row_data = {'Exam Date': date_str}
+                                
+                                # Add subjects for each SubBranch
+                                for subbranch in df_non_elec['SubBranch'].unique():
+                                    subbranch_subjects = group[group['SubBranch'] == subbranch]['SubjectDisplay'].tolist()
+                                    row_data[subbranch] = ", ".join(subbranch_subjects) if subbranch_subjects else "---"
+                                
+                                display_data.append(row_data)
+                            
+                            if display_data:
+                                display_df = pd.DataFrame(display_data)
+                                display_df = display_df.set_index('Exam Date')
+                                st.dataframe(display_df, use_container_width=True)
+                            else:
+                                st.write("No core subjects to display")
+                                
+                        except Exception as e:
+                            st.error(f"Error displaying core subjects: {str(e)}")
+                            # Fallback: show raw data
+                            st.write("Showing raw data:")
+                            display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot']
+                            available_cols = [col for col in display_cols if col in df_non_elec.columns]
+                            st.dataframe(df_non_elec[available_cols], use_container_width=True)
 
                     # Display electives  
                     if not df_elec.empty:
-                        # Apply formatting using the updated function
-                        df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
-                        df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                        df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                        st.markdown(f"#### {main_branch_full} - Open Electives")
                         
-                        # Create elective pivot with single date
-                        elec_pivot = df_elec.groupby(['OE', 'Exam Date'])['SubjectDisplay'].apply(
-                            lambda x: ", ".join(x)
-                        ).reset_index()
-                        
-                        if not elec_pivot.empty:
-                            st.markdown(f"#### {main_branch_full} - Open Electives")
-                            # Format dates for display
-                            elec_pivot['Formatted_Date'] = elec_pivot['Exam Date'].dt.strftime("%d-%m-%Y")
-                            elec_pivot_display = elec_pivot[['Formatted_Date', 'OE', 'SubjectDisplay']].rename(columns={
-                                'Formatted_Date': 'Exam Date',
-                                'OE': 'OE Type',
-                                'SubjectDisplay': 'Subjects'
-                            })
-                            st.dataframe(elec_pivot_display, use_container_width=True)
+                        try:
+                            # Apply formatting
+                            df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
+                            df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                            df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                            
+                            # Create elective display
+                            elec_display_data = []
+                            for (oe_type, date), group in df_elec.groupby(['OE', 'Exam Date']):
+                                date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
+                                subjects = ", ".join(group['SubjectDisplay'].tolist())
+                                elec_display_data.append({
+                                    'Exam Date': date_str,
+                                    'OE Type': oe_type,
+                                    'Subjects': subjects
+                                })
+                            
+                            if elec_display_data:
+                                elec_display_df = pd.DataFrame(elec_display_data)
+                                st.dataframe(elec_display_df, use_container_width=True)
+                            else:
+                                st.write("No elective subjects to display")
+                                
+                        except Exception as e:
+                            st.error(f"Error displaying elective subjects: {str(e)}")
+                            # Fallback: show raw data
+                            st.write("Showing raw data:")
+                            display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot']
+                            available_cols = [col for col in display_cols if col in df_elec.columns]
+                            st.dataframe(df_elec[available_cols], use_container_width=True)
 
     # Display footer
     st.markdown("---")
@@ -2409,6 +2432,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
