@@ -421,6 +421,7 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
     """
     Schedule uncommon subjects AFTER common subjects have been scheduled.
     First fill gaps between common subjects, then extend to new days.
+    CONSTRAINT: Each subbranch-semester combination can only have ONE exam per day.
     """
     st.info("🔧 Scheduling uncommon subjects after common subjects...")
     
@@ -455,21 +456,19 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
         return f"{subbranch}_{semester}"
     
     # Build occupancy map from existing common subjects
-    daily_occupancy = {}  # date -> {time_slot -> set of subbranch_semester keys}
+    # Track which subbranch-semester combinations have exams on which dates
+    daily_subbranch_occupancy = {}  # date -> set of subbranch_semester keys
     
     if not scheduled_common.empty:
         st.write("📅 Building occupancy map from scheduled common subjects...")
         for idx, row in scheduled_common.iterrows():
             date_str = row['Exam Date']
-            time_slot = row['Time Slot']
             subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
             
-            if date_str not in daily_occupancy:
-                daily_occupancy[date_str] = {}
-            if time_slot not in daily_occupancy[date_str]:
-                daily_occupancy[date_str][time_slot] = set()
+            if date_str not in daily_subbranch_occupancy:
+                daily_subbranch_occupancy[date_str] = set()
             
-            daily_occupancy[date_str][time_slot].add(subbranch_sem_key)
+            daily_subbranch_occupancy[date_str].add(subbranch_sem_key)
         
         # Get the date range of common subjects
         common_dates = pd.to_datetime(scheduled_common['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
@@ -511,7 +510,6 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
         
         # Get time slot based on semester
         preferred_slot = get_preferred_slot(semester)
-        alternative_slot = "2:00 PM - 5:00 PM" if preferred_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
         
         # Group by stream/branch within this semester
         for branch in sorted(semester_data['Branch'].unique()):
@@ -525,7 +523,7 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
                 
             st.write(f"  🔧 Gap-filling {len(branch_subjects)} subjects for {branch}")
             
-            # Try to fill gaps for this branch
+            # Try to fill gaps for this branch - ONE SUBJECT PER DAY PER SUBBRANCH-SEMESTER
             for idx, row in branch_subjects.iterrows():
                 if df.loc[idx, 'Exam Date'] != "":  # Skip if already scheduled
                     continue
@@ -533,39 +531,31 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
                 subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
                 scheduled_in_gap = False
                 
-                # Check each valid day for available slots
+                # Check each valid day for availability
                 for fill_date in valid_fill_days:
                     date_str = fill_date.strftime("%d-%m-%Y")
                     
-                    # Try preferred slot first, then alternative
-                    for slot_to_try in [preferred_slot, alternative_slot]:
-                        slot_available = True
-                        
-                        # Check if this slot is occupied by this subbranch-semester combination
-                        if (date_str in daily_occupancy and 
-                            slot_to_try in daily_occupancy[date_str] and
-                            subbranch_sem_key in daily_occupancy[date_str][slot_to_try]):
-                            slot_available = False
-                        
-                        if slot_available:
-                            # Schedule this subject in the gap
-                            df.loc[idx, 'Exam Date'] = date_str
-                            df.loc[idx, 'Time Slot'] = slot_to_try
-                            
-                            # Update occupancy map
-                            if date_str not in daily_occupancy:
-                                daily_occupancy[date_str] = {}
-                            if slot_to_try not in daily_occupancy[date_str]:
-                                daily_occupancy[date_str][slot_to_try] = set()
-                            daily_occupancy[date_str][slot_to_try].add(subbranch_sem_key)
-                            
-                            scheduled_count += 1
-                            scheduled_in_gap = True
-                            st.write(f"    ✅ Gap-filled {row['Subject']} on {date_str} at {slot_to_try}")
-                            break
+                    # CRITICAL CHECK: Ensure this subbranch-semester doesn't already have an exam on this date
+                    if (date_str in daily_subbranch_occupancy and 
+                        subbranch_sem_key in daily_subbranch_occupancy[date_str]):
+                        continue  # This subbranch-semester already has an exam on this date
                     
-                    if scheduled_in_gap:
-                        break
+                    # If the date is available for this subbranch-semester, schedule it
+                    df.loc[idx, 'Exam Date'] = date_str
+                    df.loc[idx, 'Time Slot'] = preferred_slot
+                    
+                    # Update occupancy map
+                    if date_str not in daily_subbranch_occupancy:
+                        daily_subbranch_occupancy[date_str] = set()
+                    daily_subbranch_occupancy[date_str].add(subbranch_sem_key)
+                    
+                    scheduled_count += 1
+                    scheduled_in_gap = True
+                    st.write(f"    ✅ Gap-filled {row['Subject']} on {date_str} at {preferred_slot}")
+                    break
+                
+                if not scheduled_in_gap:
+                    st.write(f"    ⚠️ Could not gap-fill {row['Subject']} - no available dates for {subbranch_sem_key}")
     
     st.write(f"✅ Phase 1 complete: Scheduled {scheduled_count} subjects in gaps")
     
@@ -586,7 +576,7 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
         
         st.write(f"📅 Starting extension from: {extension_start_date.strftime('%d-%m-%Y')}")
         
-        # Schedule remaining subjects by semester and branch
+        # Schedule remaining subjects by semester and branch - ONE PER DAY PER SUBBRANCH-SEMESTER
         for semester in sorted(remaining_uncommon['Semester'].unique()):
             semester_data = remaining_uncommon[remaining_uncommon['Semester'] == semester]
             
@@ -610,18 +600,36 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
                 # Start from extension_start_date for each branch
                 branch_scheduling_date = extension_start_date
                 
-                # Schedule each subject for this branch
+                # Schedule each subject for this branch - ENSURING ONE PER DAY PER SUBBRANCH-SEMESTER
                 for idx, row in branch_subjects.iterrows():
                     if df.loc[idx, 'Exam Date'] != "":  # Skip if already scheduled
                         continue
                         
-                    # Find a valid day starting from branch_scheduling_date
-                    exam_date = find_next_valid_day(branch_scheduling_date, holidays)
+                    subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
+                    
+                    # Find a valid day where this subbranch-semester doesn't already have an exam
+                    exam_date = branch_scheduling_date
+                    while True:
+                        exam_date = find_next_valid_day(exam_date, holidays)
+                        date_str = exam_date.strftime("%d-%m-%Y")
+                        
+                        # Check if this subbranch-semester already has an exam on this date
+                        if (date_str not in daily_subbranch_occupancy or 
+                            subbranch_sem_key not in daily_subbranch_occupancy[date_str]):
+                            # Date is available for this subbranch-semester
+                            break
+                        else:
+                            # Move to next day
+                            exam_date = exam_date + timedelta(days=1)
                     
                     # Schedule the exam
-                    date_str = exam_date.strftime("%d-%m-%Y")
                     df.loc[idx, 'Exam Date'] = date_str
                     df.loc[idx, 'Time Slot'] = preferred_slot
+                    
+                    # Update occupancy map
+                    if date_str not in daily_subbranch_occupancy:
+                        daily_subbranch_occupancy[date_str] = set()
+                    daily_subbranch_occupancy[date_str].add(subbranch_sem_key)
                     
                     scheduled_count += 1
                     st.write(f"    ✅ Extension scheduled {row['Subject']} on {date_str}")
@@ -631,6 +639,38 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
     
     final_scheduled = scheduled_count
     st.success(f"✅ Successfully scheduled {final_scheduled} uncommon subjects (gaps + extension)")
+    
+    # Verification: Check for constraint violations
+    st.write("🔍 Verifying scheduling constraints...")
+    violation_count = 0
+    
+    # Check all scheduled subjects for violations
+    all_scheduled = df[df['Exam Date'] != ""]
+    date_subbranch_count = {}
+    
+    for idx, row in all_scheduled.iterrows():
+        date_str = row['Exam Date']
+        subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
+        
+        if date_str not in date_subbranch_count:
+            date_subbranch_count[date_str] = {}
+        if subbranch_sem_key not in date_subbranch_count[date_str]:
+            date_subbranch_count[date_str][subbranch_sem_key] = 0
+        
+        date_subbranch_count[date_str][subbranch_sem_key] += 1
+    
+    # Find violations
+    for date_str, subbranches in date_subbranch_count.items():
+        for subbranch_sem_key, count in subbranches.items():
+            if count > 1:
+                violation_count += 1
+                st.error(f"❌ CONSTRAINT VIOLATION: {subbranch_sem_key} has {count} exams on {date_str}")
+    
+    if violation_count == 0:
+        st.success("✅ All scheduling constraints satisfied - no subbranch-semester has multiple exams per day")
+    else:
+        st.error(f"❌ Found {violation_count} constraint violations!")
+    
     return df
 
 def schedule_remaining_individual_subjects(df, holidays, start_date):
@@ -2339,3 +2379,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
