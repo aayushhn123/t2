@@ -417,11 +417,9 @@ def schedule_common_subjects_first(df, holidays, base_date):
     return df
 
 
-def schedule_uncommon_subjects_after_common(df, holidays, base_date):
+def schedule_uncommon_subjects_after_common(df, holidays, start_date):
     """
-    Schedule uncommon subjects AFTER common subjects have been scheduled.
-    First fill gaps between common subjects, then extend to new days.
-    CONSTRAINT: Each subbranch-semester combination can only have ONE exam per day.
+    Schedule uncommon subjects AFTER common subjects have been scheduled
     """
     st.info("🔧 Scheduling uncommon subjects after common subjects...")
     
@@ -437,11 +435,13 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
     
     st.write(f"Found {len(uncommon_subjects)} uncommon subjects to schedule after common subjects")
     
-    # Get all scheduled common subjects to understand the existing schedule
-    scheduled_common = df[
-        (df['CommonAcrossSems'] == True) & 
-        (df['Exam Date'] != "")
-    ].copy()
+    # Initialize exam_days tracker for each branch
+    all_branches = df['Branch'].unique()
+    exam_days = {branch: set() for branch in all_branches}
+    
+    # Track all scheduled dates for span calculation
+    all_scheduled_dates = []
+    semester_statistics = {}
     
     # Helper function to find next valid day
     def find_next_valid_day(start_date, holidays_set):
@@ -451,267 +451,59 @@ def schedule_uncommon_subjects_after_common(df, holidays, base_date):
                 return current_date
             current_date += timedelta(days=1)
     
-    # Helper function to get subbranch-semester key
-    def get_subbranch_semester_key(subbranch, semester):
-        return f"{subbranch}_{semester}"
-    
-    # Build occupancy map from existing common subjects
-    # Track which subbranch-semester combinations have exams on which dates
-    daily_subbranch_occupancy = {}  # date -> set of subbranch_semester keys
-    
-    if not scheduled_common.empty:
-        st.write("📅 Building occupancy map from scheduled common subjects...")
-        for idx, row in scheduled_common.iterrows():
-            date_str = row['Exam Date']
-            subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
-            
-            if date_str not in daily_subbranch_occupancy:
-                daily_subbranch_occupancy[date_str] = set()
-            
-            daily_subbranch_occupancy[date_str].add(subbranch_sem_key)
-        
-        # Get the date range of common subjects
-        common_dates = pd.to_datetime(scheduled_common['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-        if not common_dates.empty:
-            earliest_common = min(common_dates).date()
-            latest_common = max(common_dates).date()
-            st.write(f"📊 Common subjects span from {earliest_common.strftime('%d-%m-%Y')} to {latest_common.strftime('%d-%m-%Y')}")
-        else:
-            earliest_common = base_date.date()
-            latest_common = base_date.date()
-    else:
-        st.write("ℹ️ No common subjects found, starting from base date")
-        earliest_common = base_date.date()
-        latest_common = base_date.date()
-    
-    # Phase 1: Fill gaps in existing schedule from base_date to latest common subject date
-    st.write("🎯 Phase 1: Filling gaps between common subjects...")
-    
+    # Schedule by semester, then by stream within each semester
     scheduled_count = 0
-    current_fill_date = base_date
     
-    # Create a comprehensive list of all valid days from base_date to latest_common
-    fill_end_date = datetime.combine(latest_common, datetime.min.time())
-    valid_fill_days = []
-    
-    temp_date = current_fill_date
-    while temp_date <= fill_end_date:
-        if temp_date.weekday() != 6 and temp_date.date() not in holidays:
-            valid_fill_days.append(temp_date)
-        temp_date += timedelta(days=1)
-    
-    st.write(f"📋 Found {len(valid_fill_days)} valid days to check for gaps")
-    
-    # Schedule by semester, then by stream within each semester for gap filling
     for semester in sorted(uncommon_subjects['Semester'].unique()):
         semester_data = uncommon_subjects[uncommon_subjects['Semester'] == semester]
         
-        st.write(f"📚 Gap-filling for Semester {semester} uncommon subjects...")
+        st.write(f"📚 Scheduling Semester {semester} uncommon subjects...")
+        
+        # Track dates for this semester
+        semester_dates = []
+        semester_branch_stats = {}
         
         # Get time slot based on semester
         preferred_slot = get_preferred_slot(semester)
         
         # Group by stream/branch within this semester
         for branch in sorted(semester_data['Branch'].unique()):
-            branch_subjects = semester_data[
-                (semester_data['Branch'] == branch) & 
-                (semester_data['Exam Date'] == "")  # Only unscheduled
-            ]
+            branch_subjects = semester_data[semester_data['Branch'] == branch]
             
-            if branch_subjects.empty:
-                continue
-                
-            st.write(f"  🔧 Gap-filling {len(branch_subjects)} subjects for {branch}")
+            st.write(f"  🔧 Scheduling {len(branch_subjects)} subjects for {branch}")
             
-            # Try to fill gaps for this branch - ONE SUBJECT PER DAY PER SUBBRANCH-SEMESTER
+            # Start from the provided start_date for each branch
+            branch_scheduling_date = start_date
+            branch_dates = []
+            
+            st.write(f"    📅 Starting {branch} from: {start_date.strftime('%d-%m-%Y')}")
+            
+            # Schedule each subject for this branch
             for idx, row in branch_subjects.iterrows():
-                if df.loc[idx, 'Exam Date'] != "":  # Skip if already scheduled
-                    continue
-                    
-                subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
-                scheduled_in_gap = False
+                # Find a valid day starting from start_date for this branch
+                exam_date = find_next_valid_day(branch_scheduling_date, holidays)
                 
-                # Check each valid day for availability
-                for fill_date in valid_fill_days:
-                    date_str = fill_date.strftime("%d-%m-%Y")
-                    
-                    # CRITICAL CHECK: Ensure this subbranch-semester doesn't already have an exam on this date
-                    if (date_str in daily_subbranch_occupancy and 
-                        subbranch_sem_key in daily_subbranch_occupancy[date_str]):
-                        continue  # This subbranch-semester already has an exam on this date
-                    
-                    # If the date is available for this subbranch-semester, schedule it
-                    df.loc[idx, 'Exam Date'] = date_str
-                    df.loc[idx, 'Time Slot'] = preferred_slot
-                    
-                    # Update occupancy map
-                    if date_str not in daily_subbranch_occupancy:
-                        daily_subbranch_occupancy[date_str] = set()
-                    daily_subbranch_occupancy[date_str].add(subbranch_sem_key)
-                    
-                    scheduled_count += 1
-                    scheduled_in_gap = True
-                    st.write(f"    ✅ Gap-filled {row['Subject']} on {date_str} at {preferred_slot}")
-                    break
+                # Schedule the exam
+                date_str = exam_date.strftime("%d-%m-%Y")
+                df.loc[idx, 'Exam Date'] = date_str
+                df.loc[idx, 'Time Slot'] = preferred_slot
                 
-                if not scheduled_in_gap:
-                    st.write(f"    ⚠️ Could not gap-fill {row['Subject']} - no available dates for {subbranch_sem_key}")
-    
-    st.write(f"✅ Phase 1 complete: Scheduled {scheduled_count} subjects in gaps")
-    
-    # Phase 2: Schedule remaining uncommon subjects on new days after latest common subject
-    remaining_uncommon = df[
-        (df['CommonAcrossSems'] == False) & 
-        (df['Exam Date'] == "")
-    ].copy()
-    
-    if not remaining_uncommon.empty:
-        st.write(f"🎯 Phase 2: Scheduling remaining {len(remaining_uncommon)} uncommon subjects on new days...")
-        
-        # Start from day after latest common subject (or base_date if no common subjects)
-        extension_start_date = find_next_valid_day(
-            datetime.combine(latest_common, datetime.min.time()) + timedelta(days=1), 
-            holidays
-        )
-        
-        st.write(f"📅 Starting extension from: {extension_start_date.strftime('%d-%m-%Y')}")
-        
-        # Schedule remaining subjects by semester and branch - ONE PER DAY PER SUBBRANCH-SEMESTER
-        for semester in sorted(remaining_uncommon['Semester'].unique()):
-            semester_data = remaining_uncommon[remaining_uncommon['Semester'] == semester]
-            
-            st.write(f"📚 Extension scheduling for Semester {semester}...")
-            
-            # Get time slot based on semester
-            preferred_slot = get_preferred_slot(semester)
-            
-            # Group by stream/branch within this semester
-            for branch in sorted(semester_data['Branch'].unique()):
-                branch_subjects = semester_data[
-                    (semester_data['Branch'] == branch) & 
-                    (semester_data['Exam Date'] == "")  # Only unscheduled
-                ]
+                # Mark this date as occupied for this branch
+                exam_days[branch].add(exam_date.date())
                 
-                if branch_subjects.empty:
-                    continue
+                # Track the scheduled date
+                all_scheduled_dates.append(exam_date.date())
+                semester_dates.append(exam_date.date())
+                branch_dates.append(exam_date.date())
                 
-                st.write(f"  🔧 Extension scheduling {len(branch_subjects)} subjects for {branch}")
+                scheduled_count += 1
+                st.write(f"    ✅ Scheduled {row['Subject']} on {date_str}")
                 
-                # Start from extension_start_date for each branch
-                branch_scheduling_date = extension_start_date
-                
-                # Schedule each subject for this branch - ENSURING ONE PER DAY PER SUBBRANCH-SEMESTER
-                for idx, row in branch_subjects.iterrows():
-                    if df.loc[idx, 'Exam Date'] != "":  # Skip if already scheduled
-                        continue
-                        
-                    subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
-                    
-                    # Find a valid day where this subbranch-semester doesn't already have an exam
-                    exam_date = branch_scheduling_date
-                    while True:
-                        exam_date = find_next_valid_day(exam_date, holidays)
-                        date_str = exam_date.strftime("%d-%m-%Y")
-                        
-                        # Check if this subbranch-semester already has an exam on this date
-                        if (date_str not in daily_subbranch_occupancy or 
-                            subbranch_sem_key not in daily_subbranch_occupancy[date_str]):
-                            # Date is available for this subbranch-semester
-                            break
-                        else:
-                            # Move to next day
-                            exam_date = exam_date + timedelta(days=1)
-                    
-                    # Schedule the exam
-                    df.loc[idx, 'Exam Date'] = date_str
-                    df.loc[idx, 'Time Slot'] = preferred_slot
-                    
-                    # Update occupancy map
-                    if date_str not in daily_subbranch_occupancy:
-                        daily_subbranch_occupancy[date_str] = set()
-                    daily_subbranch_occupancy[date_str].add(subbranch_sem_key)
-                    
-                    scheduled_count += 1
-                    st.write(f"    ✅ Extension scheduled {row['Subject']} on {date_str}")
-                    
-                    # Move to next day for next subject of this branch
-                    branch_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
+                # Move to next day for next subject of this branch
+                branch_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
     
-    final_scheduled = scheduled_count
-    st.success(f"✅ Successfully scheduled {final_scheduled} uncommon subjects (gaps + extension)")
-    
-    # Verification: Check for constraint violations
-    st.write("🔍 Verifying scheduling constraints...")
-    violation_count = 0
-    
-    # Check all scheduled subjects for violations
-    all_scheduled = df[df['Exam Date'] != ""]
-    date_subbranch_count = {}
-    
-    for idx, row in all_scheduled.iterrows():
-        date_str = row['Exam Date']
-        subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
-        
-        if date_str not in date_subbranch_count:
-            date_subbranch_count[date_str] = {}
-        if subbranch_sem_key not in date_subbranch_count[date_str]:
-            date_subbranch_count[date_str][subbranch_sem_key] = 0
-        
-        date_subbranch_count[date_str][subbranch_sem_key] += 1
-    
-    # Find violations
-    for date_str, subbranches in date_subbranch_count.items():
-        for subbranch_sem_key, count in subbranches.items():
-            if count > 1:
-                violation_count += 1
-                st.error(f"❌ CONSTRAINT VIOLATION: {subbranch_sem_key} has {count} exams on {date_str}")
-    
-    if violation_count == 0:
-        st.success("✅ All scheduling constraints satisfied - no subbranch-semester has multiple exams per day")
-    else:
-        st.error(f"❌ Found {violation_count} constraint violations!")
-    
+    st.success(f"✅ Successfully scheduled {scheduled_count} uncommon subjects after common subjects")
     return df
-
-def schedule_remaining_individual_subjects(df, holidays, start_date):
-    """
-    Schedule any remaining individual subjects that couldn't be scheduled in groups.
-    This handles edge cases and ensures all subjects get scheduled.
-    """
-    remaining_subjects = df[df['Exam Date'] == ""].copy()
-    
-    if remaining_subjects.empty:
-        return df
-    
-    st.info(f"🔧 Scheduling {len(remaining_subjects)} remaining individual subjects...")
-    
-    def find_next_valid_day(start_date, holidays_set):
-        current_date = start_date
-        while True:
-            if current_date.weekday() != 6 and current_date.date() not in holidays_set:
-                return current_date
-            current_date += timedelta(days=1)
-    
-    current_date = start_date
-    scheduled_count = 0
-    
-    for idx, row in remaining_subjects.iterrows():
-        exam_date = find_next_valid_day(current_date, holidays)
-        preferred_slot = get_preferred_slot(row['Semester'])
-        
-        date_str = exam_date.strftime("%d-%m-%Y")
-        df.loc[idx, 'Exam Date'] = date_str
-        df.loc[idx, 'Time Slot'] = preferred_slot
-        
-        scheduled_count += 1
-        st.write(f"  ✅ Individual scheduled {row['Subject']} on {date_str}")
-        
-        current_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
-    
-    st.success(f"✅ Scheduled {scheduled_count} individual subjects")
-    return df
-
-
     
 def read_timetable(uploaded_file):
     try:
@@ -2014,7 +1806,6 @@ def main():
             <ul>
                 <li>📊 Excel file processing</li>
                 <li>🎯 Common subjects first scheduling</li>
-                <li>🔄 Gap-filling optimization</li>
                 <li>📄 Stream-wise uncommon scheduling</li>
                 <li>🎓 OE elective optimization</li>
                 <li>⚡ Maximum subjects per day</li>
@@ -2040,16 +1831,38 @@ def main():
                     if df_non_elec is not None:
                         st.write("Processing subjects...")
                         
-                        # UPDATED SCHEDULING ORDER:
+                        # NEW SCHEDULING ORDER:
                         # Step 1: Schedule COMMON subjects FIRST from base date
-                        st.info("🎯 OPTIMIZED SCHEDULING ORDER: Common → Gap-fill → Extend → Electives")
+                        st.info("🎯 NEW SCHEDULING ORDER: Common → Uncommon → Electives")
                         df_scheduled = schedule_common_subjects_first(df_non_elec, holidays_set, base_date)
                         
-                        # Step 2: Schedule UNCOMMON subjects using gap-filling strategy
-                        # This will now fill gaps first, then extend
-                        df_scheduled = schedule_uncommon_subjects_after_common(df_scheduled, holidays_set, base_date)
+                        # Step 2: Find the latest date from scheduled common subjects
+                        scheduled_common = df_scheduled[
+                            (df_scheduled['Exam Date'] != "") & 
+                            (df_scheduled['CommonAcrossSems'] == True)
+                        ]
                         
-                        # Step 3: Handle any remaining unscheduled subjects (individual subjects that couldn't be scheduled in groups)
+                        if not scheduled_common.empty:
+                            scheduled_dates = pd.to_datetime(scheduled_common['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                            if not scheduled_dates.empty:
+                                latest_common_date = max(scheduled_dates)
+                                # Start uncommon subject scheduling from the day after the latest common subject
+                                uncommon_start_date = latest_common_date + timedelta(days=1)
+                                st.write(f"📅 Latest common subject scheduled on: {latest_common_date.strftime('%d-%m-%Y')}")
+                                st.write(f"📅 Will start uncommon subjects from: {uncommon_start_date.strftime('%d-%m-%Y')}")
+                                
+                                # Step 3: Schedule UNCOMMON subjects AFTER common subjects
+                                df_scheduled = schedule_uncommon_subjects_after_common(df_scheduled, holidays_set, uncommon_start_date)
+                            else:
+                                # No common subjects were actually scheduled, start uncommon from base date
+                                st.info("No common subjects were scheduled, starting uncommon subjects from base date")
+                                df_scheduled = schedule_uncommon_subjects_after_common(df_scheduled, holidays_set, base_date)
+                        else:
+                            # No common subjects found, start uncommon from base date
+                            st.info("No common subjects found, starting uncommon subjects from base date")
+                            df_scheduled = schedule_uncommon_subjects_after_common(df_scheduled, holidays_set, base_date)
+                        
+                        # Step 4: Handle any remaining unscheduled subjects (individual subjects that couldn't be scheduled in groups)
                         remaining_subjects = df_scheduled[
                             (df_scheduled['Exam Date'] == "") & 
                             (df_scheduled['Category'] != 'INTD')
@@ -2070,7 +1883,7 @@ def main():
                             else:
                                 df_scheduled = schedule_remaining_individual_subjects(df_scheduled, holidays_set, base_date)
                         
-                        # Step 4: Handle electives if they exist
+                        # Step 5: Handle electives if they exist
                         if df_ele is not None and not df_ele.empty:
                             # Find the maximum date from non-elective scheduling
                             non_elec_dates = pd.to_datetime(df_scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
@@ -2088,7 +1901,7 @@ def main():
                         else:
                             all_scheduled_subjects = df_scheduled
                         
-                        # Step 5: Create semester dictionary
+                        # Step 6: Create semester dictionary
                         all_scheduled_subjects = all_scheduled_subjects[all_scheduled_subjects['Exam Date'] != ""]
                         
                         if not all_scheduled_subjects.empty:
@@ -2101,7 +1914,7 @@ def main():
                                 sem_data = all_scheduled_subjects[all_scheduled_subjects["Semester"] == s].copy()
                                 sem_dict[s] = sem_data
                             
-                            # Step 6: Optimize OE subjects if they exist
+                            # Step 7: Optimize OE subjects if they exist
                             if df_ele is not None and not df_ele.empty:
                                 st.write("Optimizing OE subjects...")
                                 sem_dict, moves_made, optimization_log = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)
@@ -2150,11 +1963,11 @@ def main():
                                     os.remove(temp_pdf_path)
                                 st.session_state.pdf_data = pdf_output.getvalue()
 
-                            st.markdown('<div class="status-success">🎉 Complete timetable generated successfully with GAP-FILLING OPTIMIZATION!</div>',
+                            st.markdown('<div class="status-success">🎉 Complete timetable generated successfully with NEW PRIORITY ORDER!</div>',
                                         unsafe_allow_html=True)
                             
                             # Show scheduling order summary
-                            st.info("✅ **Optimized Scheduling Order Applied:**\n1. 🎯 Common subjects scheduled FIRST from base date\n2. 🔍 Gaps filled between common subjects\n3. 📄 Remaining uncommon subjects scheduled after gaps\n4. 🎓 Electives scheduled LAST")
+                            st.info("✅ **Scheduling Order Applied:**\n1. 🎯 Common subjects scheduled FIRST from base date\n2. 📄 Uncommon subjects scheduled AFTER common subjects\n3. 🎓 Electives scheduled LAST")
                         else:
                             st.warning("No subjects found to schedule.")
 
@@ -2234,7 +2047,7 @@ def main():
 
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.markdown(f'<div class="metric-card"><h3>📚 {st.session_state.total_exams}</h3><p>Total Exams</p></div>',
+            st.markdown(f'<div class="metric-card"><h3>📝 {st.session_state.total_exams}</h3><p>Total Exams</p></div>',
                         unsafe_allow_html=True)
         with col2:
             st.markdown(f'<div class="metric-card"><h3>🎓 {st.session_state.total_semesters}</h3><p>Semesters</p></div>',
@@ -2373,10 +2186,13 @@ def main():
     <div class="footer">
         <p>🎓 <strong>Complete Timetable Generator</strong></p>
         <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Common subjects first • Gap-filling optimization • Stream-wise scheduling • OE optimization • Maximum efficiency • Verification export</p>
+        <p style="font-size: 0.9em;">Common subjects first • Uncommon subjects second • OE optimization • Maximum efficiency • Verification export</p>
     </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
+
+
 
