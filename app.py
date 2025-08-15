@@ -2210,6 +2210,44 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     
     if not df_dict:
         return df_dict, 0, []
+
+    # Helper function to move a subject (defined at the top)
+    def move_subject(df_dict, subject_info, new_date, schedule_grid, old_date, subbranch_sem_key):
+        """Move a single subject to a new date"""
+        try:
+            semester = subject_info['semester']
+            branch = subject_info['branch']
+            subject = subject_info['subject']
+            
+            # Get preferred time slot for this semester
+            preferred_slot = get_preferred_slot(semester)
+            
+            # Update in the semester dictionary
+            mask = (df_dict[semester]['Subject'] == subject) & \
+                   (df_dict[semester]['Branch'] == branch) & \
+                   (df_dict[semester]['SubBranch'] == subject_info['subbranch'])
+            
+            if mask.any():
+                df_dict[semester].loc[mask, 'Exam Date'] = new_date
+                df_dict[semester].loc[mask, 'Time Slot'] = preferred_slot
+                
+                # Update schedule grid
+                # Remove from old date
+                if old_date in schedule_grid and subbranch_sem_key in schedule_grid[old_date]:
+                    del schedule_grid[old_date][subbranch_sem_key]
+                    if not schedule_grid[old_date]:  # If date becomes empty
+                        del schedule_grid[old_date]
+                
+                # Add to new date
+                if new_date not in schedule_grid:
+                    schedule_grid[new_date] = {}
+                schedule_grid[new_date][subbranch_sem_key] = subject_info
+                
+                return True
+        except Exception as e:
+            return False
+        
+        return False
     
     # Combine all data to analyze the schedule
     all_data = pd.concat(df_dict.values(), ignore_index=True)
@@ -2549,45 +2587,6 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                         )
                         break  # Move to next gap
     
-    # Helper function to move a subject
-    def move_subject(df_dict, subject_info, new_date, schedule_grid, old_date, subbranch_sem_key):
-        """Move a single subject to a new date"""
-        try:
-            semester = subject_info['semester']
-            branch = subject_info['branch']
-            subject = subject_info['subject']
-            
-            # Get preferred time slot for this semester
-            preferred_slot = get_preferred_slot(semester)
-            
-            # Update in the semester dictionary
-            mask = (df_dict[semester]['Subject'] == subject) & \
-                   (df_dict[semester]['Branch'] == branch) & \
-                   (df_dict[semester]['SubBranch'] == subject_info['subbranch'])
-            
-            if mask.any():
-                df_dict[semester].loc[mask, 'Exam Date'] = new_date
-                df_dict[semester].loc[mask, 'Time Slot'] = preferred_slot
-                
-                # Update schedule grid
-                # Remove from old date
-                if old_date in schedule_grid and subbranch_sem_key in schedule_grid[old_date]:
-                    del schedule_grid[old_date][subbranch_sem_key]
-                    if not schedule_grid[old_date]:  # If date becomes empty
-                        del schedule_grid[old_date]
-                
-                # Add to new date
-                if new_date not in schedule_grid:
-                    schedule_grid[new_date] = {}
-                schedule_grid[new_date][subbranch_sem_key] = subject_info
-                
-                return True
-        except Exception as e:
-            st.warning(f"Failed to move subject {subject}: {e}")
-            return False
-        
-        return False
-    
     # Calculate span reduction
     if moves_made > 0:
         # Recalculate the schedule span
@@ -2630,44 +2629,6 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         st.info("ℹ️ No beneficial moves found for gap optimization")
     
     return df_dict, moves_made, optimization_log
-
-
-def move_subject(df_dict, subject_info, new_date, schedule_grid, old_date, subbranch_sem_key):
-    """Move a single subject to a new date"""
-    try:
-        semester = subject_info['semester']
-        branch = subject_info['branch']
-        subject = subject_info['subject']
-        
-        # Get preferred time slot for this semester
-        preferred_slot = get_preferred_slot(semester)
-        
-        # Update in the semester dictionary
-        mask = (df_dict[semester]['Subject'] == subject) & \
-               (df_dict[semester]['Branch'] == branch) & \
-               (df_dict[semester]['SubBranch'] == subject_info['subbranch'])
-        
-        if mask.any():
-            df_dict[semester].loc[mask, 'Exam Date'] = new_date
-            df_dict[semester].loc[mask, 'Time Slot'] = preferred_slot
-            
-            # Update schedule grid
-            # Remove from old date
-            if old_date in schedule_grid and subbranch_sem_key in schedule_grid[old_date]:
-                del schedule_grid[old_date][subbranch_sem_key]
-                if not schedule_grid[old_date]:  # If date becomes empty
-                    del schedule_grid[old_date]
-            
-            # Add to new date
-            if new_date not in schedule_grid:
-                schedule_grid[new_date] = {}
-            schedule_grid[new_date][subbranch_sem_key] = subject_info
-            
-            return True
-    except Exception as e:
-        return False
-    
-    return False
 
 def verify_no_double_bookings_across_dict(df_dict):
     """Verify that no subbranch-semester has more than one exam per day across all semesters"""
@@ -3582,6 +3543,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
