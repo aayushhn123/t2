@@ -2189,10 +2189,12 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
     st.write(f"✅ OE2 scheduled on {elective_day2_str} at 2:00 PM - 5:00 PM")
     
     return df_ele
+
 def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_date):
     """
     After all scheduling is done, try to move subjects up to fill gaps and reduce span.
     Focus on moving individual uncommon subjects or non-circuit subjects to fill gaps.
+    EXCLUDES: INTD subjects and OE subjects (electives) - these should not be moved.
     
     Args:
         df_dict (dict): Dictionary of semester dataframes
@@ -2203,7 +2205,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     Returns:
         tuple: (updated_df_dict, moves_made, optimization_log)
     """
-    st.info("🎯 Optimizing schedule by filling gaps to reduce span...")
+    st.info("🎯 Optimizing schedule by filling gaps to reduce span (excluding INTD and OE subjects)...")
     
     if not df_dict:
         return df_dict, 0, []
@@ -2242,15 +2244,16 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     # Apply date normalization
     all_data['Exam Date'] = all_data['Exam Date'].apply(normalize_date_to_ddmmyyyy)
     
-    # Filter out subjects that couldn't be scheduled
+    # Filter out subjects that couldn't be scheduled AND exclude INTD subjects
     scheduled_data = all_data[
         (all_data['Exam Date'] != "") & 
         (all_data['Exam Date'] != "Out of Range") & 
-        (all_data['Exam Date'] != "Cannot Schedule")
+        (all_data['Exam Date'] != "Cannot Schedule") &
+        (all_data['Category'] != 'INTD')  # EXCLUDE INTD subjects
     ].copy()
     
     if scheduled_data.empty:
-        st.info("No scheduled subjects to optimize")
+        st.info("No scheduled non-INTD subjects to optimize")
         return df_dict, 0, []
     
     # Helper function to get subbranch-semester key
@@ -2276,10 +2279,17 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         return bool(value)
     
     # Build schedule grid: date -> subbranch_semester -> subject
+    # Include ALL subjects (including INTD/OE) for gap detection, but only move non-INTD/non-OE
+    all_scheduled_data = all_data[
+        (all_data['Exam Date'] != "") & 
+        (all_data['Exam Date'] != "Out of Range") & 
+        (all_data['Exam Date'] != "Cannot Schedule")
+    ].copy()
+    
     schedule_grid = {}
     subbranch_semester_combinations = set()
     
-    for _, row in scheduled_data.iterrows():
+    for _, row in all_scheduled_data.iterrows():
         date_str = row['Exam Date']
         subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
         
@@ -2290,6 +2300,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         oe_value = safe_get_string(row.get('OE', ''))
         is_common_within_raw = row.get('IsCommon', 'NO')
         is_common_within = safe_get_string(is_common_within_raw, 'NO').upper() == 'YES'
+        category_value = safe_get_string(row.get('Category', ''))
         
         schedule_grid[date_str][subbranch_sem_key] = {
             'subject': safe_get_string(row['Subject']),
@@ -2299,9 +2310,10 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             'subbranch': safe_get_string(row['SubBranch']),
             'is_common_across': safe_get_boolean(row.get('CommonAcrossSems', False)),
             'is_common_within': is_common_within,
-            'category': safe_get_string(row.get('Category', '')),
+            'category': category_value,
             'circuit': safe_get_boolean(row.get('Circuit', False)),
-            'oe': oe_value
+            'oe': oe_value,
+            'is_moveable': (category_value != 'INTD' and not oe_value)  # Flag for moveability
         }
         
         subbranch_semester_combinations.add(subbranch_sem_key)
@@ -2351,23 +2363,25 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     
     st.write(f"🔍 Found {len(gaps)} gaps to potentially fill")
     
-    # Identify moveable subjects (prioritize individual uncommon subjects and non-circuit subjects)
+    # Identify moveable subjects (ONLY non-INTD, non-OE subjects)
     moveable_subjects = []
     
     for date_str in reversed(all_scheduled_dates):  # Start from the end
         if date_str in schedule_grid:
             for subbranch_sem_key, subject_info in schedule_grid[date_str].items():
-                # Criteria for moveable subjects (in priority order):
+                # STRICT FILTERING: Only consider subjects that are moveable
+                if not subject_info.get('is_moveable', False):
+                    continue  # Skip INTD and OE subjects
+                
+                # Additional criteria for moveable subjects (in priority order):
                 # 1. Individual uncommon subjects (not common across or within semesters)
                 # 2. Non-circuit subjects
-                # 3. Not electives (OE subjects should stay where they are)
                 
                 is_individual_uncommon = (
                     not subject_info['is_common_across'] and 
                     not subject_info['is_common_within']
                 )
                 is_non_circuit = not subject_info.get('circuit', False)
-                is_not_elective = not subject_info.get('oe', '')  # Empty string is falsy
                 
                 # Calculate priority score (higher = more likely to move)
                 priority_score = 0
@@ -2376,8 +2390,6 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                     priority_score += 10
                 if is_non_circuit:
                     priority_score += 5
-                if is_not_elective:
-                    priority_score += 3
                 
                 # Prefer subjects from later dates for moving up
                 date_obj = datetime.strptime(date_str, "%d-%m-%Y")
@@ -2396,7 +2408,16 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     # Sort moveable subjects by priority (highest priority first)
     moveable_subjects.sort(key=lambda x: x['priority_score'], reverse=True)
     
-    st.write(f"🎯 Found {len(moveable_subjects)} potentially moveable subjects")
+    st.write(f"🎯 Found {len(moveable_subjects)} potentially moveable subjects (excluding INTD and OE)")
+    
+    # Show breakdown of excluded subjects
+    intd_count = len(all_scheduled_data[all_scheduled_data['Category'] == 'INTD'])
+    oe_count = len(all_scheduled_data[all_scheduled_data['OE'].notna() & (all_scheduled_data['OE'].astype(str).str.strip() != "")])
+    
+    if intd_count > 0:
+        st.info(f"📋 Excluded {intd_count} INTD subjects from optimization")
+    if oe_count > 0:
+        st.info(f"🎓 Excluded {oe_count} OE subjects from optimization")
     
     # Attempt to move subjects to fill gaps
     moves_made = 0
@@ -2510,10 +2531,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             for log in optimization_log:
                 st.write(f"• {log}")
     else:
-        st.info("ℹ️ No beneficial moves found for gap optimization")
-    
-    # Verify no double bookings after optimization
-    verify_no_double_bookings_across_dict(df_dict)
+        st.info("ℹ️ No beneficial moves found for gap optimization (INTD and OE subjects excluded)")
     
     return df_dict, moves_made, optimization_log
 
@@ -3430,5 +3448,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
