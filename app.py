@@ -2989,94 +2989,75 @@ def main():
                             # Create a simple table format
                             display_data = []
                             for date, group in df_non_elec.groupby('Exam Date'):
-                               date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
-                               row_data = {'Exam Date': date_str}
+                                date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
+                                row_data = {'Exam Date': date_str}
                                
-                               # Add subjects for each SubBranch
-                               for subbranch in df_non_elec['SubBranch'].unique():
-                                   subbranch_subjects = group[group['SubBranch'] == subbranch]['SubjectDisplay'].tolist()
-                                   row_data[subbranch] = ", ".join(subbranch_subjects) if subbranch_subjects else "---"
+                                # Add subjects for each SubBranch
+                                for subbranch in df_non_elec['SubBranch'].unique():
+                                    subbranch_subjects = group[group['SubBranch'] == subbranch]['SubjectDisplay'].tolist()
+                                    row_data[subbranch] = ", ".join(subbranch_subjects) if subbranch_subjects else "---"
                                
-                               display_data.append(row_data)
+                                display_data.append(row_data)
                            
-                           if display_data:
-                               display_df = pd.DataFrame(display_data)
-                               display_df = display_df.set_index('Exam Date')
-                               st.dataframe(display_df, use_container_width=True)
-                           else:
-                               st.write("No core subjects to display")
+                            if display_data:
+                                display_df = pd.DataFrame(display_data)
+                                display_df = display_df.set_index('Exam Date')
+                                st.dataframe(display_df, use_container_width=True)
+                            else:
+                                st.write("No core subjects to display")
                                
-                       except Exception as e:
-                           st.error(f"Error displaying core subjects: {str(e)}")
-                           # Fallback: show raw data
-                           st.write("Showing raw data:")
-                           display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot']
-                           available_cols = [col for col in display_cols if col in df_non_elec.columns]
-                           st.dataframe(df_non_elec[available_cols], use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error displaying core subjects: {str(e)}")
+                            # Fallback: show raw data
+                            st.write("Showing raw data:")
+                            display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot']
+                            available_cols = [col for col in display_cols if col in df_non_elec.columns]
+                            st.dataframe(df_non_elec[available_cols], use_container_width=True)
 
-                   # Display electives  
-                   if not df_elec.empty:
-                       st.markdown(f"#### {main_branch_full} - Open Electives")
+                    # Display electives  
+                    if not df_elec.empty:
+                        st.markdown(f"#### {main_branch_full} - Open Electives")
                        
-                       try:
-                           # Apply formatting
-                           df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
-                           df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                           df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                        try:
+                            # Apply formatting
+                            df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
+                            df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
+                            df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
                            
-                           # Create elective display
-                           elec_display_data = []
-                           for (oe_type, date), group in df_elec.groupby(['OE', 'Exam Date']):
-                               date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
-                               subjects = ", ".join(group['SubjectDisplay'].tolist())
-                               elec_display_data.append({
-                                   'Exam Date': date_str,
-                                   'OE Type': oe_type,
-                                   'Subjects': subjects
-                               })
+                            # Create elective display
+                            elec_display_data = []
+                            for (oe_type, date), group in df_elec.groupby(['OE', 'Exam Date']):
+                                date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
+                                subjects = ", ".join(group['SubjectDisplay'].tolist())
+                                elec_display_data.append({
+                                    'Exam Date': date_str,
+                                    'OE Type': oe_type,
+                                    'Subjects': subjects
+                                })
                            
-                           if elec_display_data:
-                               elec_display_df = pd.DataFrame(elec_display_data)
-                               st.dataframe(elec_display_df, use_container_width=True)
-                           else:
-                               st.write("No elective subjects to display")
+                            if elec_display_data:
+                                elec_display_df = pd.DataFrame(elec_display_data)
+                                st.dataframe(elec_display_df, use_container_width=True)
+                            else:
+                                st.write("No elective subjects to display")
                                
-                       except Exception as e:
-                           st.error(f"Error displaying elective subjects: {str(e)}")
-                           # Fallback: show raw data
-                           st.write("Showing raw data:")
-                           display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot']
-                           available_cols = [col for col in display_cols if col in df_elec.columns]
-                           st.dataframe(df_elec[available_cols], use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error displaying elective subjects: {str(e)}")
+                            # Fallback: show raw data
+                            st.write("Showing raw data:")
+                            display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot']
+                            available_cols = [col for col in display_cols if col in df_elec.columns]
+                            st.dataframe(df_elec[available_cols], use_container_width=True)
 
-   # Display footer
-   st.markdown("---")
-   st.markdown("""
-   <div class="footer">
-       <p>🎓 <strong>Three-Phase Timetable Generator with Date Range Control & Gap-Filling</strong></p>
-       <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-       <p style="font-size: 0.9em;">Common across semesters first • Common within semester • Gap-filling optimization • One exam per day per branch • OE optimization • Date range enforcement • Maximum efficiency • Verification export</p>
-   </div>
-   """, unsafe_allow_html=True)
+    # Display footer
+    st.markdown("---")
+    st.markdown("""
+    <div class="footer">
+        <p>🎓 <strong>Three-Phase Timetable Generator with Date Range Control & Gap-Filling</strong></p>
+        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
+        <p style="font-size: 0.9em;">Common across semesters first • Common within semester • Gap-filling optimization • One exam per day per branch • OE optimization • Date range enforcement • Maximum efficiency • Verification export</p>
+    </div>
+    """, unsafe_allow_html=True)
     
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
