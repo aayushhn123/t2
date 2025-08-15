@@ -2994,8 +2994,8 @@ def main():
                                 sem_dict[s] = sem_data
                             
                             st.write("Optimizing schedule by filling gaps...")
-                                sem_dict, gap_moves_made, gap_optimization_log = optimize_schedule_by_filling_gaps(
-                                sem_dict, holidays_set, base_date, end_date
+                            sem_dict, gap_moves_made, gap_optimization_log = optimize_schedule_by_filling_gaps(
+                            sem_dict, holidays_set, base_date, end_date
                             )
 
                             # Step 8: Optimize OE subjects AFTER gap optimization
@@ -3394,6 +3394,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
