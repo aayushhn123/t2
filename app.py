@@ -1580,29 +1580,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     excel_data = save_to_excel(semester_wise_timetable)
     
     if excel_data:
-        st.write(f"💾 Saving temporary Excel file to: {temp_excel}")
-        try:
-            with open(temp_excel, "wb") as f:
-                f.write(excel_data.getvalue())
-            st.write("✅ Temporary Excel file saved successfully")
-            
-            # Verify the Excel file was created and has content
-            if os.path.exists(temp_excel):
-                file_size = os.path.getsize(temp_excel)
-                st.write(f"📋 Excel file size: {file_size} bytes")
-                
-
-                            
-                except Exception as e:
-                    st.error(f"❌ Error reading back Excel file for verification: {e}")
-            else:
-                st.error(f"❌ Temporary Excel file was not created at {temp_excel}")
-                return
-            
-        except Exception as e:
-            st.error(f"❌ Error saving temporary Excel file: {e}")
-            return
-            
+        st.write(f"💾 Saving temporary Excel file to: {temp_excel}")            
         #st.write("🎨 Converting Excel to PDF...")
         try:
             convert_excel_to_pdf(temp_excel, output_pdf)
@@ -3418,6 +3396,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
