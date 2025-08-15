@@ -3223,37 +3223,56 @@ def main():
                 non_elec_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                 if not non_elec_dates.empty:
                     non_elec_range = (max(non_elec_dates) - min(non_elec_dates)).days + 1
-                    non_elec_start = min(non_elec_dates).strftime("%d-%m")
-                    non_elec_end = max(non_elec_dates).strftime("%d-%m")
-                    non_elec_display = f"{non_elec_range} days"
-                    non_elec_tooltip = f"({non_elec_start} to {non_elec_end})"
+                    non_elec_start = min(non_elec_dates).strftime("%-d %B")  # e.g., "1 April"
+                    non_elec_end = max(non_elec_dates).strftime("%-d %B")    # e.g., "20 April"
+            
+                    if non_elec_start == non_elec_end:
+                        non_elec_display = f"{non_elec_start}"
+                    else:
+                        non_elec_display = f"{non_elec_start} to {non_elec_end}"
                 else:
-                    non_elec_display = "0 days"
-                    non_elec_tooltip = "(No dates)"
+                    non_elec_display = "No dates"
             else:
-                non_elec_display = "0 days"
-                non_elec_tooltip = "(No subjects)"
+                non_elec_display = "No subjects"
     
             # Calculate OE date range
             if not oe_data.empty:
                 oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                 if not oe_dates.empty:
                     oe_range = (max(oe_dates) - min(oe_dates)).days + 1
-                    oe_start = min(oe_dates).strftime("%d-%m")
-                    oe_end = max(oe_dates).strftime("%d-%m")
-                    oe_display = f"{oe_range} days"
-                    oe_tooltip = f"({oe_start} to {oe_end})"
+                    unique_oe_dates = sorted(oe_dates.dt.strftime("%-d %B").unique())
+            
+                    if len(unique_oe_dates) == 1:
+                        oe_display = unique_oe_dates[0]
+                    elif len(unique_oe_dates) == 2:
+                        oe_display = f"{unique_oe_dates[0]}, {unique_oe_dates[1]}"
+                    else:
+                        oe_start = unique_oe_dates[0]
+                        oe_end = unique_oe_dates[-1]
+                        oe_display = f"{oe_start} to {oe_end}"
                 else:
-                    oe_display = "0 days"
-                    oe_tooltip = "(No dates)"
+                    oe_display = "No dates"
             else:
-                oe_display = "0 days"
-                oe_tooltip = "(No OE subjects)"
+                oe_display = "No OE subjects"
+    
+            # Calculate gap between non-elective and OE
+            if not non_elective_data.empty and not oe_data.empty:
+                non_elec_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+        
+                if not non_elec_dates.empty and not oe_dates.empty:
+                    max_non_elec = max(non_elec_dates)
+                    min_oe = min(oe_dates)
+                    gap_days = (min_oe - max_non_elec).days - 1
+                    gap_display = f"{max(0, gap_days)} days"
+                else:
+                    gap_display = "N/A"
+            else:
+                gap_display = "N/A"
         else:
-            non_elec_display = "0 days"
-            non_elec_tooltip = "(No data)"
-            oe_display = "0 days" 
-            oe_tooltip = "(No data)"
+            non_elec_display = "No data"
+            oe_display = "No data"
+            gap_display = "N/A"
 
         # Display metrics in two rows
         col1, col2, col3, col4 = st.columns(4)
@@ -3270,44 +3289,50 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Overall Span</p></div>',
                         unsafe_allow_html=True)
 
-        # Second row with new metrics
-        col1, col2, col3, col4 = st.columns(4)
+        # Second row with date range information
+        st.markdown("### 📅 Examination Schedule Breakdown")
+
+        col1, col2 = st.columns(2)
         with col1:
-            st.markdown(f'<div class="metric-card" title="{non_elec_tooltip}"><h3>📖 {non_elec_display}</h3><p>Non-Elective Range</p></div>',
-                        unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="metric-card" style="text-align: left; padding: 1rem;">
+                <h4 style="margin: 0; color: white;">📖 Non-Elective Exams</h4>
+                <p style="margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.9;">{non_elec_display}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
         with col2:
-            st.markdown(f'<div class="metric-card" title="{oe_tooltip}"><h3>🎓 {oe_display}</h3><p>OE Range</p></div>',
-                        unsafe_allow_html=True)
-        with col3:
+            st.markdown(f"""
+            <div class="metric-card" style="text-align: left; padding: 1rem;">
+                <h4 style="margin: 0; color: white;">🎓 Open Elective (OE) Exams</h4>
+                <p style="margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.9;">{oe_display}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Additional metrics row
+        col1, col2, col3 = st.columns(3)
+        with col1:
             st.markdown(f'<div class="metric-card"><h3>📊 {st.session_state.unique_exam_days}</h3><p>Unique Exam Days</p></div>',
                         unsafe_allow_html=True)
-        with col4:
-            # Calculate gap between non-elective and OE
-            if st.session_state.timetable_data and not non_elective_data.empty and not oe_data.empty:
-                non_elec_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-        
-                if not non_elec_dates.empty and not oe_dates.empty:
-                    max_non_elec = max(non_elec_dates)
-                    min_oe = min(oe_dates)
-                    gap_days = (min_oe - max_non_elec).days - 1
-                    gap_display = f"{max(0, gap_days)} days"
-                    gap_tooltip = f"Gap between non-elective and OE"
-                else:
-                    gap_display = "N/A"
-                    gap_tooltip = "Cannot calculate"
+        with col2:
+            st.markdown(f'<div class="metric-card"><h3>⚡ {gap_display}</h3><p>Non-Elec to OE Gap</p></div>',
+                        unsafe_allow_html=True)
+        with col3:
+            # Calculate efficiency percentage
+            if st.session_state.unique_exam_days > 0 and st.session_state.overall_date_range > 0:
+                efficiency = (st.session_state.unique_exam_days / st.session_state.overall_date_range) * 100
+                efficiency_display = f"{efficiency:.1f}%"
             else:
-                gap_display = "N/A"
-                gap_tooltip = "No data available"
+                efficiency_display = "N/A"
     
-            st.markdown(f'<div class="metric-card" title="{gap_tooltip}"><h3>⚡ {gap_display}</h3><p>Non-Elec to OE Gap</p></div>',
+            st.markdown(f'<div class="metric-card"><h3>🎯 {efficiency_display}</h3><p>Schedule Efficiency</p></div>',
                         unsafe_allow_html=True)
 
         # Show efficiency metrics
         if st.session_state.unique_exam_days > 0 and st.session_state.overall_date_range > 0:
             efficiency = (st.session_state.unique_exam_days / st.session_state.overall_date_range) * 100
             if efficiency > 80:
-                st.success(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Excellent - most days are utilized)")
+                st.success(f"🎯 **HAAAA efff:** {efficiency:.1f}% (Excellent - most days are utilized)")
             elif efficiency > 60:
                 st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
             else:
@@ -3475,6 +3500,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
