@@ -2257,6 +2257,24 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     def get_subbranch_semester_key(subbranch, semester):
         return f"{subbranch}_{semester}"
     
+    # Helper function to safely get string value (handles NaN)
+    def safe_get_string(value, default=""):
+        """Safely get string value from potentially NaN/None values"""
+        if pd.isna(value) or value is None:
+            return default
+        return str(value).strip()
+    
+    # Helper function to safely get boolean value
+    def safe_get_boolean(value, default=False):
+        """Safely get boolean value from potentially NaN/None values"""
+        if pd.isna(value) or value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().upper() in ['TRUE', 'YES', '1']
+        return bool(value)
+    
     # Build schedule grid: date -> subbranch_semester -> subject
     schedule_grid = {}
     subbranch_semester_combinations = set()
@@ -2268,17 +2286,22 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         if date_str not in schedule_grid:
             schedule_grid[date_str] = {}
         
+        # Safely extract values with proper NaN handling
+        oe_value = safe_get_string(row.get('OE', ''))
+        is_common_within_raw = row.get('IsCommon', 'NO')
+        is_common_within = safe_get_string(is_common_within_raw, 'NO').upper() == 'YES'
+        
         schedule_grid[date_str][subbranch_sem_key] = {
-            'subject': row['Subject'],
-            'branch': row['Branch'],
+            'subject': safe_get_string(row['Subject']),
+            'branch': safe_get_string(row['Branch']),
             'index': row.name,
             'semester': row['Semester'],
-            'subbranch': row['SubBranch'],
-            'is_common_across': row.get('CommonAcrossSems', False),
-            'is_common_within': row.get('IsCommon', 'NO') == 'YES',
-            'category': row.get('Category', ''),
-            'circuit': row.get('Circuit', False),
-            'oe': row.get('OE', '')
+            'subbranch': safe_get_string(row['SubBranch']),
+            'is_common_across': safe_get_boolean(row.get('CommonAcrossSems', False)),
+            'is_common_within': is_common_within,
+            'category': safe_get_string(row.get('Category', '')),
+            'circuit': safe_get_boolean(row.get('Circuit', False)),
+            'oe': oe_value
         }
         
         subbranch_semester_combinations.add(subbranch_sem_key)
@@ -2344,7 +2367,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                     not subject_info['is_common_within']
                 )
                 is_non_circuit = not subject_info.get('circuit', False)
-                is_not_elective = not subject_info.get('oe', '').strip()
+                is_not_elective = not subject_info.get('oe', '')  # Empty string is falsy
                 
                 # Calculate priority score (higher = more likely to move)
                 priority_score = 0
@@ -3407,4 +3430,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
