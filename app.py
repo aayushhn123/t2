@@ -1599,6 +1599,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
                     # Show structure of first few sheets
                     for i, (sheet_name, sheet_df) in enumerate(test_sheets.items()):
                         if i < 3:  # Only show first 3 sheets
+                            pass
                             #st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
                             
                 except Exception as e:
@@ -3426,6 +3427,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
