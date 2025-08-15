@@ -1580,7 +1580,37 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     excel_data = save_to_excel(semester_wise_timetable)
     
     if excel_data:
-        st.write(f"💾 Saving temporary Excel file to: {temp_excel}")            
+        st.write(f"💾 Saving temporary Excel file to: {temp_excel}")
+        try:
+            with open(temp_excel, "wb") as f:
+                f.write(excel_data.getvalue())
+            st.write("✅ Temporary Excel file saved successfully")
+            
+            # Verify the Excel file was created and has content
+            if os.path.exists(temp_excel):
+                file_size = os.path.getsize(temp_excel)
+                st.write(f"📋 Excel file size: {file_size} bytes")
+                
+                # Read back and verify sheets
+                try:
+                    test_sheets = pd.read_excel(temp_excel, sheet_name=None)
+                    #st.write(f"📊 Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
+                    
+                    # Show structure of first few sheets
+                    for i, (sheet_name, sheet_df) in enumerate(test_sheets.items()):
+                        if i < 3:  # Only show first 3 sheets
+                            #st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
+                            
+                except Exception as e:
+                    st.error(f"❌ Error reading back Excel file for verification: {e}")
+            else:
+                st.error(f"❌ Temporary Excel file was not created at {temp_excel}")
+                return
+            
+        except Exception as e:
+            st.error(f"❌ Error saving temporary Excel file: {e}")
+            return
+            
         #st.write("🎨 Converting Excel to PDF...")
         try:
             convert_excel_to_pdf(temp_excel, output_pdf)
@@ -3396,9 +3426,6 @@ def main():
     
 if __name__ == "__main__":
     main()
-
-
-
 
 
 
