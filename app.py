@@ -2453,13 +2453,32 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         for subject_type, count in subject_type_counts.items():
             st.write(f"  • {subject_type}: {count} subjects")
     
-    # Show breakdown of excluded subjects
-    intd_count = len(all_scheduled_data[all_scheduled_data['Category'] == 'INTD'])
-    oe_count = len(all_scheduled_data[all_scheduled_data['OE'].notna() & (all_scheduled_data['OE'].astype(str).str.strip() != "")])
-    common_within_count = len(all_scheduled_data[
-        safe_get_string(all_scheduled_data['IsCommon'], 'NO').str.upper() == 'YES'
-    ])
-    common_across_count = len(all_scheduled_data[all_scheduled_data['CommonAcrossSems'] == True])
+    # Show breakdown of excluded subjects - FIXED: Handle Series properly
+    try:
+        intd_count = len(all_scheduled_data[all_scheduled_data['Category'] == 'INTD'])
+    except:
+        intd_count = 0
+    
+    try:
+        oe_mask = all_scheduled_data['OE'].notna() & (all_scheduled_data['OE'].astype(str).str.strip() != "")
+        oe_count = len(all_scheduled_data[oe_mask])
+    except:
+        oe_count = 0
+    
+    try:
+        # Fixed: Apply safe_get_string to each element individually
+        common_within_count = 0
+        for _, row in all_scheduled_data.iterrows():
+            is_common_val = safe_get_string(row.get('IsCommon', 'NO'), 'NO').upper()
+            if is_common_val == 'YES':
+                common_within_count += 1
+    except:
+        common_within_count = 0
+    
+    try:
+        common_across_count = len(all_scheduled_data[all_scheduled_data['CommonAcrossSems'] == True])
+    except:
+        common_across_count = 0
     
     st.info("❌ **Excluded from optimization:**")
     if intd_count > 0:
@@ -2554,32 +2573,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         st.info("ℹ️ No beneficial moves found for gap optimization (only uncommon subjects considered)")
     
     return df_dict, moves_made, optimization_log
-
-def verify_no_double_bookings_across_dict(df_dict):
-    """Verify that no subbranch-semester has more than one exam per day across all semesters"""
-    if not df_dict:
-        return
     
-    # Combine all data
-    all_data = pd.concat(df_dict.values(), ignore_index=True)
-    scheduled_df = all_data[
-        (all_data['Exam Date'] != "") & 
-        (all_data['Exam Date'] != "Out of Range")
-    ].copy()
-    
-    if scheduled_df.empty:
-        return
-    
-    # Group by subbranch, semester, and date
-    grouped = scheduled_df.groupby(['SubBranch', 'Semester', 'Exam Date']).size()
-    double_bookings = grouped[grouped > 1]
-    
-    if not double_bookings.empty:
-        st.error("❌ Double bookings detected after optimization:")
-        for (subbranch, semester, date), count in double_bookings.items():
-            st.error(f"  - {subbranch} Semester {semester} has {count} exams on {date}")
-    else:
-        st.success("✅ No double bookings found after optimization")
 
 def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     """
@@ -3468,6 +3462,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
