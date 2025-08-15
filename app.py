@@ -1365,13 +1365,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 num -= value
         return result
 
-    def extract_duration(subject_str):
-        match = re.search(r'\[Duration: (\d+\.?\d*) hrs\]', subject_str)
-        if match:
-            return float(match.group(1))
-        else:
-            return 3.0
-
     def get_semester_default_time_slot(semester, branch):
         # Get default time slot based on semester
         if semester.isdigit():
@@ -1382,8 +1375,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     sheets_processed = 0
     
     for sheet_name, sheet_df in df_dict.items():
-        #st.write(f"🔄 Processing sheet: {sheet_name}")
-        
         if sheet_df.empty:
             st.warning(f"⚠️ Sheet {sheet_name} is empty, skipping")
             continue
@@ -1407,8 +1398,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
         # Handle normal subjects (non-electives)
         if not sheet_name.endswith('_Electives'):
-            #st.write(f"📋 Processing core subjects for {sheet_name}")
-            
             # Check if 'Exam Date' column exists
             if 'Exam Date' not in sheet_df.columns:
                 st.warning(f"⚠️ Missing 'Exam Date' column in sheet {sheet_name}")
@@ -1461,8 +1450,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
 
-                #st.write(f"📄 Creating PDF page for {sheet_name} with {len(chunk_df)} exam dates")
-
                 # Get the default time slot for this semester
                 default_time_slot = get_semester_default_time_slot(semester, main_branch)
 
@@ -1474,28 +1461,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     # Try alternative date parsing
                     chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
 
-                # Process subjects to handle duration and timing information
-                for sub_branch in chunk:
-                    for idx in chunk_df.index:
-                        cell_value = chunk_df.at[idx, sub_branch]
-                        if pd.isna(cell_value) or str(cell_value).strip() == "---" or str(cell_value).strip() == "":
-                            continue
-                            
-                        subjects = str(cell_value).split(", ")
-                        modified_subjects = []
-                        for subject in subjects:
-                            duration = extract_duration(subject)
-                            base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                            
-                            # Handle non-standard durations: show specific time range
-                            if duration != 3:
-                                start_time = default_time_slot.split(" - ")[0]
-                                end_time = calculate_end_time(start_time, duration)
-                                modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
-                            else:
-                                modified_subjects.append(base_subject)
-                        
-                        chunk_df.at[idx, sub_branch] = ", ".join(modified_subjects)
+                # NOTE: The subjects in the Excel already contain the exam times where needed
+                # due to the changes in save_to_excel function, so no additional processing needed here
 
                 # Calculate column widths
                 page_width = pdf.w - 2 * pdf.l_margin
@@ -1516,12 +1483,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                                  header_content=header_content, branches=chunk, time_slot=default_time_slot)
                 
                 sheets_processed += 1
-                #st.write(f"✅ Added PDF page for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
 
-        # Handle electives
+        # Handle electives (similar logic - exam times already included in Excel)
         elif sheet_name.endswith('_Electives'):
-            #st.write(f"🎓 Processing electives for {sheet_name}")
-            
             # Ensure we have the required columns
             required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
             available_cols = [col for col in required_cols if col in sheet_df.columns]
@@ -1540,53 +1504,31 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 st.info(f"ℹ️ No elective data found for {sheet_name}")
                 continue
 
-            #st.write(f"📊 Processing {len(elective_data)} elective entries")
-
             # Convert Exam Date to desired format
             try:
-                elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+               elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
             except Exception as e:
-                st.warning(f"Date conversion error in electives {sheet_name}: {e}")
-                elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
+               st.warning(f"Date conversion error in electives {sheet_name}: {e}")
+               elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
 
+            # NOTE: Elective subjects already contain exam times where needed from save_to_excel function
             # Clean subject display if SubjectDisplay column exists
             if 'SubjectDisplay' in elective_data.columns and 'OE' in elective_data.columns:
-                elective_data['SubjectDisplay'] = elective_data.apply(
-                    lambda row: ", ".join([s.replace(f" [{row['OE']}]", "") for s in str(row['SubjectDisplay']).split(", ") if str(s).strip()]),
-                    axis=1
-                )
-            
-            # Handle subjects with non-standard durations
-            default_time_slot = get_semester_default_time_slot(semester, main_branch)
-            if 'SubjectDisplay' in elective_data.columns:
-                for idx in elective_data.index:
-                    cell_value = elective_data.at[idx, 'SubjectDisplay']
-                    if pd.isna(cell_value) or str(cell_value).strip() == "---":
-                        continue
-                    subjects = str(cell_value).split(", ")
-                    modified_subjects = []
-                    for subject in subjects:
-                        duration = extract_duration(subject)
-                        base_subject = re.sub(r' \[Duration: \d+\.?\d* hrs\]', '', subject)
-                        
-                        if duration != 3:
-                            start_time = default_time_slot.split(" - ")[0]
-                            end_time = calculate_end_time(start_time, duration)
-                            modified_subjects.append(f"{base_subject} ({start_time} - {end_time})")
-                        else:
-                            modified_subjects.append(base_subject)
-                    
-                    elective_data.at[idx, 'SubjectDisplay'] = ", ".join(modified_subjects)
+               # Remove OE tags that might be duplicated since they're already in the subject display
+               elective_data['SubjectDisplay'] = elective_data.apply(
+                   lambda row: str(row['SubjectDisplay']).replace(f" [{row['OE']}]", f" [{row['OE']}]") if pd.notna(row['SubjectDisplay']) else "",
+                   axis=1
+               )
 
             # Rename columns for clarity in the PDF
             column_mapping = {
-                'OE': 'OE Type',
-                'SubjectDisplay': 'Subjects'
+               'OE': 'OE Type',
+               'SubjectDisplay': 'Subjects'
             }
-            
+           
             for old_col, new_col in column_mapping.items():
-                if old_col in elective_data.columns:
-                    elective_data = elective_data.rename(columns={old_col: new_col})
+               if old_col in elective_data.columns:
+                   elective_data = elective_data.rename(columns={old_col: new_col})
 
             # Set column widths
             exam_date_width = 60
@@ -1594,34 +1536,36 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
             col_widths = [exam_date_width, oe_width, subject_width]
             cols_to_print = [col for col in ['Exam Date', 'OE Type', 'Subjects'] if col in elective_data.columns]
-            
+           
             # Adjust column widths based on available columns
             if len(cols_to_print) == 2:
-                col_widths = col_widths[:2]
-                col_widths[1] = subject_width + oe_width
-            
+               col_widths = col_widths[:2]
+               col_widths[1] = subject_width + oe_width
+           
             # Add page and print table
             pdf.add_page()
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
-            
+           
+            # Get default time slot for electives
+            default_time_slot = get_semester_default_time_slot(semester, main_branch)
+           
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                             header_content=header_content, branches=['All Streams'], time_slot=default_time_slot)
-            
+                            header_content=header_content, branches=['All Streams'], time_slot=default_time_slot)
+           
             sheets_processed += 1
-            #st.write(f"✅ Added PDF page for electives {sheet_name}")
 
     if sheets_processed == 0:
-        st.error("❌ No sheets were processed for PDF generation!")
-        return
-    
+       st.error("❌ No sheets were processed for PDF generation!")
+       return
+   
     try:
-        pdf.output(pdf_path)
-        st.success(f"✅ PDF generated successfully with {sheets_processed} pages")
+       pdf.output(pdf_path)
+       st.success(f"✅ PDF generated successfully with {sheets_processed} pages")
     except Exception as e:
-        st.error(f"❌ Error saving PDF: {e}")
-        import traceback
-        st.error(f"Traceback: {traceback.format_exc()}")
+       st.error(f"❌ Error saving PDF: {e}")
+       import traceback
+       st.error(f"Traceback: {traceback.format_exc()}")
    
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     st.write("🔄 Starting PDF generation process...")
@@ -1743,11 +1687,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
         st.error("No timetable data provided for verification")
         return None
 
-    
     # Combine all scheduled data first
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
 
-    
     # Extract ModuleCode from scheduled data more robustly
     scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False)
     
@@ -1792,8 +1734,8 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     # Add new columns for scheduled information
     verification_df["Exam Date"] = ""
-    verification_df["Exam Time"] = ""
-    verification_df["Time Slot"] = ""
+    verification_df["Time Slot"] = ""  # Semester default timing
+    verification_df["Exam Time"] = ""  # Subject-specific timing
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
 
@@ -1801,7 +1743,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
     matched_count = 0
     unmatched_count = 0
     
-    # IMPROVED: Create lookup dictionaries for faster matching
     # Create comprehensive lookup for scheduled subjects
     scheduled_lookup = {}
     for idx, row in scheduled_data.iterrows():
@@ -1886,7 +1827,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             if match_found:
                 # Found a match
                 exam_date = matched_subject["Exam Date"]
-                time_slot = matched_subject["Time Slot"]
+                assigned_time_slot = matched_subject["Time Slot"]
                 duration = row.get("Exam Duration", 3.0)
                 
                 # Handle duration
@@ -1895,38 +1836,42 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 except:
                     duration = 3.0
                 
-                # UPDATED: Calculate exam time based on duration and common subject rules
-                if time_slot and str(time_slot).strip() and str(time_slot) != "nan":
+                # UPDATED: Calculate Time Slot (semester default) and Exam Time (subject-specific)
+                semester_default_slot = get_preferred_slot(semester_num)
+                
+                # Time Slot = Semester default timing
+                verification_df.at[idx, "Time Slot"] = semester_default_slot
+                
+                # Exam Time = Subject-specific timing
+                if assigned_time_slot and str(assigned_time_slot).strip() and str(assigned_time_slot) != "nan":
                     try:
-                        # For non-standard durations, show specific time range
+                        # Calculate subject-specific exam time based on duration
                         if duration != 3:
-                            start_time = str(time_slot).split(" - ")[0].strip()
+                            # Non-standard duration: calculate specific time range
+                            start_time = str(assigned_time_slot).split(" - ")[0].strip()
                             end_time = calculate_end_time(start_time, duration)
                             exam_time = f"{start_time} - {end_time}"
-                        # For common subjects, show the actual assigned time slot
-                        elif matched_subject.get('CommonAcrossSems', False):
-                            semester_default = get_preferred_slot(semester_num)
-                            if time_slot != semester_default:
-                                exam_time = str(time_slot)
+                        else:
+                            # Standard 3-hour duration
+                            if assigned_time_slot != semester_default_slot:
+                                # Common subject with different timing than semester default
+                                exam_time = str(assigned_time_slot)
                             else:
-                                start_time = str(time_slot).split(" - ")[0].strip()
+                                # Regular subject with semester default timing
+                                start_time = str(assigned_time_slot).split(" - ")[0].strip()
                                 end_time = calculate_end_time(start_time, duration)
                                 exam_time = f"{start_time} - {end_time}"
-                        else:
-                            start_time = str(time_slot).split(" - ")[0].strip()
-                            end_time = calculate_end_time(start_time, duration)
-                            exam_time = f"{start_time} - {end_time}"
+                        
+                        verification_df.at[idx, "Exam Time"] = exam_time
+                        
                     except Exception as e:
                         st.write(f"⚠️ Error calculating time for {module_code}: {e}")
-                        exam_time = str(time_slot)
+                        verification_df.at[idx, "Exam Time"] = str(assigned_time_slot)
                 else:
-                    exam_time = "TBD"
-                    time_slot = "TBD"
+                    verification_df.at[idx, "Exam Time"] = "TBD"
                 
-                # Update verification dataframe
+                # Update other fields
                 verification_df.at[idx, "Exam Date"] = str(exam_date)
-                verification_df.at[idx, "Exam Time"] = exam_time
-                verification_df.at[idx, "Time Slot"] = str(time_slot)
                 verification_df.at[idx, "Scheduling Status"] = "Scheduled"
                 
                 # Determine commonality status based on both columns
@@ -1942,12 +1887,11 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 
                 matched_count += 1
                 
-                
             else:
                 # No match found
                 verification_df.at[idx, "Exam Date"] = "Not Scheduled"
-                verification_df.at[idx, "Exam Time"] = "Not Scheduled" 
                 verification_df.at[idx, "Time Slot"] = "Not Scheduled"
+                verification_df.at[idx, "Exam Time"] = "Not Scheduled" 
                 verification_df.at[idx, "Is Common Status"] = "N/A"
                 verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
                 unmatched_count += 1
@@ -2027,6 +1971,17 @@ def save_to_excel(semester_wise_timetable):
                 num -= value
         return result
 
+    def should_show_exam_time(row, semester_default_slot):
+        """Determine if subject needs to show specific exam time"""
+        duration = row.get('Exam Duration', 3)
+        assigned_slot = row.get('Time Slot', '')
+        is_common_across = row.get('CommonAcrossSems', False)
+        
+        # Show exam time if:
+        # 1. Duration is not 3 hours
+        # 2. Common subject assigned different time than semester default
+        return (duration != 3) or (is_common_across and assigned_slot != semester_default_slot)
+
     output = io.BytesIO()
     
     try:
@@ -2046,17 +2001,44 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = sheet_name[:31]
                     
                     if not df_non_elec.empty:
-                        #st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
+                        # Get semester default time slot
+                        semester_default_slot = get_preferred_slot(sem)
                         
                         # Add difficulty and duration info
                         difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                         difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                         
-                        # Create subject display with duration info
+                        # Create subject display with conditional exam time
                         df_non_elec["SubjectDisplay"] = df_non_elec["Subject"]
-                        duration_suffix = df_non_elec.apply(
-                            lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
-                        df_non_elec["SubjectDisplay"] = df_non_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                        
+                        # Add exam time only for subjects where it differs from semester default
+                        for idx in df_non_elec.index:
+                            row = df_non_elec.loc[idx]
+                            
+                            if should_show_exam_time(row, semester_default_slot):
+                                duration = row.get('Exam Duration', 3)
+                                assigned_slot = row.get('Time Slot', semester_default_slot)
+                                
+                                if duration != 3:
+                                    # Non-standard duration
+                                    start_time = assigned_slot.split(" - ")[0].strip()
+                                    end_time = calculate_end_time(start_time, duration)
+                                    exam_time_suffix = f" [{start_time} - {end_time}]"
+                                else:
+                                    # Common subject with different timing
+                                    exam_time_suffix = f" [{assigned_slot}]"
+                                
+                                df_non_elec.loc[idx, "SubjectDisplay"] = (
+                                    row["Subject"] + 
+                                    difficulty_suffix.iloc[idx] + 
+                                    exam_time_suffix
+                                )
+                            else:
+                                # Regular subject - no exam time needed
+                                df_non_elec.loc[idx, "SubjectDisplay"] = (
+                                    row["Subject"] + 
+                                    difficulty_suffix.iloc[idx]
+                                )
                         
                         # Convert and sort by date
                         df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
@@ -2089,13 +2071,9 @@ def save_to_excel(semester_wise_timetable):
                         
                         # Save to Excel
                         pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                        #st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
                         
                     else:
-                        # CRITICAL FIX: Create empty sheet structure for branches with no subjects
-                        #st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
-                        
-                        # Get all possible subbranches for this main branch from the semester
+                        # Create empty sheet structure for branches with no subjects
                         all_subbranches = df_sem[df_sem["MainBranch"] == main_branch]["SubBranch"].unique()
                         
                         if len(all_subbranches) > 0:
@@ -2110,7 +2088,6 @@ def save_to_excel(semester_wise_timetable):
                             
                             empty_df = pd.DataFrame(empty_data)
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            #st.write(f"✅ Created empty sheet {sheet_name} with structure for subbranches: {', '.join(all_subbranches)}")
                         else:
                             # If no subbranches, create minimal structure
                             empty_df = pd.DataFrame({
@@ -2118,20 +2095,36 @@ def save_to_excel(semester_wise_timetable):
                                 'Subjects': ['No subjects available']
                             })
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            #st.write(f"✅ Created minimal empty sheet {sheet_name}")
 
                     # Process electives in a separate sheet (only if electives exist)
                     if not df_elec.empty:
-                        #st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
-                        
                         difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                         difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                         
-                        # Create subject display with OE and duration info
+                        # Create subject display with OE and conditional exam time
                         df_elec["SubjectDisplay"] = df_elec["Subject"] + " [" + df_elec["OE"] + "]"
-                        duration_suffix = df_elec.apply(
-                            lambda row: f" [Duration: {row['Exam Duration']} hrs]" if row['Exam Duration'] != 3 else '', axis=1)
-                        df_elec["SubjectDisplay"] = df_elec["SubjectDisplay"] + difficulty_suffix + duration_suffix
+                        
+                        # Add exam time for non-standard durations
+                        for idx in df_elec.index:
+                            row = df_elec.loc[idx]
+                            duration = row.get('Exam Duration', 3)
+                            
+                            if duration != 3:
+                                assigned_slot = row.get('Time Slot', '10:00 AM - 1:00 PM')
+                                start_time = assigned_slot.split(" - ")[0].strip()
+                                end_time = calculate_end_time(start_time, duration)
+                                exam_time_suffix = f" [{start_time} - {end_time}]"
+                                
+                                df_elec.loc[idx, "SubjectDisplay"] = (
+                                    row["Subject"] + " [" + row["OE"] + "]" +
+                                    difficulty_suffix.iloc[idx] + 
+                                    exam_time_suffix
+                                )
+                            else:
+                                df_elec.loc[idx, "SubjectDisplay"] = (
+                                    row["Subject"] + " [" + row["OE"] + "]" +
+                                    difficulty_suffix.iloc[idx]
+                                )
                         
                         # Group by OE and Date only (no time slot)
                         elec_pivot = df_elec.groupby(['OE', 'Exam Date'])['SubjectDisplay'].apply(
@@ -2149,7 +2142,6 @@ def save_to_excel(semester_wise_timetable):
                         if len(elective_sheet_name) > 31:
                             elective_sheet_name = elective_sheet_name[:31]
                         elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
-                        #st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
 
         output.seek(0)
         st.success("✅ Excel file created successfully with all required sheets")
@@ -3534,6 +3526,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
