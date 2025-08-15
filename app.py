@@ -463,16 +463,6 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
     """
     st.info("🔧 Scheduling common-within-semester subjects...")
     
-    # Debug: Show data before filtering
-    st.write("🔍 **Debug - Data overview before filtering:**")
-    st.write(f"Total subjects: {len(df)}")
-    st.write(f"CommonAcrossSems distribution: {df['CommonAcrossSems'].value_counts()}")
-    if 'IsCommon' in df.columns:
-        st.write(f"IsCommon distribution: {df['IsCommon'].value_counts()}")
-    else:
-        st.error("❌ IsCommon column missing from dataframe")
-        return df
-    
     # Filter subjects that are:
     # 1. Not common across semesters (CommonAcrossSems = False)
     # 2. Have IsCommon = 'YES'
@@ -1014,10 +1004,6 @@ def read_timetable(uploaded_file):
             df["IsCommon"] = df["IsCommon"].replace({"TRUE": "YES", "FALSE": "NO", "1": "YES", "0": "NO"})
             df["IsCommon"] = df["IsCommon"].fillna("NO")
         
-        # Debug: Show IsCommon value distribution
-        st.write("📊 **IsCommon value distribution:**")
-        st.write(df["IsCommon"].value_counts())
-        
         df_non = df[df["Category"] != "INTD"].copy()
         df_ele = df[df["Category"] == "INTD"].copy()
         
@@ -1369,7 +1355,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
         # Handle normal subjects (non-electives)
         if not sheet_name.endswith('_Electives'):
-            st.write(f"📋 Processing core subjects for {sheet_name}")
+            #st.write(f"📋 Processing core subjects for {sheet_name}")
             
             # Check if 'Exam Date' column exists
             if 'Exam Date' not in sheet_df.columns:
@@ -1502,7 +1488,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 st.info(f"ℹ️ No elective data found for {sheet_name}")
                 continue
 
-            st.write(f"📊 Processing {len(elective_data)} elective entries")
+            #st.write(f"📊 Processing {len(elective_data)} elective entries")
 
             # Convert Exam Date to desired format
             try:
@@ -1571,7 +1557,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                              header_content=header_content, branches=['All Streams'], time_slot=default_time_slot)
             
             sheets_processed += 1
-            st.write(f"✅ Added PDF page for electives {sheet_name}")
+            #st.write(f"✅ Added PDF page for electives {sheet_name}")
 
     if sheets_processed == 0:
         st.error("❌ No sheets were processed for PDF generation!")
@@ -1608,12 +1594,12 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
                 # Read back and verify sheets
                 try:
                     test_sheets = pd.read_excel(temp_excel, sheet_name=None)
-                    st.write(f"📊 Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
+                    #st.write(f"📊 Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
                     
                     # Show structure of first few sheets
                     for i, (sheet_name, sheet_df) in enumerate(test_sheets.items()):
                         if i < 3:  # Only show first 3 sheets
-                            st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
+                            #st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
                             
                 except Exception as e:
                     st.error(f"❌ Error reading back Excel file for verification: {e}")
@@ -1625,10 +1611,10 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             st.error(f"❌ Error saving temporary Excel file: {e}")
             return
             
-        st.write("🎨 Converting Excel to PDF...")
+        #st.write("🎨 Converting Excel to PDF...")
         try:
             convert_excel_to_pdf(temp_excel, output_pdf)
-            st.write("✅ PDF conversion completed")
+            #st.write("✅ PDF conversion completed")
         except Exception as e:
             st.error(f"❌ Error during Excel to PDF conversion: {e}")
             import traceback
@@ -1704,22 +1690,10 @@ def save_verification_excel(original_df, semester_wise_timetable):
         st.error("No timetable data provided for verification")
         return None
 
-    st.write("🔍 **Debugging Verification Process...**")
-    
-    # Debug: Show what columns are available in original data
-    st.write(f"📋 Original dataframe columns: {list(original_df.columns)}")
-    st.write(f"📋 Original dataframe shape: {original_df.shape}")
     
     # Combine all scheduled data first
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
-    st.write(f"📅 Scheduled data shape: {scheduled_data.shape}")
-    st.write(f"📅 Scheduled data columns: {list(scheduled_data.columns)}")
-    
-    # Debug: Show sample of scheduled data
-    if not scheduled_data.empty:
-        st.write("📅 **Sample scheduled data:**")
-        sample_scheduled = scheduled_data[['Subject', 'Branch', 'Semester', 'Exam Date', 'Time Slot']].head(3)
-        st.dataframe(sample_scheduled)
+
     
     # Extract ModuleCode from scheduled data more robustly
     scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False)
@@ -1769,12 +1743,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
     verification_df["Time Slot"] = ""
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
-
-    # Debug: Show sample of verification data before processing
-    st.write("📋 **Sample verification data before processing:**")
-    if not verification_df.empty:
-        sample_verification = verification_df[['Module Abbreviation', 'Current Session', 'Program', 'Stream']].head(3)
-        st.dataframe(sample_verification)
 
     # Track statistics
     matched_count = 0
@@ -1921,10 +1889,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 
                 matched_count += 1
                 
-                if idx < 3:  # Debug first few matches
-                    st.write(f"   ✅ **MATCH FOUND for {module_code}!**")
-                    st.write(f"   Exam Date: {exam_date}")
-                    st.write(f"   Time Slot: {time_slot}")
                 
             else:
                 # No match found
@@ -3462,6 +3426,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
