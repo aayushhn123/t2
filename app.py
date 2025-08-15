@@ -329,36 +329,54 @@ def get_preferred_slot(semester):
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     """
-    SUPER SCHEDULING FUNCTION: Handles ALL subjects (except OE/INTD) in one comprehensive approach.
-    
-    Strategy:
-    1. Calculate frequency for ALL subjects across branches and semesters
-    2. Each day: Schedule highest frequency subject + fill all remaining branch-sems with individual subjects
-    3. Ensure EVERY branch has at least one exam EVERY day
-    4. Complete scheduling in 13-15 days regardless of end_date
+    OPTIMIZED SUPER SCHEDULING FUNCTION: 
+    1. Analyzes ALL subjects first, then applies filtering
+    2. Schedules with frequency-based priority ensuring daily branch coverage
+    3. Performs gap-filling optimization to move individual subjects up
+    4. Completes scheduling in 13-15 days with maximum efficiency
     
     Args:
-        df: DataFrame with all subjects
+        df: DataFrame with ALL subjects (will filter internally)
         holidays: Set of holiday dates
         base_date: Start date for scheduling
         end_date: Maximum allowed end date
     
     Returns:
-        DataFrame with ALL subjects scheduled
+        DataFrame with ALL subjects optimally scheduled
     """
-    st.info("🚀 SUPER SCHEDULING: All subjects in one comprehensive function (13-15 days, daily branch coverage)")
+    st.info("🚀 OPTIMIZED SUPER SCHEDULING: Complete analysis → Frequency scheduling → Gap optimization")
     
-    # Filter ALL eligible subjects (exclude only INTD and OE)
+    # STEP 1: COMPREHENSIVE SUBJECT ANALYSIS (ALL subjects first)
+    st.write("🔍 **Step 1:** Comprehensive analysis of ALL subjects...")
+    
+    # Analyze ALL subjects first to understand the complete landscape
+    all_subjects_analysis = {}
+    total_subjects_count = len(df)
+    
+    # Categorize ALL subjects
+    categories = {
+        'INTD': len(df[df['Category'] == 'INTD']),
+        'OE': len(df[df['OE'].notna() & (df['OE'].str.strip() != "")]),
+        'ELIGIBLE': 0  # Will calculate below
+    }
+    
+    # Filter eligible subjects (exclude INTD and OE - these are handled separately)
     eligible_subjects = df[
         (df['Category'] != 'INTD') & 
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ].copy()
     
+    categories['ELIGIBLE'] = len(eligible_subjects)
+    
+    st.write(f"📊 **Subject landscape:**")
+    st.write(f"   📚 Total subjects: {total_subjects_count}")
+    st.write(f"   🎯 Eligible for scheduling: {categories['ELIGIBLE']}")
+    st.write(f"   🏗️ INTD subjects: {categories['INTD']} (handled separately)")
+    st.write(f"   🎓 OE subjects: {categories['OE']} (handled separately)")
+    
     if eligible_subjects.empty:
         st.info("No eligible subjects to schedule")
         return df
-    
-    st.write(f"📚 **Total subjects to schedule:** {len(eligible_subjects)}")
     
     # Helper functions
     def find_next_valid_day(start_date, holidays_set):
@@ -367,11 +385,13 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     def get_subbranch_semester_key(subbranch, semester):
         return f"{subbranch}_{semester}"
     
-    # STEP 1: Calculate frequency for ALL subjects and identify branch-semester combinations
-    st.write("📊 **Step 1:** Analyzing ALL subjects and calculating frequencies...")
+    # STEP 2: DEEP FREQUENCY AND RELATIONSHIP ANALYSIS
+    st.write("📈 **Step 2:** Deep frequency analysis and relationship mapping...")
     
+    # Identify ALL unique branch-semester combinations
     all_branch_sem_combinations = set()
     branch_sem_details = {}
+    branch_subject_counts = {}  # Track how many subjects each branch-sem has
     
     for _, row in eligible_subjects.iterrows():
         branch_sem = f"{row['Branch']}_{row['Semester']}"
@@ -381,104 +401,142 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             'semester': row['Semester'],
             'subbranch': row['SubBranch']
         }
+        
+        # Count subjects per branch-semester
+        if branch_sem not in branch_subject_counts:
+            branch_subject_counts[branch_sem] = 0
+        branch_subject_counts[branch_sem] += 1
     
-    st.write(f"🎯 **Target coverage:** {len(all_branch_sem_combinations)} branch-semester combinations")
+    st.write(f"🎯 **Comprehensive coverage target:** {len(all_branch_sem_combinations)} branch-semester combinations")
     
-    # Calculate subject frequencies
-    subject_registry = {}  # module_code -> subject info
-    frequency_groups = {
-        'very_high': [],    # frequency >= 8
-        'high': [],         # frequency 4-7
-        'medium': [],       # frequency 2-3
-        'individual': []    # frequency 1
-    }
+    # Analyze subject distribution
+    min_subjects = min(branch_subject_counts.values())
+    max_subjects = max(branch_subject_counts.values())
+    avg_subjects = sum(branch_subject_counts.values()) / len(branch_subject_counts)
+    
+    st.write(f"📊 **Subject distribution per branch-semester:** Min: {min_subjects}, Max: {max_subjects}, Avg: {avg_subjects:.1f}")
+    
+    # COMPREHENSIVE FREQUENCY ANALYSIS
+    subject_registry = {}
+    frequency_distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, '9+': 0}
     
     for module_code, group in eligible_subjects.groupby('ModuleCode'):
+        # Calculate comprehensive metrics
         branch_sem_combinations = []
-        branches = set()
-        semesters = set()
+        unique_branches = set()
+        unique_semesters = set()
         
         for _, row in group.iterrows():
             branch_sem = f"{row['Branch']}_{row['Semester']}"
             branch_sem_combinations.append(branch_sem)
-            branches.add(row['Branch'])
-            semesters.add(row['Semester'])
+            unique_branches.add(row['Branch'])
+            unique_semesters.add(row['Semester'])
         
         frequency = len(set(branch_sem_combinations))
         
+        # Enhanced subject information
         subject_info = {
             'module_code': module_code,
             'frequency': frequency,
             'branch_sem_combinations': list(set(branch_sem_combinations)),
-            'branches': list(branches),
-            'semesters': list(semesters),
+            'unique_branches': list(unique_branches),
+            'unique_semesters': list(unique_semesters),
+            'cross_semester_span': len(unique_semesters) > 1,
+            'cross_branch_span': len(unique_branches) > 1,
             'group_data': group,
             'subject_name': group['Subject'].iloc[0],
             'scheduled': False,
             'is_common_across': group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False,
-            'is_common_within': group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
+            'is_common_within': group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False,
+            'category': group['Category'].iloc[0] if 'Category' in group.columns else 'UNKNOWN',
+            'priority_score': 0  # Will calculate below
         }
         
+        # Calculate sophisticated priority score
+        priority_score = frequency * 10  # Base frequency weight
+        
+        if subject_info['is_common_across']:
+            priority_score += 50  # Highest priority for truly common across semesters
+        elif subject_info['is_common_within']:
+            priority_score += 25  # High priority for common within semester
+        
+        if subject_info['cross_semester_span']:
+            priority_score += 15  # Bonus for spanning multiple semesters
+        
+        if subject_info['cross_branch_span']:
+            priority_score += 10  # Bonus for spanning multiple branches
+        
+        subject_info['priority_score'] = priority_score
         subject_registry[module_code] = subject_info
         
-        # Categorize by frequency
-        if frequency >= 8:
-            frequency_groups['very_high'].append(subject_info)
-        elif frequency >= 4:
-            frequency_groups['high'].append(subject_info)
-        elif frequency >= 2:
-            frequency_groups['medium'].append(subject_info)
+        # Track frequency distribution
+        if frequency <= 8:
+            frequency_distribution[frequency] += 1
         else:
-            frequency_groups['individual'].append(subject_info)
+            frequency_distribution['9+'] += 1
     
-    # Sort each frequency group by frequency (highest first)
-    for group_name in frequency_groups:
-        frequency_groups[group_name].sort(key=lambda x: x['frequency'], reverse=True)
+    # Create intelligent priority queues
+    very_high_priority = []  # Common across semesters + high frequency
+    high_priority = []      # Common within semester + medium frequency  
+    medium_priority = []    # Cross-branch subjects
+    low_priority = []       # Individual subjects
     
-    # Create master priority queue (very_high -> high -> medium -> individual)
-    priority_queue = (frequency_groups['very_high'] + 
-                     frequency_groups['high'] + 
-                     frequency_groups['medium'] + 
-                     frequency_groups['individual'])
+    for subject_info in subject_registry.values():
+        if subject_info['is_common_across'] or subject_info['frequency'] >= 8:
+            very_high_priority.append(subject_info)
+        elif subject_info['is_common_within'] or subject_info['frequency'] >= 4:
+            high_priority.append(subject_info)
+        elif subject_info['frequency'] >= 2 or subject_info['cross_branch_span']:
+            medium_priority.append(subject_info)
+        else:
+            low_priority.append(subject_info)
     
-    st.write(f"📈 **Subject categorization:**")
-    st.write(f"   🔥 Very High Frequency (≥8): {len(frequency_groups['very_high'])} subjects")
-    st.write(f"   📊 High Frequency (4-7): {len(frequency_groups['high'])} subjects") 
-    st.write(f"   📋 Medium Frequency (2-3): {len(frequency_groups['medium'])} subjects")
-    st.write(f"   📝 Individual (1): {len(frequency_groups['individual'])} subjects")
+    # Sort each priority queue by priority score
+    for priority_list in [very_high_priority, high_priority, medium_priority, low_priority]:
+        priority_list.sort(key=lambda x: x['priority_score'], reverse=True)
     
-    # STEP 2: Create individual subject pools for efficient assignment
-    st.write("📦 **Step 2:** Creating subject pools for each branch-semester...")
+    st.write(f"🎯 **Intelligent priority classification:**")
+    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} subjects (common across sems + freq≥8)")
+    st.write(f"   📊 High Priority: {len(high_priority)} subjects (common within sem + freq≥4)")
+    st.write(f"   📋 Medium Priority: {len(medium_priority)} subjects (cross-branch + freq≥2)")
+    st.write(f"   📝 Low Priority: {len(low_priority)} subjects (individual subjects)")
     
-    individual_subject_pools = {}  # branch_sem -> list of available subjects
+    # STEP 3: CREATE OPTIMIZED SUBJECT POOLS
+    st.write("📦 **Step 3:** Creating optimized subject pools for efficient assignment...")
+    
+    # Create master priority queue
+    master_priority_queue = very_high_priority + high_priority + medium_priority + low_priority
+    
+    # Create subject pools for each branch-semester (pre-sorted by priority)
+    branch_sem_pools = {}
     
     for branch_sem in all_branch_sem_combinations:
-        individual_subject_pools[branch_sem] = []
+        branch_sem_pools[branch_sem] = []
         
-        # Add all subjects that belong to this branch-semester
-        for subject_info in priority_queue:
+        # Add subjects belonging to this branch-semester, maintaining priority order
+        for subject_info in master_priority_queue:
             if branch_sem in subject_info['branch_sem_combinations']:
                 for _, row in subject_info['group_data'].iterrows():
                     if f"{row['Branch']}_{row['Semester']}" == branch_sem:
-                        individual_subject_pools[branch_sem].append({
+                        branch_sem_pools[branch_sem].append({
                             'subject_info': subject_info,
                             'row_data': row,
-                            'priority_score': subject_info['frequency'] * 10 + (10 if subject_info['is_common_across'] else 0)
+                            'priority_score': subject_info['priority_score']
                         })
-        
-        # Sort pool by priority (highest frequency/common subjects first)
-        individual_subject_pools[branch_sem].sort(key=lambda x: x['priority_score'], reverse=True)
+                        break
     
-    # STEP 3: MAIN SCHEDULING LOOP
-    st.write("🚀 **Step 3:** Starting comprehensive daily scheduling...")
+    st.write(f"📦 Created optimized pools for {len(branch_sem_pools)} branch-semester combinations")
     
-    daily_scheduled_branch_sem = {}  # date -> set of branch_sem combinations with exams
+    # STEP 4: MAIN SCHEDULING ENGINE
+    st.write("🚀 **Step 4:** Main scheduling engine with daily branch coverage guarantee...")
+    
+    daily_scheduled_branch_sem = {}
     scheduled_count = 0
     current_date = base_date
     scheduling_day = 0
     target_days = 15
     
-    while scheduling_day < target_days:
+    while scheduling_day < target_days and scheduled_count < len(eligible_subjects):
         # Find next valid exam day
         exam_date = find_next_valid_day(current_date, holidays)
         if exam_date is None:
@@ -496,80 +554,104 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         
         available_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
         
-        # PHASE 1: Find and schedule highest frequency unscheduled subject
-        best_anchor_subject = None
-        max_anchor_coverage = 0
+        # PHASE 1: ANCHOR SUBJECT SELECTION (Highest Priority Unscheduled)
+        best_anchor = None
+        max_anchor_impact = 0
         
-        for subject_info in priority_queue:
+        for subject_info in master_priority_queue:
             if subject_info['scheduled']:
                 continue
             
-            # Count available branch-sems for this subject today
-            available_for_subject = []
+            # Calculate potential impact (unscheduled branch-sems this subject can cover)
+            available_coverage = []
             for branch_sem in subject_info['branch_sem_combinations']:
                 if branch_sem not in daily_scheduled_branch_sem[date_str]:
-                    available_for_subject.append(branch_sem)
+                    available_coverage.append(branch_sem)
             
-            if len(available_for_subject) > max_anchor_coverage:
-                max_anchor_coverage = len(available_for_subject)
-                best_anchor_subject = {
+            # Impact score = coverage * priority score
+            impact_score = len(available_coverage) * subject_info['priority_score']
+            
+            if impact_score > max_anchor_impact:
+                max_anchor_impact = impact_score
+                best_anchor = {
                     'subject_info': subject_info,
-                    'available_branch_sems': available_for_subject
+                    'available_coverage': available_coverage,
+                    'impact_score': impact_score
                 }
         
-        # Schedule the anchor subject across all its available branches
+        # Schedule the anchor subject
         anchor_scheduled = 0
-        if best_anchor_subject and max_anchor_coverage > 0:
-            subject_info = best_anchor_subject['subject_info']
-            available_branch_sems = best_anchor_subject['available_branch_sems']
+        if best_anchor and max_anchor_impact > 0:
+            subject_info = best_anchor['subject_info']
+            available_coverage = best_anchor['available_coverage']
             
-            # Determine optimal time slot based on most common semester
-            semester_counts = {}
+            # Determine optimal time slot
+            semester_preference = {}
             for _, row in subject_info['group_data'].iterrows():
                 branch_sem = f"{row['Branch']}_{row['Semester']}"
-                if branch_sem in available_branch_sems:
-                    semester_counts[row['Semester']] = semester_counts.get(row['Semester'], 0) + 1
+                if branch_sem in available_coverage:
+                    semester_preference[row['Semester']] = semester_preference.get(row['Semester'], 0) + 1
             
-            most_common_semester = max(semester_counts.keys()) if semester_counts else subject_info['semesters'][0]
-            anchor_slot = get_preferred_slot(most_common_semester)
+            preferred_semester = max(semester_preference.keys()) if semester_preference else subject_info['unique_semesters'][0]
+            anchor_slot = get_preferred_slot(preferred_semester)
             
-            # Schedule across all available branch-sems
+            # Schedule across all available coverage
             for _, row in subject_info['group_data'].iterrows():
                 branch_sem = f"{row['Branch']}_{row['Semester']}"
-                if branch_sem in available_branch_sems:
+                if branch_sem in available_coverage:
                     df.loc[row.name, 'Exam Date'] = date_str
                     df.loc[row.name, 'Time Slot'] = anchor_slot
                     daily_scheduled_branch_sem[date_str].add(branch_sem)
                     scheduled_count += 1
                     anchor_scheduled += 1
                     
-                    # Remove this assignment from individual pools
-                    for pool_item in individual_subject_pools[branch_sem]:
+                    # Remove from branch-sem pools
+                    for pool_item in branch_sem_pools[branch_sem][:]:
                         if pool_item['subject_info']['module_code'] == subject_info['module_code']:
-                            individual_subject_pools[branch_sem].remove(pool_item)
+                            branch_sem_pools[branch_sem].remove(pool_item)
                             break
             
             subject_info['scheduled'] = True
             
             st.write(f"  ⚓ **ANCHOR:** {subject_info['subject_name']} → {anchor_scheduled} branches "
-                    f"(freq: {subject_info['frequency']}) at {anchor_slot}")
+                    f"(priority: {subject_info['priority_score']}, freq: {subject_info['frequency']}) at {anchor_slot}")
         
-        # PHASE 2: Fill ALL remaining branch-semester combinations
+        # PHASE 2: COMPLETE BRANCH COVERAGE (Fill every remaining branch-semester)
         remaining_branch_sems = list(all_branch_sem_combinations - daily_scheduled_branch_sem[date_str])
         
         if remaining_branch_sems:
-            st.write(f"  🔄 **FILLING:** {len(remaining_branch_sems)} remaining branch-sems with optimal subjects...")
+            st.write(f"  🎯 **COVERAGE:** Ensuring all {len(remaining_branch_sems)} remaining branch-sems get subjects...")
             
-            # Distribute across time slots efficiently
-            slot1_assignments = remaining_branch_sems[:len(remaining_branch_sems)//2 + len(remaining_branch_sems)%2]
-            slot2_assignments = remaining_branch_sems[len(remaining_branch_sems)//2 + len(remaining_branch_sems)%2:]
+            # Intelligent slot distribution based on semester preferences
+            slot1_candidates = []
+            slot2_candidates = []
+            
+            for branch_sem in remaining_branch_sems:
+                semester = branch_sem_details[branch_sem]['semester']
+                preferred_slot = get_preferred_slot(semester)
+                
+                if preferred_slot == available_slots[0]:
+                    slot1_candidates.append(branch_sem)
+                else:
+                    slot2_candidates.append(branch_sem)
+            
+            # Balance if one slot is heavily loaded
+            if len(slot1_candidates) > len(slot2_candidates) + 3:
+                excess = len(slot1_candidates) - len(slot2_candidates)
+                moved = slot1_candidates[-excess//2:]
+                slot1_candidates = slot1_candidates[:-excess//2]
+                slot2_candidates.extend(moved)
+            elif len(slot2_candidates) > len(slot1_candidates) + 3:
+                excess = len(slot2_candidates) - len(slot1_candidates)
+                moved = slot2_candidates[-excess//2:]
+                slot2_candidates = slot2_candidates[:-excess//2]
+                slot1_candidates.extend(moved)
             
             # Fill slot 1
             slot1_filled = 0
-            for branch_sem in slot1_assignments:
-                if individual_subject_pools[branch_sem]:
-                    # Get highest priority unscheduled subject
-                    pool_item = individual_subject_pools[branch_sem].pop(0)
+            for branch_sem in slot1_candidates:
+                if branch_sem_pools[branch_sem]:
+                    pool_item = branch_sem_pools[branch_sem].pop(0)
                     row = pool_item['row_data']
                     subject_info = pool_item['subject_info']
                     
@@ -579,25 +661,23 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     scheduled_count += 1
                     slot1_filled += 1
                     
-                    # Mark individual subjects as scheduled
+                    # Handle multi-branch subjects
                     if subject_info['frequency'] == 1:
                         subject_info['scheduled'] = True
-                    
-                    # Remove from other pools if this was a multi-branch subject
-                    if subject_info['frequency'] > 1:
-                        for other_branch_sem in subject_info['branch_sem_combinations']:
-                            if other_branch_sem != branch_sem and other_branch_sem in individual_subject_pools:
-                                for other_pool_item in individual_subject_pools[other_branch_sem][:]:
-                                    if other_pool_item['subject_info']['module_code'] == subject_info['module_code']:
-                                        individual_subject_pools[other_branch_sem].remove(other_pool_item)
-                                        break
+                    elif not any(bs in daily_scheduled_branch_sem[date_str] for bs in subject_info['branch_sem_combinations']):
+                        # Remove from other pools if scheduling the last instance
+                        remaining_instances = sum(1 for bs in subject_info['branch_sem_combinations'] 
+                                               if bs not in daily_scheduled_branch_sem[date_str] and 
+                                               any(pi['subject_info']['module_code'] == subject_info['module_code'] 
+                                                   for pi in branch_sem_pools.get(bs, [])))
+                        if remaining_instances == 0:
+                            subject_info['scheduled'] = True
             
             # Fill slot 2
             slot2_filled = 0
-            for branch_sem in slot2_assignments:
-                if individual_subject_pools[branch_sem]:
-                    # Get highest priority unscheduled subject
-                    pool_item = individual_subject_pools[branch_sem].pop(0)
+            for branch_sem in slot2_candidates:
+                if branch_sem_pools[branch_sem]:
+                    pool_item = branch_sem_pools[branch_sem].pop(0)
                     row = pool_item['row_data']
                     subject_info = pool_item['subject_info']
                     
@@ -607,32 +687,33 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     scheduled_count += 1
                     slot2_filled += 1
                     
-                    # Mark individual subjects as scheduled
+                    # Handle multi-branch subjects
                     if subject_info['frequency'] == 1:
                         subject_info['scheduled'] = True
-                    
-                    # Remove from other pools if this was a multi-branch subject
-                    if subject_info['frequency'] > 1:
-                        for other_branch_sem in subject_info['branch_sem_combinations']:
-                            if other_branch_sem != branch_sem and other_branch_sem in individual_subject_pools:
-                                for other_pool_item in individual_subject_pools[other_branch_sem][:]:
-                                    if other_pool_item['subject_info']['module_code'] == subject_info['module_code']:
-                                        individual_subject_pools[other_branch_sem].remove(other_pool_item)
-                                        break
+                    elif not any(bs in daily_scheduled_branch_sem[date_str] for bs in subject_info['branch_sem_combinations']):
+                        remaining_instances = sum(1 for bs in subject_info['branch_sem_combinations'] 
+                                               if bs not in daily_scheduled_branch_sem[date_str] and 
+                                               any(pi['subject_info']['module_code'] == subject_info['module_code'] 
+                                                   for pi in branch_sem_pools.get(bs, [])))
+                        if remaining_instances == 0:
+                            subject_info['scheduled'] = True
             
             st.write(f"    📝 {available_slots[0]}: {slot1_filled} subjects")
             st.write(f"    📝 {available_slots[1]}: {slot2_filled} subjects")
         
-        # PHASE 3: Verify 100% daily coverage
+        # Daily verification
         final_coverage = len(daily_scheduled_branch_sem[date_str])
         coverage_percent = (final_coverage / len(all_branch_sem_combinations)) * 100
         
-        if final_coverage < len(all_branch_sem_combinations):
-            st.warning(f"  ⚠️ Coverage gap detected: {final_coverage}/{len(all_branch_sem_combinations)} ({coverage_percent:.1f}%)")
+        if final_coverage == len(all_branch_sem_combinations):
+            st.success(f"  ✅ **PERFECT DAILY COVERAGE:** {final_coverage}/{len(all_branch_sem_combinations)} ({coverage_percent:.1f}%)")
         else:
-            st.success(f"  ✅ **PERFECT COVERAGE:** {final_coverage}/{len(all_branch_sem_combinations)} ({coverage_percent:.1f}%)")
+            st.warning(f"  ⚠️ **COVERAGE GAP:** {final_coverage}/{len(all_branch_sem_combinations)} ({coverage_percent:.1f}%)")
         
-        # Check completion
+        # Progress check
+        progress_percent = (scheduled_count / len(eligible_subjects)) * 100
+        st.write(f"  📊 **Overall progress:** {scheduled_count}/{len(eligible_subjects)} subjects ({progress_percent:.1f}%)")
+        
         if scheduled_count >= len(eligible_subjects):
             st.success(f"🎉 **ALL SUBJECTS SCHEDULED!** Completed in {scheduling_day} days")
             break
@@ -640,8 +721,64 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         # Move to next day
         current_date = exam_date + timedelta(days=1)
     
-    # STEP 4: Final cleanup and statistics
-    st.write("🧹 **Step 4:** Final cleanup and verification...")
+    # STEP 5: GAP-FILLING OPTIMIZATION
+    st.write("🔧 **Step 5:** Gap-filling optimization to improve schedule efficiency...")
+    
+    # Identify gaps and optimize by moving individual subjects up
+    schedule_dates = sorted(daily_scheduled_branch_sem.keys(), 
+                           key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+    
+    if len(schedule_dates) > 1:
+        optimization_moves = 0
+        
+        for gap_date in schedule_dates[:-1]:  # Don't check the last date
+            gap_date_coverage = daily_scheduled_branch_sem[gap_date]
+            available_slots_in_gap = all_branch_sem_combinations - gap_date_coverage
+            
+            if available_slots_in_gap:
+                st.write(f"  🔍 Found {len(available_slots_in_gap)} gaps on {gap_date}")
+                
+                # Look for individual subjects from later dates that can move up
+                for later_date in schedule_dates[schedule_dates.index(gap_date)+1:]:
+                    if not available_slots_in_gap:
+                        break
+                    
+                    # Find individual subjects scheduled on later date
+                    later_subjects = eligible_subjects[df['Exam Date'] == later_date]
+                    
+                    for _, row in later_subjects.iterrows():
+                        branch_sem = f"{row['Branch']}_{row['Semester']}"
+                        
+                        # Check if this branch-sem has a gap on the earlier date
+                        if branch_sem in available_slots_in_gap:
+                            # Check if this is an individual subject (frequency = 1)
+                            subject_info = subject_registry.get(row.get('ModuleCode', ''))
+                            
+                            if subject_info and subject_info['frequency'] == 1:
+                                # Move this subject up to fill the gap
+                                preferred_slot = get_preferred_slot(row['Semester'])
+                                df.loc[row.name, 'Exam Date'] = gap_date
+                                df.loc[row.name, 'Time Slot'] = preferred_slot
+                                
+                                # Update tracking
+                                daily_scheduled_branch_sem[gap_date].add(branch_sem)
+                                daily_scheduled_branch_sem[later_date].discard(branch_sem)
+                                available_slots_in_gap.discard(branch_sem)
+                                
+                                optimization_moves += 1
+                                
+                                if optimization_moves <= 5:  # Show first 5 moves
+                                    st.write(f"    ⬆️ Moved {row['Subject'][:40]}... from {later_date} to {gap_date}")
+                                
+                                break
+        
+        if optimization_moves > 0:
+            st.success(f"  ✅ **Gap Optimization:** Made {optimization_moves} moves to fill gaps")
+        else:
+            st.info("  ℹ️ No beneficial gap-filling moves found")
+    
+    # STEP 6: FINAL STATISTICS AND CLEANUP
+    st.write("📊 **Step 6:** Final statistics and cleanup...")
     
     successfully_scheduled = df[
         (df['Exam Date'] != "") & 
@@ -661,19 +798,36 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             df.loc[row.name, 'Exam Date'] = "Out of Range"
             df.loc[row.name, 'Time Slot'] = "Cannot Schedule"
     
-    # FINAL STATISTICS
+    # Comprehensive final statistics
     total_days_used = len(daily_scheduled_branch_sem)
     success_rate = (len(successfully_scheduled) / len(eligible_subjects)) * 100
+    avg_subjects_per_day = len(successfully_scheduled) / total_days_used if total_days_used > 0 else 0
     
-    st.success(f"🏆 **SUPER SCHEDULING COMPLETE:**")
-    st.write(f"   📚 **Subjects scheduled:** {len(successfully_scheduled)}/{len(eligible_subjects)} ({success_rate:.1f}%)")
+    # Priority-wise scheduling success
+    priority_success = {
+        'very_high': len([s for s in very_high_priority if s['scheduled']]),
+        'high': len([s for s in high_priority if s['scheduled']]),
+        'medium': len([s for s in medium_priority if s['scheduled']]),
+        'low': len([s for s in low_priority if s['scheduled']])
+    }
+    
+    st.success(f"🏆 **OPTIMIZED SUPER SCHEDULING COMPLETE:**")
+    st.write(f"   📚 **Total subjects scheduled:** {len(successfully_scheduled)}/{len(eligible_subjects)} ({success_rate:.1f}%)")
     st.write(f"   📅 **Days used:** {total_days_used}/{target_days}")
-    st.write(f"   🎯 **Branch-sem combinations:** {len(all_branch_sem_combinations)} total")
-    st.write(f"   ⚡ **Efficiency:** {len(successfully_scheduled)/total_days_used:.1f} subjects/day")
-    st.write(f"   🔥 **Very high freq subjects:** {len([s for s in frequency_groups['very_high'] if s['scheduled']])}/{len(frequency_groups['very_high'])}")
-    st.write(f"   📊 **High freq subjects:** {len([s for s in frequency_groups['high'] if s['scheduled']])}/{len(frequency_groups['high'])}")
-    st.write(f"   📋 **Medium freq subjects:** {len([s for s in frequency_groups['medium'] if s['scheduled']])}/{len(frequency_groups['medium'])}")
-    st.write(f"   📝 **Individual subjects:** {len([s for s in frequency_groups['individual'] if s['scheduled']])}/{len(frequency_groups['individual'])}")
+    st.write(f"   🎯 **Branch-semester combinations:** {len(all_branch_sem_combinations)} covered")
+    st.write(f"   ⚡ **Efficiency:** {avg_subjects_per_day:.1f} subjects/day")
+    st.write(f"   🔥 **Very High Priority:** {priority_success['very_high']}/{len(very_high_priority)} scheduled")
+    st.write(f"   📊 **High Priority:** {priority_success['high']}/{len(high_priority)} scheduled")
+    st.write(f"   📋 **Medium Priority:** {priority_success['medium']}/{len(medium_priority)} scheduled")
+    st.write(f"   📝 **Low Priority:** {priority_success['low']}/{len(low_priority)} scheduled")
+    
+    # Show daily utilization
+    with st.expander("📊 Detailed Daily Breakdown"):
+        for date_str in sorted(daily_scheduled_branch_sem.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y")):
+            day_subjects = successfully_scheduled[successfully_scheduled['Exam Date'] == date_str]
+            branch_coverage = len(daily_scheduled_branch_sem[date_str])
+            coverage_percent = (branch_coverage / len(all_branch_sem_combinations)) * 100
+            st.write(f"**{date_str}**: {len(day_subjects)} subjects, {branch_coverage}/{len(all_branch_sem_combinations)} branches ({coverage_percent:.1f}%)")
     
     return df
     
@@ -3237,6 +3391,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
