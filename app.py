@@ -1591,15 +1591,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
                 file_size = os.path.getsize(temp_excel)
                 st.write(f"📋 Excel file size: {file_size} bytes")
                 
-                # Read back and verify sheets
-                try:
-                    test_sheets = pd.read_excel(temp_excel, sheet_name=None)
-                    #st.write(f"📊 Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
-                    
-                    # Show structure of first few sheets
-                    for i, (sheet_name, sheet_df) in enumerate(test_sheets.items()):
-                        if i < 3:  # Only show first 3 sheets
-                            #st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
+
                             
                 except Exception as e:
                     st.error(f"❌ Error reading back Excel file for verification: {e}")
@@ -3426,6 +3418,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
