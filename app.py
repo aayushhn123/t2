@@ -2189,6 +2189,336 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
     st.write(f"✅ OE2 scheduled on {elective_day2_str} at 2:00 PM - 5:00 PM")
     
     return df_ele
+def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_date):
+    """
+    After all scheduling is done, try to move subjects up to fill gaps and reduce span.
+    Focus on moving individual uncommon subjects or non-circuit subjects to fill gaps.
+    
+    Args:
+        df_dict (dict): Dictionary of semester dataframes
+        holidays_set (set): Set of holiday dates
+        start_date (datetime): Start date for examinations
+        end_date (datetime): End date for examinations
+    
+    Returns:
+        tuple: (updated_df_dict, moves_made, optimization_log)
+    """
+    st.info("🎯 Optimizing schedule by filling gaps to reduce span...")
+    
+    if not df_dict:
+        return df_dict, 0, []
+    
+    # Combine all data to analyze the schedule
+    all_data = pd.concat(df_dict.values(), ignore_index=True)
+    
+    # Ensure all dates are in DD-MM-YYYY string format
+    def normalize_date_to_ddmmyyyy(date_val):
+        """Convert any date format to DD-MM-YYYY string format"""
+        if pd.isna(date_val) or date_val == "":
+            return ""
+        
+        if isinstance(date_val, pd.Timestamp):
+            return date_val.strftime("%d-%m-%Y")
+        elif isinstance(date_val, str):
+            try:
+                parsed = pd.to_datetime(date_val, format="%d-%m-%Y", errors='raise')
+                return parsed.strftime("%d-%m-%Y")
+            except:
+                try:
+                    parsed = pd.to_datetime(date_val, dayfirst=True, errors='raise')
+                    return parsed.strftime("%d-%m-%Y")
+                except:
+                    return str(date_val)
+        else:
+            try:
+                parsed = pd.to_datetime(date_val, errors='coerce')
+                if pd.notna(parsed):
+                    return parsed.strftime("%d-%m-%Y")
+                else:
+                    return str(date_val)
+            except:
+                return str(date_val)
+    
+    # Apply date normalization
+    all_data['Exam Date'] = all_data['Exam Date'].apply(normalize_date_to_ddmmyyyy)
+    
+    # Filter out subjects that couldn't be scheduled
+    scheduled_data = all_data[
+        (all_data['Exam Date'] != "") & 
+        (all_data['Exam Date'] != "Out of Range") & 
+        (all_data['Exam Date'] != "Cannot Schedule")
+    ].copy()
+    
+    if scheduled_data.empty:
+        st.info("No scheduled subjects to optimize")
+        return df_dict, 0, []
+    
+    # Helper function to get subbranch-semester key
+    def get_subbranch_semester_key(subbranch, semester):
+        return f"{subbranch}_{semester}"
+    
+    # Build schedule grid: date -> subbranch_semester -> subject
+    schedule_grid = {}
+    subbranch_semester_combinations = set()
+    
+    for _, row in scheduled_data.iterrows():
+        date_str = row['Exam Date']
+        subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
+        
+        if date_str not in schedule_grid:
+            schedule_grid[date_str] = {}
+        
+        schedule_grid[date_str][subbranch_sem_key] = {
+            'subject': row['Subject'],
+            'branch': row['Branch'],
+            'index': row.name,
+            'semester': row['Semester'],
+            'subbranch': row['SubBranch'],
+            'is_common_across': row.get('CommonAcrossSems', False),
+            'is_common_within': row.get('IsCommon', 'NO') == 'YES',
+            'category': row.get('Category', ''),
+            'circuit': row.get('Circuit', False),
+            'oe': row.get('OE', '')
+        }
+        
+        subbranch_semester_combinations.add(subbranch_sem_key)
+    
+    # Get all dates in the schedule range
+    all_scheduled_dates = sorted(schedule_grid.keys(), 
+                                key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+    
+    if not all_scheduled_dates:
+        return df_dict, 0, []
+    
+    # Create complete date range from start to end of schedule
+    first_exam_date = datetime.strptime(all_scheduled_dates[0], "%d-%m-%Y")
+    last_exam_date = datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y")
+    
+    # Get all valid dates in the range
+    valid_dates_in_range = get_valid_dates_in_range(
+        max(start_date, first_exam_date), 
+        min(end_date, last_exam_date), 
+        holidays_set
+    )
+    
+    st.write(f"📊 Analyzing {len(valid_dates_in_range)} valid dates for gap optimization")
+    st.write(f"📅 Current schedule spans from {all_scheduled_dates[0]} to {all_scheduled_dates[-1]}")
+    
+    # Identify gaps in the schedule
+    gaps = []
+    for date_str in valid_dates_in_range:
+        if date_str not in schedule_grid:
+            # This is a complete gap day
+            gaps.append({
+                'date': date_str,
+                'type': 'complete_gap',
+                'available_subbranches': list(subbranch_semester_combinations)
+            })
+        else:
+            # Check for partial gaps (some subbranches free)
+            occupied_subbranches = set(schedule_grid[date_str].keys())
+            available_subbranches = subbranch_semester_combinations - occupied_subbranches
+            
+            if available_subbranches:
+                gaps.append({
+                    'date': date_str,
+                    'type': 'partial_gap',
+                    'available_subbranches': list(available_subbranches)
+                })
+    
+    st.write(f"🔍 Found {len(gaps)} gaps to potentially fill")
+    
+    # Identify moveable subjects (prioritize individual uncommon subjects and non-circuit subjects)
+    moveable_subjects = []
+    
+    for date_str in reversed(all_scheduled_dates):  # Start from the end
+        if date_str in schedule_grid:
+            for subbranch_sem_key, subject_info in schedule_grid[date_str].items():
+                # Criteria for moveable subjects (in priority order):
+                # 1. Individual uncommon subjects (not common across or within semesters)
+                # 2. Non-circuit subjects
+                # 3. Not electives (OE subjects should stay where they are)
+                
+                is_individual_uncommon = (
+                    not subject_info['is_common_across'] and 
+                    not subject_info['is_common_within']
+                )
+                is_non_circuit = not subject_info.get('circuit', False)
+                is_not_elective = not subject_info.get('oe', '').strip()
+                
+                # Calculate priority score (higher = more likely to move)
+                priority_score = 0
+                
+                if is_individual_uncommon:
+                    priority_score += 10
+                if is_non_circuit:
+                    priority_score += 5
+                if is_not_elective:
+                    priority_score += 3
+                
+                # Prefer subjects from later dates for moving up
+                date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+                last_date_obj = datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y")
+                days_from_end = (last_date_obj - date_obj).days
+                priority_score += max(0, 20 - days_from_end)  # Higher score for subjects closer to end
+                
+                if priority_score > 0:  # Only consider subjects that meet some criteria
+                    moveable_subjects.append({
+                        'current_date': date_str,
+                        'subbranch_sem_key': subbranch_sem_key,
+                        'subject_info': subject_info,
+                        'priority_score': priority_score
+                    })
+    
+    # Sort moveable subjects by priority (highest priority first)
+    moveable_subjects.sort(key=lambda x: x['priority_score'], reverse=True)
+    
+    st.write(f"🎯 Found {len(moveable_subjects)} potentially moveable subjects")
+    
+    # Attempt to move subjects to fill gaps
+    moves_made = 0
+    optimization_log = []
+    
+    for gap in gaps:
+        gap_date = gap['date']
+        available_subbranches = gap['available_subbranches']
+        
+        # Try to fill this gap with moveable subjects
+        for moveable in moveable_subjects[:]:  # Use slice to allow removal during iteration
+            current_date = moveable['current_date']
+            subbranch_sem_key = moveable['subbranch_sem_key']
+            subject_info = moveable['subject_info']
+            
+            # Check if this subject can move to this gap
+            if subbranch_sem_key in available_subbranches:
+                # Check if moving this subject would actually improve the schedule
+                gap_date_obj = datetime.strptime(gap_date, "%d-%m-%Y")
+                current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
+                
+                # Only move if it's moving the subject to an earlier date
+                if gap_date_obj < current_date_obj:
+                    # Move the subject
+                    semester = subject_info['semester']
+                    branch = subject_info['branch']
+                    subject = subject_info['subject']
+                    original_index = subject_info['index']
+                    
+                    # Get preferred time slot for this semester
+                    preferred_slot = get_preferred_slot(semester)
+                    
+                    # Update in the semester dictionary
+                    mask = (df_dict[semester]['Subject'] == subject) & \
+                           (df_dict[semester]['Branch'] == branch) & \
+                           (df_dict[semester]['SubBranch'] == subject_info['subbranch'])
+                    
+                    if mask.any():
+                        df_dict[semester].loc[mask, 'Exam Date'] = gap_date
+                        df_dict[semester].loc[mask, 'Time Slot'] = preferred_slot
+                        
+                        # Update schedule grid
+                        # Remove from old date
+                        if current_date in schedule_grid and subbranch_sem_key in schedule_grid[current_date]:
+                            del schedule_grid[current_date][subbranch_sem_key]
+                            if not schedule_grid[current_date]:  # If date becomes empty
+                                del schedule_grid[current_date]
+                        
+                        # Add to new date
+                        if gap_date not in schedule_grid:
+                            schedule_grid[gap_date] = {}
+                        schedule_grid[gap_date][subbranch_sem_key] = subject_info
+                        
+                        # Remove this subbranch from available for this gap
+                        available_subbranches.remove(subbranch_sem_key)
+                        
+                        # Remove this subject from moveable list
+                        moveable_subjects.remove(moveable)
+                        
+                        moves_made += 1
+                        days_moved_up = (current_date_obj - gap_date_obj).days
+                        
+                        optimization_log.append(
+                            f"Moved {subject} ({subject_info['subbranch']}, Sem {semester}) "
+                            f"from {current_date} to {gap_date} (moved up {days_moved_up} days)"
+                        )
+                        
+                        # Break if this gap is now full for this type
+                        if not available_subbranches:
+                            break
+        
+        # Update the gap's available subbranches for next iteration
+        gap['available_subbranches'] = available_subbranches
+    
+    # Calculate span reduction
+    if moves_made > 0:
+        # Recalculate the schedule span
+        updated_all_data = pd.concat(df_dict.values(), ignore_index=True)
+        updated_scheduled = updated_all_data[
+            (updated_all_data['Exam Date'] != "") & 
+            (updated_all_data['Exam Date'] != "Out of Range")
+        ].copy()
+        
+        if not updated_scheduled.empty:
+            updated_scheduled['Exam Date'] = updated_scheduled['Exam Date'].apply(normalize_date_to_ddmmyyyy)
+            updated_dates = sorted(updated_scheduled['Exam Date'].unique(), 
+                                 key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+            
+            if updated_dates:
+                new_first_date = updated_dates[0]
+                new_last_date = updated_dates[-1]
+                
+                original_span = (datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y") - 
+                               datetime.strptime(all_scheduled_dates[0], "%d-%m-%Y")).days + 1
+                new_span = (datetime.strptime(new_last_date, "%d-%m-%Y") - 
+                           datetime.strptime(new_first_date, "%d-%m-%Y")).days + 1
+                
+                span_reduction = original_span - new_span
+                
+                if span_reduction > 0:
+                    optimization_log.append(f"Schedule span reduced by {span_reduction} days!")
+                    st.success(f"📉 Schedule span reduced from {original_span} to {new_span} days (saved {span_reduction} days)")
+    
+    # Ensure all dates in df_dict are properly formatted
+    for sem in df_dict:
+        df_dict[sem]['Exam Date'] = df_dict[sem]['Exam Date'].apply(normalize_date_to_ddmmyyyy)
+    
+    if moves_made > 0:
+        st.success(f"✅ Gap Optimization: Made {moves_made} moves to fill gaps!")
+        with st.expander("📋 Gap Optimization Details"):
+            for log in optimization_log:
+                st.write(f"• {log}")
+    else:
+        st.info("ℹ️ No beneficial moves found for gap optimization")
+    
+    # Verify no double bookings after optimization
+    verify_no_double_bookings_across_dict(df_dict)
+    
+    return df_dict, moves_made, optimization_log
+
+def verify_no_double_bookings_across_dict(df_dict):
+    """Verify that no subbranch-semester has more than one exam per day across all semesters"""
+    if not df_dict:
+        return
+    
+    # Combine all data
+    all_data = pd.concat(df_dict.values(), ignore_index=True)
+    scheduled_df = all_data[
+        (all_data['Exam Date'] != "") & 
+        (all_data['Exam Date'] != "Out of Range")
+    ].copy()
+    
+    if scheduled_df.empty:
+        return
+    
+    # Group by subbranch, semester, and date
+    grouped = scheduled_df.groupby(['SubBranch', 'Semester', 'Exam Date']).size()
+    double_bookings = grouped[grouped > 1]
+    
+    if not double_bookings.empty:
+        st.error("❌ Double bookings detected after optimization:")
+        for (subbranch, semester, date), count in double_bookings.items():
+            st.error(f"  - {subbranch} Semester {semester} has {count} exams on {date}")
+    else:
+        st.success("✅ No double bookings found after optimization")
 
 def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     """
@@ -2678,9 +3008,25 @@ def main():
                                 sem_dict[s] = sem_data
                             
                             # Step 7: Optimize OE subjects if they exist
+                           
                             if df_ele is not None and not df_ele.empty:
                                 st.write("Optimizing OE subjects...")
-                                sem_dict, moves_made, optimization_log = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)
+                                sem_dict, oe_moves_made, oe_optimization_log = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)
+
+                            # Step 8: Optimize schedule by filling gaps to reduce span
+                            st.write("Optimizing schedule by filling gaps...")
+                            sem_dict, gap_moves_made, gap_optimization_log = optimize_schedule_by_filling_gaps(
+                                sem_dict, holidays_set, base_date, end_date
+                            )
+
+                            # Show combined optimization results
+                            total_optimizations = (oe_moves_made if df_ele is not None and not df_ele.empty else 0) + gap_moves_made
+                            if total_optimizations > 0:
+                                st.success(f"🎯 Total Optimizations Made: {total_optimizations}")
+                            if df_ele is not None and not df_ele.empty and oe_moves_made > 0:
+                                st.info(f"📈 OE Optimizations: {oe_moves_made}")
+                            if gap_moves_made > 0:
+                                st.info(f"📉 Gap Fill Optimizations: {gap_moves_made}")
 
                             st.session_state.timetable_data = sem_dict
                             st.session_state.original_df = original_df
@@ -3061,3 +3407,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
