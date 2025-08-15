@@ -2193,7 +2193,8 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
 def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_date):
     """
     After all scheduling is done, try to move subjects up to fill gaps and reduce span.
-    Focus on moving individual uncommon subjects or non-circuit subjects to fill gaps.
+    PRIORITY: Move subjects whose "Is Common" value is FALSE first.
+    For common subjects (Is Common = TRUE): Only move if ALL branches in that semester can be moved together.
     EXCLUDES: INTD subjects and OE subjects (electives) - these should not be moved.
     
     Args:
@@ -2205,7 +2206,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     Returns:
         tuple: (updated_df_dict, moves_made, optimization_log)
     """
-    st.info("🎯 Optimizing schedule by filling gaps to reduce span (excluding INTD and OE subjects)...")
+    st.info("🎯 Optimizing schedule by filling gaps (prioritizing non-common subjects, handling common subjects as groups)...")
     
     if not df_dict:
         return df_dict, 0, []
@@ -2279,7 +2280,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         return bool(value)
     
     # Build schedule grid: date -> subbranch_semester -> subject
-    # Include ALL subjects (including INTD/OE) for gap detection, but only move non-INTD/non-OE
+    # Include ALL subjects (including INTD/OE) for gap detection
     all_scheduled_data = all_data[
         (all_data['Exam Date'] != "") & 
         (all_data['Exam Date'] != "Out of Range") & 
@@ -2301,6 +2302,14 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         is_common_within_raw = row.get('IsCommon', 'NO')
         is_common_within = safe_get_string(is_common_within_raw, 'NO').upper() == 'YES'
         category_value = safe_get_string(row.get('Category', ''))
+        is_common_across = safe_get_boolean(row.get('CommonAcrossSems', False))
+        is_circuit = safe_get_boolean(row.get('Circuit', False))
+        
+        # Basic moveability filter (excludes INTD and OE)
+        is_eligible_for_moving = (
+            category_value != 'INTD' and  # Not INTD
+            not oe_value                  # Not OE
+        )
         
         schedule_grid[date_str][subbranch_sem_key] = {
             'subject': safe_get_string(row['Subject']),
@@ -2308,12 +2317,13 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             'index': row.name,
             'semester': row['Semester'],
             'subbranch': safe_get_string(row['SubBranch']),
-            'is_common_across': safe_get_boolean(row.get('CommonAcrossSems', False)),
+            'module_code': safe_get_string(row.get('ModuleCode', '')),
+            'is_common_across': is_common_across,
             'is_common_within': is_common_within,
             'category': category_value,
-            'circuit': safe_get_boolean(row.get('Circuit', False)),
+            'circuit': is_circuit,
             'oe': oe_value,
-            'is_moveable': (category_value != 'INTD' and not oe_value)  # Flag for moveability
+            'is_eligible_for_moving': is_eligible_for_moving
         }
         
         subbranch_semester_combinations.add(subbranch_sem_key)
@@ -2363,134 +2373,220 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     
     st.write(f"🔍 Found {len(gaps)} gaps to potentially fill")
     
-    # Identify moveable subjects (ONLY non-INTD, non-OE subjects)
-    moveable_subjects = []
+    # PHASE 1: Identify individual (non-common) moveable subjects
+    individual_moveable_subjects = []
+    
+    # PHASE 2: Identify common subject groups that can potentially be moved together
+    common_subject_groups = {}
     
     for date_str in reversed(all_scheduled_dates):  # Start from the end
         if date_str in schedule_grid:
             for subbranch_sem_key, subject_info in schedule_grid[date_str].items():
-                # STRICT FILTERING: Only consider subjects that are moveable
-                if not subject_info.get('is_moveable', False):
-                    continue  # Skip INTD and OE subjects
+                # Skip if not eligible for moving
+                if not subject_info.get('is_eligible_for_moving', False):
+                    continue
                 
-                # Additional criteria for moveable subjects (in priority order):
-                # 1. Individual uncommon subjects (not common across or within semesters)
-                # 2. Non-circuit subjects
+                if not subject_info['is_common_within']:
+                    # PHASE 1: Individual subjects (Is Common = FALSE)
+                    priority_score = 0
+                    
+                    # Priority factors for individual subjects
+                    if not subject_info['is_common_across']:
+                        priority_score += 10  # Individual uncommon
+                    if subject_info.get('circuit', False) and not subject_info['is_common_across']:
+                        priority_score += 8   # Individual circuit
+                    if not subject_info.get('circuit', False):
+                        priority_score += 5   # Non-circuit
+                    
+                    # Prefer subjects from later dates
+                    date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+                    last_date_obj = datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y")
+                    days_from_end = (last_date_obj - date_obj).days
+                    priority_score += max(0, 20 - days_from_end)
+                    
+                    if priority_score > 0:
+                        individual_moveable_subjects.append({
+                            'current_date': date_str,
+                            'subbranch_sem_key': subbranch_sem_key,
+                            'subject_info': subject_info,
+                            'priority_score': priority_score,
+                            'subject_type': 'Individual'
+                        })
                 
-                is_individual_uncommon = (
-                    not subject_info['is_common_across'] and 
-                    not subject_info['is_common_within']
-                )
-                is_non_circuit = not subject_info.get('circuit', False)
-                
-                # Calculate priority score (higher = more likely to move)
-                priority_score = 0
-                
-                if is_individual_uncommon:
-                    priority_score += 10
-                if is_non_circuit:
-                    priority_score += 5
-                
-                # Prefer subjects from later dates for moving up
-                date_obj = datetime.strptime(date_str, "%d-%m-%Y")
-                last_date_obj = datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y")
-                days_from_end = (last_date_obj - date_obj).days
-                priority_score += max(0, 20 - days_from_end)  # Higher score for subjects closer to end
-                
-                if priority_score > 0:  # Only consider subjects that meet some criteria
-                    moveable_subjects.append({
-                        'current_date': date_str,
-                        'subbranch_sem_key': subbranch_sem_key,
-                        'subject_info': subject_info,
-                        'priority_score': priority_score
-                    })
+                else:
+                    # PHASE 2: Common subjects (Is Common = TRUE) - group by semester and module code
+                    semester = subject_info['semester']
+                    module_code = subject_info['module_code']
+                    group_key = f"sem_{semester}_{module_code}"
+                    
+                    if group_key not in common_subject_groups:
+                        common_subject_groups[group_key] = {
+                            'current_date': date_str,
+                            'semester': semester,
+                            'module_code': module_code,
+                            'subject_name': subject_info['subject'],
+                            'instances': [],
+                            'subbranch_sem_keys': [],
+                            'priority_score': 0
+                        }
+                    
+                    common_subject_groups[group_key]['instances'].append(subject_info)
+                    common_subject_groups[group_key]['subbranch_sem_keys'].append(subbranch_sem_key)
     
-    # Sort moveable subjects by priority (highest priority first)
-    moveable_subjects.sort(key=lambda x: x['priority_score'], reverse=True)
+    # Calculate priority for common subject groups
+    for group_key, group_info in common_subject_groups.items():
+        # Lower priority for common subjects since they're harder to move
+        priority_score = 3  # Base score for common subjects
+        
+        # Prefer subjects from later dates
+        date_obj = datetime.strptime(group_info['current_date'], "%d-%m-%Y")
+        last_date_obj = datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y")
+        days_from_end = (last_date_obj - date_obj).days
+        priority_score += max(0, 10 - days_from_end)  # Lower bonus for common subjects
+        
+        group_info['priority_score'] = priority_score
     
-    st.write(f"🎯 Found {len(moveable_subjects)} potentially moveable subjects (excluding INTD and OE)")
+    # Sort individual subjects by priority (highest first)
+    individual_moveable_subjects.sort(key=lambda x: x['priority_score'], reverse=True)
+    
+    # Sort common subject groups by priority (highest first)
+    common_moveable_groups = sorted(common_subject_groups.values(), 
+                                   key=lambda x: x['priority_score'], reverse=True)
+    
+    st.write(f"🎯 Found {len(individual_moveable_subjects)} individual moveable subjects")
+    st.write(f"🔗 Found {len(common_moveable_groups)} common subject groups")
     
     # Show breakdown of excluded subjects
     intd_count = len(all_scheduled_data[all_scheduled_data['Category'] == 'INTD'])
     oe_count = len(all_scheduled_data[all_scheduled_data['OE'].notna() & (all_scheduled_data['OE'].astype(str).str.strip() != "")])
     
     if intd_count > 0:
-        st.info(f"📋 Excluded {intd_count} INTD subjects from optimization")
+        st.info(f"❌ Excluded {intd_count} INTD subjects from optimization")
     if oe_count > 0:
-        st.info(f"🎓 Excluded {oe_count} OE subjects from optimization")
+        st.info(f"❌ Excluded {oe_count} OE subjects from optimization")
     
-    # Attempt to move subjects to fill gaps
+    # Optimization process
     moves_made = 0
     optimization_log = []
     
-    for gap in gaps:
+    # PRIORITY 1: Move individual subjects first (Is Common = FALSE)
+    st.write("🔄 Phase 1: Moving individual subjects...")
+    for gap in gaps[:]:  # Use slice to allow modification
         gap_date = gap['date']
-        available_subbranches = gap['available_subbranches']
+        available_subbranches = gap['available_subbranches'][:]  # Copy list
         
-        # Try to fill this gap with moveable subjects
-        for moveable in moveable_subjects[:]:  # Use slice to allow removal during iteration
+        for moveable in individual_moveable_subjects[:]:  # Use slice to allow removal
+            if not available_subbranches:  # No more space in this gap
+                break
+                
             current_date = moveable['current_date']
             subbranch_sem_key = moveable['subbranch_sem_key']
             subject_info = moveable['subject_info']
             
             # Check if this subject can move to this gap
             if subbranch_sem_key in available_subbranches:
-                # Check if moving this subject would actually improve the schedule
                 gap_date_obj = datetime.strptime(gap_date, "%d-%m-%Y")
                 current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
                 
-                # Only move if it's moving the subject to an earlier date
+                # Only move if it's moving to an earlier date
                 if gap_date_obj < current_date_obj:
-                    # Move the subject
-                    semester = subject_info['semester']
-                    branch = subject_info['branch']
-                    subject = subject_info['subject']
-                    original_index = subject_info['index']
-                    
-                    # Get preferred time slot for this semester
-                    preferred_slot = get_preferred_slot(semester)
-                    
-                    # Update in the semester dictionary
-                    mask = (df_dict[semester]['Subject'] == subject) & \
-                           (df_dict[semester]['Branch'] == branch) & \
-                           (df_dict[semester]['SubBranch'] == subject_info['subbranch'])
-                    
-                    if mask.any():
-                        df_dict[semester].loc[mask, 'Exam Date'] = gap_date
-                        df_dict[semester].loc[mask, 'Time Slot'] = preferred_slot
-                        
-                        # Update schedule grid
-                        # Remove from old date
-                        if current_date in schedule_grid and subbranch_sem_key in schedule_grid[current_date]:
-                            del schedule_grid[current_date][subbranch_sem_key]
-                            if not schedule_grid[current_date]:  # If date becomes empty
-                                del schedule_grid[current_date]
-                        
-                        # Add to new date
-                        if gap_date not in schedule_grid:
-                            schedule_grid[gap_date] = {}
-                        schedule_grid[gap_date][subbranch_sem_key] = subject_info
-                        
-                        # Remove this subbranch from available for this gap
+                    # Move the individual subject
+                    if move_subject(df_dict, subject_info, gap_date, schedule_grid, current_date, subbranch_sem_key):
                         available_subbranches.remove(subbranch_sem_key)
-                        
-                        # Remove this subject from moveable list
-                        moveable_subjects.remove(moveable)
-                        
+                        individual_moveable_subjects.remove(moveable)
                         moves_made += 1
-                        days_moved_up = (current_date_obj - gap_date_obj).days
                         
+                        days_moved_up = (current_date_obj - gap_date_obj).days
                         optimization_log.append(
-                            f"Moved {subject} ({subject_info['subbranch']}, Sem {semester}) "
+                            f"Moved Individual subject: {subject_info['subject']} "
+                            f"({subject_info['subbranch']}, Sem {subject_info['semester']}) "
                             f"from {current_date} to {gap_date} (moved up {days_moved_up} days)"
                         )
-                        
-                        # Break if this gap is now full for this type
-                        if not available_subbranches:
-                            break
         
-        # Update the gap's available subbranches for next iteration
+        # Update gap's available subbranches
         gap['available_subbranches'] = available_subbranches
+    
+    # PRIORITY 2: Move common subject groups (Is Common = TRUE)
+    st.write("🔄 Phase 2: Moving common subject groups...")
+    for gap in gaps:
+        gap_date = gap['date']
+        available_subbranches = gap['available_subbranches']
+        
+        for group in common_moveable_groups[:]:  # Use slice to allow removal
+            current_date = group['current_date']
+            required_subbranches = group['subbranch_sem_keys']
+            
+            # Check if ALL required subbranches are available for this gap
+            if all(sb_key in available_subbranches for sb_key in required_subbranches):
+                gap_date_obj = datetime.strptime(gap_date, "%d-%m-%Y")
+                current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
+                
+                # Only move if it's moving to an earlier date
+                if gap_date_obj < current_date_obj:
+                    # Move all instances of this common subject
+                    group_moved_successfully = True
+                    
+                    for i, subject_info in enumerate(group['instances']):
+                        subbranch_sem_key = required_subbranches[i]
+                        if not move_subject(df_dict, subject_info, gap_date, schedule_grid, current_date, subbranch_sem_key):
+                            group_moved_successfully = False
+                            break
+                    
+                    if group_moved_successfully:
+                        # Remove all subbranches used by this group
+                        for sb_key in required_subbranches:
+                            if sb_key in available_subbranches:
+                                available_subbranches.remove(sb_key)
+                        
+                        common_moveable_groups.remove(group)
+                        moves_made += len(group['instances'])
+                        
+                        days_moved_up = (current_date_obj - gap_date_obj).days
+                        optimization_log.append(
+                            f"Moved Common subject group: {group['subject_name']} "
+                            f"(Sem {group['semester']}, {len(group['instances'])} instances) "
+                            f"from {current_date} to {gap_date} (moved up {days_moved_up} days)"
+                        )
+                        break  # Move to next gap
+    
+    # Helper function to move a subject
+    def move_subject(df_dict, subject_info, new_date, schedule_grid, old_date, subbranch_sem_key):
+        """Move a single subject to a new date"""
+        try:
+            semester = subject_info['semester']
+            branch = subject_info['branch']
+            subject = subject_info['subject']
+            
+            # Get preferred time slot for this semester
+            preferred_slot = get_preferred_slot(semester)
+            
+            # Update in the semester dictionary
+            mask = (df_dict[semester]['Subject'] == subject) & \
+                   (df_dict[semester]['Branch'] == branch) & \
+                   (df_dict[semester]['SubBranch'] == subject_info['subbranch'])
+            
+            if mask.any():
+                df_dict[semester].loc[mask, 'Exam Date'] = new_date
+                df_dict[semester].loc[mask, 'Time Slot'] = preferred_slot
+                
+                # Update schedule grid
+                # Remove from old date
+                if old_date in schedule_grid and subbranch_sem_key in schedule_grid[old_date]:
+                    del schedule_grid[old_date][subbranch_sem_key]
+                    if not schedule_grid[old_date]:  # If date becomes empty
+                        del schedule_grid[old_date]
+                
+                # Add to new date
+                if new_date not in schedule_grid:
+                    schedule_grid[new_date] = {}
+                schedule_grid[new_date][subbranch_sem_key] = subject_info
+                
+                return True
+        except Exception as e:
+            st.warning(f"Failed to move subject {subject}: {e}")
+            return False
+        
+        return False
     
     # Calculate span reduction
     if moves_made > 0:
@@ -2531,9 +2627,47 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             for log in optimization_log:
                 st.write(f"• {log}")
     else:
-        st.info("ℹ️ No beneficial moves found for gap optimization (INTD and OE subjects excluded)")
+        st.info("ℹ️ No beneficial moves found for gap optimization")
     
     return df_dict, moves_made, optimization_log
+
+
+def move_subject(df_dict, subject_info, new_date, schedule_grid, old_date, subbranch_sem_key):
+    """Move a single subject to a new date"""
+    try:
+        semester = subject_info['semester']
+        branch = subject_info['branch']
+        subject = subject_info['subject']
+        
+        # Get preferred time slot for this semester
+        preferred_slot = get_preferred_slot(semester)
+        
+        # Update in the semester dictionary
+        mask = (df_dict[semester]['Subject'] == subject) & \
+               (df_dict[semester]['Branch'] == branch) & \
+               (df_dict[semester]['SubBranch'] == subject_info['subbranch'])
+        
+        if mask.any():
+            df_dict[semester].loc[mask, 'Exam Date'] = new_date
+            df_dict[semester].loc[mask, 'Time Slot'] = preferred_slot
+            
+            # Update schedule grid
+            # Remove from old date
+            if old_date in schedule_grid and subbranch_sem_key in schedule_grid[old_date]:
+                del schedule_grid[old_date][subbranch_sem_key]
+                if not schedule_grid[old_date]:  # If date becomes empty
+                    del schedule_grid[old_date]
+            
+            # Add to new date
+            if new_date not in schedule_grid:
+                schedule_grid[new_date] = {}
+            schedule_grid[new_date][subbranch_sem_key] = subject_info
+            
+            return True
+    except Exception as e:
+        return False
+    
+    return False
 
 def verify_no_double_bookings_across_dict(df_dict):
     """Verify that no subbranch-semester has more than one exam per day across all semesters"""
@@ -3448,6 +3582,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
