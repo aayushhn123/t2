@@ -731,8 +731,7 @@ def read_timetable(uploaded_file):
             "Difficulty Score": "Difficulty",
             "Exam Duration": "Exam Duration",
             "Student count": "StudentCount",
-            "Common across sems": "CommonAcrossSems",
-            "Circuit": "Circuit"
+            "Common across sems": "CommonAcrossSems"
         }
         
         # Handle the "Is Common" column with flexible naming
@@ -771,7 +770,6 @@ def read_timetable(uploaded_file):
         df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)
         df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
         df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
-        df["Circuit"] = df["Circuit"].fillna(False).astype(bool)
         
         # Handle IsCommon column - create if it doesn't exist
         if "IsCommon" not in df.columns:
@@ -805,7 +803,7 @@ def read_timetable(uploaded_file):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
         
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "Circuit", "IsCommon"]
+                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "IsCommon"]
         
         # Ensure all required columns exist before selecting
         available_cols = [col for col in cols if col in df_non.columns]
@@ -3158,15 +3156,6 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>🎯 {efficiency_display}</h3><p>Schedule Efficiency</p></div>',
                         unsafe_allow_html=True)
 
-        # Show efficiency metrics
-        if st.session_state.unique_exam_days > 0 and st.session_state.overall_date_range > 0:
-            efficiency = (st.session_state.unique_exam_days / st.session_state.overall_date_range) * 100
-            if efficiency > 80:
-                st.success(f"🎯 **HAAAA efff:** {efficiency:.1f}% (Excellent - most days are utilized)")
-            elif efficiency > 60:
-                st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
-            else:
-                st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
 
         # Show gap-filling efficiency
         total_possible_slots = st.session_state.overall_date_range * 2  # 2 slots per day
@@ -3330,3 +3319,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
