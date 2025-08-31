@@ -1039,8 +1039,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
     
-    # Add header
-    header_height = 85  # Increased height to accommodate time slot
+    # Add header with CORRECT time slot
+    header_height = 85
     pdf.set_y(0)
     current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
     pdf.set_font("Arial", size=14)
@@ -1064,7 +1064,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot if provided
+    # FIXED: Add the correct time slot passed as parameter
     if time_slot:
         pdf.set_font("Arial", 'B', 14)
         pdf.set_xy(10, 59)
@@ -1119,7 +1119,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             # Add footer to new page
             add_footer_with_page_number(pdf, footer_height)
             
-            # Add header to new page
+            # FIXED: Add header to new page with correct time slot
             add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot)
             
             # Reprint header row
@@ -1147,7 +1147,7 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
 def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot=None):
-    """Add header to a new page"""
+    """Add header to a new page with CORRECT time slot"""
     pdf.set_y(0)
     pdf.set_font("Arial", size=14)
     text_width = pdf.get_string_width(current_date)
@@ -1168,7 +1168,7 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot if provided
+    # FIXED: Add the correct time slot passed as parameter
     if time_slot:
         pdf.set_font("Arial", 'B', 14)
         pdf.set_xy(10, 59)
@@ -1236,12 +1236,23 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 num -= value
         return result
 
-    def get_semester_default_time_slot(semester, branch):
-        # Get default time slot based on semester
-        if semester.isdigit():
-            sem_num = int(semester)
-            return get_preferred_slot(sem_num)
-        return "10:00 AM - 1:00 PM"  # Default fallback
+    def get_semester_program_time_slot(semester, program_type):
+        """Get correct time slot based on semester and program type"""
+        if isinstance(semester, str):
+            # Extract numeric semester from string
+            if semester.isdigit():
+                sem_num = int(semester)
+            else:
+                # Handle roman numerals or semester strings
+                roman_to_num = {
+                    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
+                    'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12
+                }
+                sem_num = roman_to_num.get(semester, 1)
+        else:
+            sem_num = int(semester) if semester else 1
+        
+        return get_preferred_slot(sem_num, program_type)
 
     sheets_processed = 0
     
@@ -1254,9 +1265,25 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
             sheet_df = sheet_df.reset_index()
         
-        # Parse sheet name
+        # Enhanced sheet name parsing to extract program type
         parts = sheet_name.split('_Sem_')
         main_branch = parts[0]
+        
+        # Determine program type from sheet name
+        program_type = "B TECH"  # default
+        if sheet_name.startswith("DIPL_"):
+            program_type = "DIPLOMA"
+            main_branch = main_branch.replace("DIPL_", "")
+        elif sheet_name.startswith("MTECH_"):
+            program_type = "M TECH"
+            main_branch = main_branch.replace("MTECH_", "")
+        elif "M TECH" in main_branch:
+            program_type = "M TECH"
+        elif "DIPLOMA" in main_branch:
+            program_type = "DIPLOMA"
+        elif "MCA" in main_branch:
+            program_type = "MCA"
+        
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
         semester = parts[1] if len(parts) > 1 else ""
         
@@ -1321,8 +1348,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
 
-                # Get the default time slot for this semester
-                default_time_slot = get_semester_default_time_slot(semester, main_branch)
+                # FIXED: Get the correct time slot for this semester and program
+                correct_time_slot = get_semester_program_time_slot(semester, program_type)
 
                 # Convert Exam Date to desired format
                 try:
@@ -1331,9 +1358,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.warning(f"Date conversion error in {sheet_name}: {e}")
                     # Try alternative date parsing
                     chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
-
-                # NOTE: The subjects in the Excel already contain the exam times where needed
-                # due to the changes in save_to_excel function, so no additional processing needed here
 
                 # Calculate column widths
                 page_width = pdf.w - 2 * pdf.l_margin
@@ -1350,12 +1374,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 footer_height = 25
                 add_footer_with_page_number(pdf, footer_height)
                 
+                # FIXED: Pass the correct time slot
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, time_slot=default_time_slot)
+                                 header_content=header_content, branches=chunk, time_slot=correct_time_slot)
                 
                 sheets_processed += 1
 
-        # Handle electives (similar logic - exam times already included in Excel)
+        # Handle electives (similar logic)
         elif sheet_name.endswith('_Electives'):
             # Ensure we have the required columns
             required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
@@ -1382,7 +1407,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                st.warning(f"Date conversion error in electives {sheet_name}: {e}")
                elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
 
-            # NOTE: Elective subjects already contain exam times where needed from save_to_excel function
             # Clean subject display if SubjectDisplay column exists
             if 'SubjectDisplay' in elective_data.columns and 'OE' in elective_data.columns:
                # Remove OE tags that might be duplicated since they're already in the subject display
@@ -1418,11 +1442,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
            
-            # Get default time slot for electives
-            default_time_slot = get_semester_default_time_slot(semester, main_branch)
+            # FIXED: Get correct time slot for electives based on program
+            elective_time_slot = get_semester_program_time_slot(semester, program_type)
            
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                            header_content=header_content, branches=['All Streams'], time_slot=default_time_slot)
+                            header_content=header_content, branches=['All Streams'], time_slot=elective_time_slot)
            
             sheets_processed += 1
 
@@ -1432,7 +1456,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
    
     try:
        pdf.output(pdf_path)
-       st.success(f"✅ PDF generated successfully with {sheets_processed} pages")
+       st.success(f"✅ PDF generated successfully with {sheets_processed} pages and correct time slots")
     except Exception as e:
        st.error(f"❌ Error saving PDF: {e}")
        import traceback
@@ -3538,5 +3562,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
