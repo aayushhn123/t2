@@ -266,7 +266,8 @@ BRANCH_FULL_FORM = {
     "B TECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
     "M TECH": "MASTER OF TECHNOLOGY",
     "MBA TECH": "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT",
-    "MCA": "MASTER OF COMPUTER APPLICATIONS"
+    "MCA": "MASTER OF COMPUTER APPLICATIONS",
+    "DIPLOMA": "DIPLOMA IN ENGINEERING"
 }
 
 # Define logo path (adjust as needed for your environment)
@@ -318,22 +319,49 @@ def find_next_valid_day_in_range(start_date, end_date, holidays_set):
         current_date += timedelta(days=1)
     return None
 
-def get_preferred_slot(semester):
-    """Calculate preferred time slot based on semester number"""
-    if semester % 2 != 0:  # Odd semester
-        odd_sem_position = (semester + 1) // 2
-        return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    else:  # Even semester
-        even_sem_position = semester // 2
-        return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+def get_preferred_slot(semester, program_type="B TECH"):
+    """
+    Calculate preferred time slot based on semester number and program type
+    
+    Args:
+        semester (int): Semester number
+        program_type (str): Program type (B TECH, DIPLOMA, M TECH, etc.)
+    
+    Returns:
+        str: Preferred time slot
+    """
+    # Different scheduling preferences based on program type
+    if program_type == "DIPLOMA":
+        # DIPLOMA programs typically have 6 semesters
+        # Alternate between morning and afternoon for load balancing
+        return "10:00 AM - 1:00 PM" if semester % 2 != 0 else "2:00 PM - 5:00 PM"
+    
+    elif program_type == "M TECH":
+        # M TECH programs typically have 4 semesters
+        # Prefer afternoon slots for postgraduate programs
+        return "2:00 PM - 5:00 PM" if semester <= 2 else "10:00 AM - 1:00 PM"
+    
+    elif program_type == "MCA":
+        # MCA programs - prefer morning slots
+        return "10:00 AM - 1:00 PM" if semester <= 3 else "2:00 PM - 5:00 PM"
+    
+    else:
+        # Default B TECH logic
+        if semester % 2 != 0:  # Odd semester
+            odd_sem_position = (semester + 1) // 2
+            return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        else:  # Even semester
+            even_sem_position = semester // 2
+            return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     """
-    FIXED ZERO-UNSCHEDULED SUPER SCHEDULING FUNCTION: 
+    FIXED ZERO-UNSCHEDULED SUPER SCHEDULING FUNCTION with enhanced program support
     1. Groups common subjects as atomic units (all instances together)
     2. Schedules common subjects completely before moving to next day
     3. Ensures NO common subject is ever split across different dates
     4. Maintains daily branch coverage and zero-unscheduled guarantee
+    5. Enhanced support for DIPLOMA, M TECH, and other program types
     
     Args:
         df: DataFrame with ALL subjects (will filter internally)
@@ -344,10 +372,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     Returns:
         DataFrame with ALL subjects scheduled (ZERO unscheduled guarantee)
     """
-    st.info("🚀 FIXED ZERO-UNSCHEDULED SUPER SCHEDULING: Atomic common subject grouping → Priority scheduling → Daily completion")
+    st.info("🚀 ENHANCED SCHEDULING: Supporting B TECH, DIPLOMA, M TECH, and all program types")
     
-    # STEP 1: COMPREHENSIVE SUBJECT ANALYSIS
-    st.write("🔍 **Step 1:** Comprehensive analysis of ALL subjects...")
+    # STEP 1: COMPREHENSIVE SUBJECT ANALYSIS with program awareness
+    st.write("🔍 **Step 1:** Enhanced analysis supporting all program types...")
     
     total_subjects_count = len(df)
     
@@ -361,6 +389,21 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         st.info("No eligible subjects to schedule")
         return df
     
+    # Enhanced program type analysis
+    program_types = eligible_subjects['Program'].unique() if 'Program' in eligible_subjects.columns else ['B TECH']
+    st.write(f"📚 **Program types found:** {', '.join(program_types)}")
+    
+    # Program-specific statistics
+    for program in program_types:
+        if 'Program' in eligible_subjects.columns:
+            program_subjects = eligible_subjects[eligible_subjects['Program'] == program]
+        else:
+            program_subjects = eligible_subjects
+        program_semesters = sorted(program_subjects['Semester'].unique())
+        program_branches = program_subjects['Branch'].unique()
+        
+        st.write(f"  • **{program}:** {len(program_subjects)} subjects, Semesters {program_semesters}, {len(program_branches)} branches")
+
     # Helper functions
     def find_next_valid_day(start_date, holidays_set):
         return find_next_valid_day_in_range(start_date, end_date, holidays_set)
@@ -378,7 +421,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         branch_sem_details[branch_sem] = {
             'branch': row['Branch'],
             'semester': row['Semester'],
-            'subbranch': row['SubBranch']
+            'subbranch': row['SubBranch'],
+            'program': row.get('Program', 'B TECH')
         }
     
     st.write(f"🎯 **Coverage target:** {len(all_branch_sem_combinations)} branch-semester combinations")
@@ -391,12 +435,15 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         branch_sem_combinations = []
         unique_branches = set()
         unique_semesters = set()
+        unique_programs = set()
         
         for _, row in group.iterrows():
             branch_sem = f"{row['Branch']}_{row['Semester']}"
             branch_sem_combinations.append(branch_sem)
             unique_branches.add(row['Branch'])
             unique_semesters.add(row['Semester'])
+            if 'Program' in row:
+                unique_programs.add(row['Program'])
         
         frequency = len(set(branch_sem_combinations))
         
@@ -404,6 +451,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         is_common_across = group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False
         is_common_within = group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
         is_common = is_common_across or is_common_within or frequency > 1
+        
+        # Get program type for time slot calculation
+        primary_program = group['Program'].iloc[0] if 'Program' in group.columns else 'B TECH'
         
         # Create atomic unit
         atomic_unit = {
@@ -422,8 +472,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             'category': group['Category'].iloc[0] if 'Category' in group.columns else 'UNKNOWN',
             'cross_semester_span': len(unique_semesters) > 1,
             'cross_branch_span': len(unique_branches) > 1,
+            'cross_program_span': len(unique_programs) > 1,
             'unique_semesters': list(unique_semesters),
-            'unique_branches': list(unique_branches)
+            'unique_branches': list(unique_branches),
+            'unique_programs': list(unique_programs),
+            'primary_program': primary_program
         }
         
         # Calculate priority score
@@ -440,6 +493,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             priority_score += 15
         if atomic_unit['cross_branch_span']:
             priority_score += 10
+        if atomic_unit['cross_program_span']:
+            priority_score += 20  # High priority for cross-program subjects
         
         atomic_unit['priority_score'] = priority_score
         atomic_subject_units[module_code] = atomic_unit
@@ -448,19 +503,19 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     sorted_atomic_units = sorted(atomic_subject_units.values(), key=lambda x: x['priority_score'], reverse=True)
     
     # Categorize units
-    very_high_priority = [unit for unit in sorted_atomic_units if unit['is_common_across'] or unit['frequency'] >= 8]
+    very_high_priority = [unit for unit in sorted_atomic_units if unit['is_common_across'] or unit['frequency'] >= 8 or unit['cross_program_span']]
     high_priority = [unit for unit in sorted_atomic_units if unit['is_common_within'] and unit not in very_high_priority]
     medium_priority = [unit for unit in sorted_atomic_units if unit['frequency'] >= 2 and unit not in very_high_priority and unit not in high_priority]
     low_priority = [unit for unit in sorted_atomic_units if unit not in very_high_priority and unit not in high_priority and unit not in medium_priority]
     
     st.write(f"🎯 **Atomic unit classification:**")
-    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units (common across sems + freq≥8)")
+    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units (common across sems + freq≥8 + cross-program)")
     st.write(f"   📊 High Priority: {len(high_priority)} units (common within sem)")
     st.write(f"   📋 Medium Priority: {len(medium_priority)} units (multi-branch)")
     st.write(f"   📄 Low Priority: {len(low_priority)} units (individual)")
     
-    # STEP 3: ATOMIC SCHEDULING ENGINE
-    st.write("🚀 **Step 3:** Atomic scheduling engine (no subject splitting allowed)...")
+    # STEP 3: ATOMIC SCHEDULING ENGINE with program awareness
+    st.write("🚀 **Step 3:** Enhanced atomic scheduling engine...")
     
     daily_scheduled_branch_sem = {}
     scheduled_count = 0
@@ -507,13 +562,16 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             
             # If no conflicts, schedule the ENTIRE atomic unit
             if not conflicts and available_branch_sems:
-                # Determine time slot based on semester preference
+                # Determine time slot based on program type and semester preference
                 semester_counts = {}
                 for sem in atomic_unit['unique_semesters']:
                     semester_counts[sem] = semester_counts.get(sem, 0) + 1
                 
                 preferred_semester = max(semester_counts.keys()) if semester_counts else atomic_unit['unique_semesters'][0]
-                time_slot = get_preferred_slot(preferred_semester)
+                primary_program = atomic_unit['primary_program']
+                
+                # Use enhanced time slot calculation
+                time_slot = get_preferred_slot(preferred_semester, primary_program)
                 
                 # Schedule ALL instances of this subject
                 unit_scheduled_count = 0
@@ -535,7 +593,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                 units_to_remove.append(atomic_unit)
                 
                 unit_type = "COMMON" if atomic_unit['is_common'] else "INDIVIDUAL"
-                st.write(f"  ✅ **{unit_type} ATOMIC:** {atomic_unit['subject_name']} → "
+                program_info = f" [{primary_program}]" if primary_program != "B TECH" else ""
+                st.write(f"  ✅ **{unit_type} ATOMIC{program_info}:** {atomic_unit['subject_name']} → "
                         f"{len(atomic_unit['branch_sem_combinations'])} branches "
                         f"(priority: {atomic_unit['priority_score']}) at {time_slot}")
                 
@@ -569,9 +628,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     unit_branch_sem = atomic_unit['branch_sem_combinations'][0]  # Individual has only one
                     
                     if unit_branch_sem in remaining_branch_sems:
-                        # Determine time slot
+                        # Determine time slot based on program type
                         preferred_semester = atomic_unit['unique_semesters'][0]
-                        time_slot = get_preferred_slot(preferred_semester)
+                        primary_program = atomic_unit['primary_program']
+                        time_slot = get_preferred_slot(preferred_semester, primary_program)
                         
                         # Schedule this individual subject
                         for row_idx in atomic_unit['all_rows']:
@@ -589,7 +649,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                         
                         additional_fills.append(atomic_unit)
                         
-                        st.write(f"    📄 **GAP FILL:** {atomic_unit['subject_name']} at {time_slot}")
+                        program_info = f" [{primary_program}]" if primary_program != "B TECH" else ""
+                        st.write(f"    📄 **GAP FILL{program_info}:** {atomic_unit['subject_name']} at {time_slot}")
             
             # Remove gap-filled units
             for unit in additional_fills:
@@ -644,9 +705,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                         break
                 
                 if not conflicts:
-                    # Schedule the unit
+                    # Schedule the unit with program-aware time slot
                     preferred_semester = atomic_unit['unique_semesters'][0]
-                    time_slot = get_preferred_slot(preferred_semester)
+                    primary_program = atomic_unit['primary_program']
+                    time_slot = get_preferred_slot(preferred_semester, primary_program)
                     
                     for row_idx in atomic_unit['all_rows']:
                         df.loc[row_idx, 'Exam Date'] = date_str
@@ -698,11 +760,24 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     total_days_used = len(daily_scheduled_branch_sem)
     success_rate = (len(successfully_scheduled) / len(eligible_subjects)) * 100
     
-    st.success(f"🏆 **FIXED ATOMIC SCHEDULING COMPLETE:**")
+    st.success(f"🏆 **ENHANCED ATOMIC SCHEDULING COMPLETE:**")
     st.write(f"   📚 **Total subjects scheduled:** {len(successfully_scheduled)}/{len(eligible_subjects)} ({success_rate:.1f}%)")
     st.write(f"   📅 **Days used:** {total_days_used}")
     st.write(f"   ✅ **Properly grouped common subjects:** {properly_grouped_common}")
     st.write(f"   ❌ **Split common subjects:** {split_subjects}")
+    
+    # Program-wise statistics
+    program_stats = {}
+    for program in program_types:
+        if 'Program' in successfully_scheduled.columns:
+            program_scheduled = successfully_scheduled[successfully_scheduled['Program'] == program]
+        else:
+            program_scheduled = successfully_scheduled
+        program_stats[program] = len(program_scheduled)
+    
+    st.write(f"   📊 **Program-wise scheduling:**")
+    for program, count in program_stats.items():
+        st.write(f"      • {program}: {count} subjects")
     
     if split_subjects == 0:
         st.success("🎉 **PERFECT: NO COMMON SUBJECTS SPLIT!**")
@@ -720,22 +795,41 @@ def read_timetable(uploaded_file):
         st.write("📋 **Actual columns in uploaded file:**")
         st.write(list(df.columns))
         
-        # Create a flexible column mapping that handles variations
+        # Enhanced column mapping to handle more variations
         column_mapping = {
             "Program": "Program",
+            "Programme": "Program",  # Alternative spelling
             "Stream": "Stream", 
+            "Specialization": "Stream",  # Alternative name
+            "Branch": "Stream",  # Some files might use Branch for Stream
             "Current Session": "Semester",
+            "Academic Session": "Semester",
+            "Session": "Semester",
             "Module Description": "SubjectName",
+            "Subject Name": "SubjectName",
+            "Subject Description": "SubjectName",
             "Module Abbreviation": "ModuleCode",
+            "Module Code": "ModuleCode",
+            "Subject Code": "ModuleCode",
+            "Code": "ModuleCode",
             "Campus Name": "Campus",
+            "Campus": "Campus",
             "Difficulty Score": "Difficulty",
+            "Difficulty": "Difficulty",
             "Exam Duration": "Exam Duration",
+            "Duration": "Exam Duration",
             "Student count": "StudentCount",
-            "Common across sems": "CommonAcrossSems"
+            "Student Count": "StudentCount",
+            "Enrollment": "StudentCount",
+            "Count": "StudentCount",
+            "Common across sems": "CommonAcrossSems",
+            "Common Across Sems": "CommonAcrossSems",
+            "Cross Semester": "CommonAcrossSems",
+            "Common Across Semesters": "CommonAcrossSems"
         }
         
         # Handle the "Is Common" column with flexible naming
-        is_common_variations = ["Is Common", "IsCommon", "is common", "Is_Common", "is_common"]
+        is_common_variations = ["Is Common", "IsCommon", "is common", "Is_Common", "is_common", "Common"]
         for variation in is_common_variations:
             if variation in df.columns:
                 column_mapping[variation] = "IsCommon"
@@ -750,15 +844,40 @@ def read_timetable(uploaded_file):
         def convert_sem(sem):
             if pd.isna(sem):
                 return 0
-            m = {
+            
+            sem_str = str(sem).strip()
+            
+            # Handle different semester formats including DIPLOMA and M TECH
+            semester_mappings = {
                 "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
                 "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
-                "Sem IX": 9, "Sem X": 10, "Sem XI": 11
+                "Sem IX": 9, "Sem X": 10, "Sem XI": 11, "Sem XII": 12,
+                # DIPLOMA variations
+                "DIPLOMA Sem I": 1, "DIPLOMA Sem II": 2, "DIPLOMA Sem III": 3,
+                "DIPLOMA Sem IV": 4, "DIPLOMA Sem V": 5, "DIPLOMA Sem VI": 6,
+                # M TECH variations  
+                "M TECH Sem I": 1, "M TECH Sem II": 2, "M TECH Sem III": 3, "M TECH Sem IV": 4,
+                # Direct numeric
+                "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, 
+                "9": 9, "10": 10, "11": 11, "12": 12
             }
-            return m.get(sem.strip(), 0)
-        
+            
+            return semester_mappings.get(sem_str, 0)
+
         df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
-        df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
+        
+        # Create enhanced branch identifier that considers program type
+        def create_branch_identifier(row):
+            program = str(row.get("Program", "")).strip()
+            stream = str(row.get("Stream", "")).strip()
+            
+            # Handle cases where stream might be empty or same as program
+            if not stream or stream == "nan" or stream == program:
+                return program
+            else:
+                return f"{program}-{stream}"
+        
+        df["Branch"] = df.apply(create_branch_identifier, axis=1)
         df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
         
         comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
@@ -773,18 +892,19 @@ def read_timetable(uploaded_file):
         
         # Handle IsCommon column - create if it doesn't exist
         if "IsCommon" not in df.columns:
-            st.info("ℹ️ Creating 'IsCommon' column with default values")
-            # Default logic: if CommonAcrossSems is True, then IsCommon should be YES
-            # Otherwise, check if the subject appears in multiple branches within the same semester
+            st.info("ℹ️ Creating 'IsCommon' column with enhanced logic for all program types")
             df["IsCommon"] = "NO"  # Default value
             
             # Set YES for subjects that are common across semesters
             df.loc[df["CommonAcrossSems"] == True, "IsCommon"] = "YES"
             
-            # Check for subjects common within semester
+            # Enhanced logic to check for subjects common within semester across different programs
             for (semester, module_code), group in df.groupby(['Semester', 'ModuleCode']):
-                if len(group['Branch'].unique()) > 1:
-                    # This subject appears in multiple branches within the same semester
+                unique_branches = group['Branch'].unique()
+                unique_programs = group['Program'].unique() if 'Program' in group.columns else []
+                
+                # If subject appears in multiple branches or programs within same semester
+                if len(unique_branches) > 1 or len(unique_programs) > 1:
                     df.loc[group.index, "IsCommon"] = "YES"
         else:
             # Clean up the IsCommon column values
@@ -796,14 +916,18 @@ def read_timetable(uploaded_file):
         df_ele = df[df["Category"] == "INTD"].copy()
         
         def split_br(b):
-            p = b.split("-", 1)
-            return pd.Series([p[0].strip(), p[1].strip() if len(p) > 1 else ""])
+            p = str(b).split("-", 1)
+            if len(p) == 1:
+                # Single program case (like DIPLOMA, M TECH without stream)
+                return pd.Series([p[0].strip(), ""])
+            else:
+                return pd.Series([p[0].strip(), p[1].strip()])
         
         for d in (df_non, df_ele):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
         
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "IsCommon"]
+                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "IsCommon", "Program"]
         
         # Ensure all required columns exist before selecting
         available_cols = [col for col in cols if col in df_non.columns]
@@ -811,6 +935,17 @@ def read_timetable(uploaded_file):
         
         if missing_cols:
             st.warning(f"⚠️ Missing columns: {missing_cols}")
+            # Add missing columns with default values
+            for missing_col in missing_cols:
+                if missing_col == "Program":
+                    df_non[missing_col] = "B TECH"  # Default program
+                    df_ele[missing_col] = "B TECH"
+                else:
+                    df_non[missing_col] = None
+                    df_ele[missing_col] = None
+        
+        # Update available_cols after adding missing columns
+        available_cols = [col for col in cols if col in df_non.columns]
         
         return df_non[available_cols], df_ele[available_cols] if available_cols else df_ele, df
         
@@ -1434,17 +1569,17 @@ def save_verification_excel(original_df, semester_wise_timetable):
     module_codes_sample = scheduled_data[['Subject', 'ExtractedModuleCode']].head(3)
     st.dataframe(module_codes_sample)
 
-    # Handle different possible column names in original data
+    # Handle different possible column names in original data with enhanced mapping
     column_mapping = {
-        "Module Abbreviation": ["Module Abbreviation", "ModuleCode", "Module Code", "Code"],
-        "Current Session": ["Current Session", "Semester", "Current Academic Session"],
+        "Module Abbreviation": ["Module Abbreviation", "ModuleCode", "Module Code", "Code", "Subject Code"],
+        "Current Session": ["Current Session", "Semester", "Current Academic Session", "Academic Session", "Session"],
         "Program": ["Program", "Programme"],
         "Stream": ["Stream", "Specialization", "Branch"],
-        "Module Description": ["Module Description", "SubjectName", "Subject Name", "Subject"],
+        "Module Description": ["Module Description", "SubjectName", "Subject Name", "Subject", "Subject Description"],
         "Exam Duration": ["Exam Duration", "Duration", "Exam_Duration"],
-        "Student count": ["Student count", "StudentCount", "Student_count", "Count"],
-        "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems"],
-        "Is Common": ["Is Common", "IsCommon", "is common", "Is_Common", "is_common"],
+        "Student count": ["Student count", "StudentCount", "Student_count", "Count", "Student Count", "Enrollment"],
+        "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems", "Common Across Sems", "Cross Semester"],
+        "Is Common": ["Is Common", "IsCommon", "is common", "Is_Common", "is_common", "Common"],
         "Circuit": ["Circuit", "Is_Circuit", "CircuitBranch"]
     }
     
@@ -1474,6 +1609,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
     verification_df["Exam Time"] = ""  # Subject-specific timing
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
+    verification_df["Program Type"] = ""  # New column for program type
 
     # Track statistics
     matched_count = 0
@@ -1486,6 +1622,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
         if module_code and module_code != "nan":
             semester = row['Semester']
             branch = row['Branch']
+            program = row.get('Program', 'B TECH')
             
             # Create multiple possible keys for matching
             keys_to_try = [
@@ -1494,8 +1631,8 @@ def save_verification_excel(original_df, semester_wise_timetable):
             
             # Add branch variations for matching
             if '-' in branch:
-                program, stream = branch.split('-', 1)
-                keys_to_try.append(f"{module_code}_{semester}_{program.strip()}-{stream.strip()}")
+                program_part, stream = branch.split('-', 1)
+                keys_to_try.append(f"{module_code}_{semester}_{program_part.strip()}-{stream.strip()}")
             
             for key in keys_to_try:
                 if key not in scheduled_lookup:
@@ -1520,7 +1657,15 @@ def save_verification_excel(original_df, semester_wise_timetable):
             # Create branch identifier
             program = str(row.get("Program", "")).strip()
             stream = str(row.get("Stream", "")).strip()
-            branch = f"{program}-{stream}" if program and stream and program != "nan" and stream != "nan" else ""
+            
+            # Enhanced branch creation logic
+            if not stream or stream == "nan" or stream == program:
+                branch = program
+            else:
+                branch = f"{program}-{stream}"
+            
+            # Set program type in verification
+            verification_df.at[idx, "Program Type"] = program
             
             if not branch:
                 st.write(f"⚠️ Empty branch for module {module_code}")
@@ -1565,6 +1710,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 exam_date = matched_subject["Exam Date"]
                 assigned_time_slot = matched_subject["Time Slot"]
                 duration = row.get("Exam Duration", 3.0)
+                program_type = matched_subject.get('Program', 'B TECH')
                 
                 # Handle duration
                 try:
@@ -1572,23 +1718,28 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 except:
                     duration = 3.0
                 
-                # UPDATED: Calculate Time Slot (semester default) and Exam Time (subject-specific)
-                semester_default_slot = get_preferred_slot(semester_num)
+                # Enhanced: Calculate Time Slot and Exam Time with program awareness
+                semester_default_slot = get_preferred_slot(semester_num, program_type)
                 
-                # Time Slot = Semester default timing
+                # Time Slot = Semester default timing (program-aware)
                 verification_df.at[idx, "Time Slot"] = semester_default_slot
                 
                 # Exam Time = Subject-specific timing
                 if assigned_time_slot and str(assigned_time_slot).strip() and str(assigned_time_slot) != "nan":
                     try:
+                        # Program-specific standard duration
+                        standard_duration = 3
+                        if program_type == "DIPLOMA":
+                            standard_duration = 2.5
+                        
                         # Calculate subject-specific exam time based on duration
-                        if duration != 3:
+                        if duration != standard_duration:
                             # Non-standard duration: calculate specific time range
                             start_time = str(assigned_time_slot).split(" - ")[0].strip()
                             end_time = calculate_end_time(start_time, duration)
                             exam_time = f"{start_time} - {end_time}"
                         else:
-                            # Standard 3-hour duration
+                            # Standard duration
                             if assigned_time_slot != semester_default_slot:
                                 # Common subject with different timing than semester default
                                 exam_time = str(assigned_time_slot)
@@ -1633,23 +1784,30 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 unmatched_count += 1
                 
                 if unmatched_count <= 10:  # Show first 10 unmatched for debugging
-                    st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
+                    st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num}, {program})")
                      
         except Exception as e:
             st.error(f"Error processing row {idx}: {e}")
             unmatched_count += 1
 
-    st.success(f"✅ **Verification Results:**")
-    st.write(f"   📊 Matched: {matched_count} subjects")
-    st.write(f"   ⚠️ Unmatched: {unmatched_count} subjects")
-    st.write(f"   📈 Match rate: {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
+    st.success(f"✅ **Enhanced Verification Results:**")
+    st.write(f"   📚 **Matched:** {matched_count} subjects")
+    st.write(f"   ⚠️ **Unmatched:** {unmatched_count} subjects")
+    st.write(f"   📈 **Match rate:** {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
+
+    # Program-wise statistics
+    program_stats = verification_df['Program Type'].value_counts()
+    st.write(f"   📊 **Program-wise breakdown:**")
+    for program, count in program_stats.items():
+        program_matched = len(verification_df[(verification_df['Program Type'] == program) & (verification_df['Scheduling Status'] == 'Scheduled')])
+        st.write(f"      • {program}: {program_matched}/{count} scheduled ({(program_matched/count*100):.1f}%)")
 
     # Save to Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         verification_df.to_excel(writer, sheet_name="Verification", index=False)
         
-        # Add a summary sheet with breakdown by commonality
+        # Enhanced summary sheet with program breakdown
         summary_data = {
             "Metric": ["Total Subjects", "Scheduled Subjects", "Unscheduled Subjects", "Match Rate (%)",
                       "Common Across Semesters", "Common Within Semester", "Uncommon Subjects"],
@@ -1666,6 +1824,25 @@ def save_verification_excel(original_df, semester_wise_timetable):
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
         
+        # Program-wise summary sheet
+        program_summary_data = []
+        for program in verification_df['Program Type'].unique():
+            program_data = verification_df[verification_df['Program Type'] == program]
+            scheduled = len(program_data[program_data['Scheduling Status'] == 'Scheduled'])
+            total = len(program_data)
+            match_rate = (scheduled / total * 100) if total > 0 else 0
+            
+            program_summary_data.append({
+                'Program': program,
+                'Total Subjects': total,
+                'Scheduled': scheduled,
+                'Unscheduled': total - scheduled,
+                'Match Rate (%)': round(match_rate, 1)
+            })
+        
+        program_summary_df = pd.DataFrame(program_summary_data)
+        program_summary_df.to_excel(writer, sheet_name="Program_Summary", index=False)
+        
         # Add unmatched subjects sheet for debugging
         unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
         if not unmatched_subjects.empty:
@@ -1675,17 +1852,25 @@ def save_verification_excel(original_df, semester_wise_timetable):
     return output
 
 def convert_semester_to_number(semester_value):
-    """Convert semester string to number with better error handling"""
+    """Convert semester string to number with support for DIPLOMA and M TECH semesters"""
     if pd.isna(semester_value):
         return 0
     
     semester_str = str(semester_value).strip()
     
     semester_map = {
+        # Standard semester mapping
         "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
         "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
-        "Sem IX": 9, "Sem X": 10, "Sem XI": 11,
-        "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "11": 11
+        "Sem IX": 9, "Sem X": 10, "Sem XI": 11, "Sem XII": 12,
+        # Numeric mapping
+        "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, 
+        "7": 7, "8": 8, "9": 9, "10": 10, "11": 11, "12": 12,
+        # DIPLOMA specific semesters (typically 6 semesters)
+        "DIPLOMA Sem I": 1, "DIPLOMA Sem II": 2, "DIPLOMA Sem III": 3,
+        "DIPLOMA Sem IV": 4, "DIPLOMA Sem V": 5, "DIPLOMA Sem VI": 6,
+        # M TECH specific semesters (typically 4 semesters)
+        "M TECH Sem I": 1, "M TECH Sem II": 2, "M TECH Sem III": 3, "M TECH Sem IV": 4
     }
     
     return semester_map.get(semester_str, 0)
@@ -1708,16 +1893,23 @@ def save_to_excel(semester_wise_timetable):
                 num -= value
         return result
 
-    def should_show_exam_time(row, semester_default_slot):
-        """Determine if subject needs to show specific exam time"""
+    def should_show_exam_time(row, semester_default_slot, program_type="B TECH"):
+        """Determine if subject needs to show specific exam time based on program type"""
         duration = row.get('Exam Duration', 3)
         assigned_slot = row.get('Time Slot', '')
         is_common_across = row.get('CommonAcrossSems', False)
         
+        # Program-specific duration standards
+        standard_duration = 3  # Default
+        if program_type == "DIPLOMA":
+            standard_duration = 2.5  # DIPLOMA might have shorter exams
+        elif program_type == "M TECH":
+            standard_duration = 3  # M TECH standard duration
+        
         # Show exam time if:
-        # 1. Duration is not 3 hours
+        # 1. Duration is not standard for the program
         # 2. Common subject assigned different time than semester default
-        return (duration != 3) or (is_common_across and assigned_slot != semester_default_slot)
+        return (duration != standard_duration) or (is_common_across and assigned_slot != semester_default_slot)
 
     output = io.BytesIO()
     
@@ -1729,21 +1921,32 @@ def save_to_excel(semester_wise_timetable):
                 for main_branch in df_sem["MainBranch"].unique():
                     df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
                     
+                    # Get program type for this main branch
+                    program_type = df_mb['Program'].iloc[0] if 'Program' in df_mb.columns else 'B TECH'
+                    
                     # Separate non-electives and electives
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
                     # Process non-electives
                     roman_sem = int_to_roman(sem)
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
+                    
+                    # Enhanced sheet naming for different programs
+                    if program_type == "DIPLOMA":
+                        sheet_name = f"DIPL_{main_branch}_Sem_{roman_sem}"
+                    elif program_type == "M TECH":
+                        sheet_name = f"MTECH_{main_branch}_Sem_{roman_sem}"
+                    else:
+                        sheet_name = f"{main_branch}_Sem_{roman_sem}"
+                    
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
                     
                     if not df_non_elec.empty:
-                        st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
+                        st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {program_type} {sheet_name}")
                         
-                        # Get semester default time slot
-                        semester_default_slot = get_preferred_slot(sem)
+                        # Get program-specific semester default time slot
+                        semester_default_slot = get_preferred_slot(sem, program_type)
                         
                         # Create a copy to avoid modifying the original
                         df_processed = df_non_elec.copy().reset_index(drop=True)
@@ -1770,12 +1973,17 @@ def save_to_excel(semester_wise_timetable):
                             base_subject = str(row.get('Subject', ''))
                             difficulty_suffix = difficulty_values[idx]
                             
-                            if should_show_exam_time(row, semester_default_slot):
+                            if should_show_exam_time(row, semester_default_slot, program_type):
                                 duration = row.get('Exam Duration', 3)
                                 assigned_slot = row.get('Time Slot', semester_default_slot)
                                 
                                 try:
-                                    if duration != 3:
+                                    # Program-specific duration standards
+                                    standard_duration = 3
+                                    if program_type == "DIPLOMA":
+                                        standard_duration = 2.5
+                                    
+                                    if duration != standard_duration:
                                         # Non-standard duration
                                         start_time = str(assigned_slot).split(" - ")[0].strip()
                                         end_time = calculate_end_time(start_time, duration)
@@ -1833,7 +2041,7 @@ def save_to_excel(semester_wise_timetable):
                         
                     else:
                         # Create empty sheet structure for branches with no subjects
-                        st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
+                        st.write(f"⚠️ No non-elective subjects for {program_type} {sheet_name}, creating empty structure")
                         
                         # Get all possible subbranches for this main branch from the semester
                         all_subbranches = df_sem[df_sem["MainBranch"] == main_branch]["SubBranch"].unique()
@@ -1864,12 +2072,12 @@ def save_to_excel(semester_wise_timetable):
 
                     # Process electives in a separate sheet (only if electives exist)
                     if not df_elec.empty:
-                        st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
+                        st.write(f"📊 Processing {len(df_elec)} elective subjects for {program_type} {sheet_name}")
                         
                         # Create a copy to avoid modifying the original
                         df_elec_processed = df_elec.copy().reset_index(drop=True)
                         
-                        # Add difficulty info safely
+                        # Add difficulty info safely for electives
                         difficulty_values_elec = []
                         for idx in range(len(df_elec_processed)):
                             row = df_elec_processed.iloc[idx]
@@ -1894,9 +2102,13 @@ def save_to_excel(semester_wise_timetable):
                             
                             base_display = f"{base_subject} [{oe_type}]"
                             
-                            # Add exam time for non-standard durations
+                            # Add exam time for non-standard durations based on program
                             duration = row.get('Exam Duration', 3)
-                            if duration != 3:
+                            standard_duration = 3
+                            if program_type == "DIPLOMA":
+                                standard_duration = 2.5
+                                
+                            if duration != standard_duration:
                                 try:
                                     assigned_slot = row.get('Time Slot', '10:00 AM - 1:00 PM')
                                     start_time = str(assigned_slot).split(" - ")[0].strip()
@@ -1925,10 +2137,17 @@ def save_to_excel(semester_wise_timetable):
                         ).dt.strftime("%d-%m-%Y")
                         elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
                         
-                        # Save to Excel
-                        elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
+                        # Save to Excel with program-specific naming
+                        if program_type == "DIPLOMA":
+                            elective_sheet_name = f"DIPL_{main_branch}_Sem_{roman_sem}_Electives"
+                        elif program_type == "M TECH":
+                            elective_sheet_name = f"MTECH_{main_branch}_Sem_{roman_sem}_Electives"
+                        else:
+                            elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
+                        
                         if len(elective_sheet_name) > 31:
                             elective_sheet_name = elective_sheet_name[:31]
+                            
                         elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
                         sheets_created += 1
                         st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
@@ -1937,20 +2156,20 @@ def save_to_excel(semester_wise_timetable):
             if sheets_created == 0:
                 st.error("❌ No sheets were created! Creating a dummy sheet to prevent Excel error.")
                 # Create a dummy sheet to prevent the "At least one sheet must be visible" error
-                dummy_df = pd.DataFrame({'Message': ['No data available']})
+                dummy_df = pd.DataFrame({'Message': ['No data available for any program type']})
                 dummy_df.to_excel(writer, sheet_name="No_Data", index=False)
                 
         output.seek(0)
         
         if sheets_created > 0:
-            st.success(f"✅ Excel file created successfully with {sheets_created} required sheets")
+            st.success(f"✅ Enhanced Excel file created successfully with {sheets_created} sheets supporting all program types")
         else:
             st.warning("⚠️ Excel file created with dummy sheet due to no data")
             
         return output
         
     except Exception as e:
-        st.error(f"Error creating Excel file: {e}")
+        st.error(f"Error creating enhanced Excel file: {e}")
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
         return None
@@ -3319,4 +3538,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
