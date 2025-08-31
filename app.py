@@ -1635,9 +1635,11 @@ def save_verification_excel(original_df, semester_wise_timetable):
     verification_df["Scheduling Status"] = "Not Scheduled"
     verification_df["Program Type"] = ""  # New column for program type
 
-    # Track statistics
+    # Track statistics - Enhanced with unique subject tracking
     matched_count = 0
     unmatched_count = 0
+    unique_subjects_matched = set()
+    unique_subjects_unmatched = set()
     
     # Create comprehensive lookup for scheduled subjects
     scheduled_lookup = {}
@@ -1694,6 +1696,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             if not branch:
                 st.write(f"⚠️ Empty branch for module {module_code}")
                 unmatched_count += 1
+                unique_subjects_unmatched.add(module_code)
                 continue
             
             # Try to find match using lookup
@@ -1797,6 +1800,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                     verification_df.at[idx, "Is Common Status"] = "Uncommon"
                 
                 matched_count += 1
+                unique_subjects_matched.add(module_code)
                 
             else:
                 # No match found
@@ -1806,6 +1810,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 verification_df.at[idx, "Is Common Status"] = "N/A"
                 verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
                 unmatched_count += 1
+                unique_subjects_unmatched.add(module_code)
                 
                 if unmatched_count <= 10:  # Show first 10 unmatched for debugging
                     st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num}, {program})")
@@ -1813,11 +1818,19 @@ def save_verification_excel(original_df, semester_wise_timetable):
         except Exception as e:
             st.error(f"Error processing row {idx}: {e}")
             unmatched_count += 1
+            if module_code:
+                unique_subjects_unmatched.add(module_code)
 
-    st.success(f"✅ **Enhanced Verification Results:**")
-    st.write(f"   📚 **Matched:** {matched_count} subjects")
-    st.write(f"   ⚠️ **Unmatched:** {unmatched_count} subjects")
-    st.write(f"   📈 **Match rate:** {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
+    # Enhanced statistics with unique subject counts
+    total_unique_subjects = len(unique_subjects_matched | unique_subjects_unmatched)
+    unique_matched_count = len(unique_subjects_matched)
+    unique_unmatched_count = len(unique_subjects_unmatched)
+    
+    st.success(f"✅ **Enhanced Verification Results with Unique Subject Tracking:**")
+    st.write(f"   📚 **Total Instances:** Matched: {matched_count}, Unmatched: {unmatched_count}")
+    st.write(f"   🔗 **Unique Subjects:** Total: {total_unique_subjects}, Matched: {unique_matched_count}, Unmatched: {unique_unmatched_count}")
+    st.write(f"   📈 **Instance Match Rate:** {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
+    st.write(f"   🎯 **Unique Subject Match Rate:** {(unique_matched_count/total_unique_subjects*100):.1f}%")
 
     # Program-wise statistics
     program_stats = verification_df['Program Type'].value_counts()
@@ -1826,20 +1839,64 @@ def save_verification_excel(original_df, semester_wise_timetable):
         program_matched = len(verification_df[(verification_df['Program Type'] == program) & (verification_df['Scheduling Status'] == 'Scheduled')])
         st.write(f"      • {program}: {program_matched}/{count} scheduled ({(program_matched/count*100):.1f}%)")
 
-    # Save to Excel
+    # Create unique subjects summary
+    unique_subjects_summary = []
+    
+    # Get subject names for unique matched subjects
+    for module_code in unique_subjects_matched:
+        subject_rows = verification_df[verification_df['Module Abbreviation'] == module_code]
+        if not subject_rows.empty:
+            subject_name = subject_rows['Module Description'].iloc[0] if 'Module Description' in subject_rows.columns else module_code
+            programs = ', '.join(subject_rows['Program Type'].unique())
+            semesters = ', '.join(map(str, sorted(subject_rows['Current Session'].unique())))
+            instances = len(subject_rows)
+            unique_subjects_summary.append({
+                'Module Code': module_code,
+                'Subject Name': subject_name,
+                'Status': 'Matched',
+                'Programs': programs,
+                'Semesters': semesters,
+                'Total Instances': instances
+            })
+    
+    # Get subject names for unique unmatched subjects
+    for module_code in unique_subjects_unmatched:
+        subject_rows = verification_df[verification_df['Module Abbreviation'] == module_code]
+        if not subject_rows.empty:
+            subject_name = subject_rows['Module Description'].iloc[0] if 'Module Description' in subject_rows.columns else module_code
+            programs = ', '.join(subject_rows['Program Type'].unique())
+            semesters = ', '.join(map(str, sorted(subject_rows['Current Session'].unique())))
+            instances = len(subject_rows)
+            unique_subjects_summary.append({
+                'Module Code': module_code,
+                'Subject Name': subject_name,
+                'Status': 'Unmatched',
+                'Programs': programs,
+                'Semesters': semesters,
+                'Total Instances': instances
+            })
+
+    # Save to Excel with enhanced sheets
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         verification_df.to_excel(writer, sheet_name="Verification", index=False)
         
-        # Enhanced summary sheet with program breakdown
+        # Enhanced summary sheet with unique subject counts
         summary_data = {
-            "Metric": ["Total Subjects", "Scheduled Subjects", "Unscheduled Subjects", "Match Rate (%)",
-                      "Common Across Semesters", "Common Within Semester", "Uncommon Subjects"],
+            "Metric": [
+                "Total Subject Instances", "Scheduled Instances", "Unscheduled Instances", "Instance Match Rate (%)",
+                "Total Unique Subjects", "Unique Subjects Matched", "Unique Subjects Unmatched", "Unique Subject Match Rate (%)",
+                "Common Across Semesters", "Common Within Semester", "Uncommon Subjects"
+            ],
             "Value": [
                 matched_count + unmatched_count, 
                 matched_count, 
                 unmatched_count, 
                 round(matched_count/(matched_count+unmatched_count)*100, 1) if (matched_count+unmatched_count) > 0 else 0,
+                total_unique_subjects,
+                unique_matched_count,
+                unique_unmatched_count,
+                round(unique_matched_count/total_unique_subjects*100, 1) if total_unique_subjects > 0 else 0,
                 len(verification_df[verification_df["Is Common Status"] == "Common Across Semesters"]),
                 len(verification_df[verification_df["Is Common Status"] == "Common Within Semester"]),
                 len(verification_df[verification_df["Is Common Status"] == "Uncommon"])
@@ -1847,6 +1904,13 @@ def save_verification_excel(original_df, semester_wise_timetable):
         }
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        
+        # NEW: Unique Subjects Summary Sheet
+        if unique_subjects_summary:
+            unique_subjects_df = pd.DataFrame(unique_subjects_summary)
+            # Sort by status (Matched first) then by module code
+            unique_subjects_df = unique_subjects_df.sort_values(['Status', 'Module Code'])
+            unique_subjects_df.to_excel(writer, sheet_name="Unique_Subjects", index=False)
         
         # Program-wise summary sheet
         program_summary_data = []
@@ -1856,21 +1920,47 @@ def save_verification_excel(original_df, semester_wise_timetable):
             total = len(program_data)
             match_rate = (scheduled / total * 100) if total > 0 else 0
             
+            # Calculate unique subjects for this program
+            program_unique_matched = set()
+            program_unique_unmatched = set()
+            
+            for _, row in program_data.iterrows():
+                module_code = str(row.get("Module Abbreviation", "")).strip()
+                if module_code and module_code != "nan":
+                    if row['Scheduling Status'] == 'Scheduled':
+                        program_unique_matched.add(module_code)
+                    else:
+                        program_unique_unmatched.add(module_code)
+            
+            program_unique_total = len(program_unique_matched | program_unique_unmatched)
+            program_unique_match_rate = (len(program_unique_matched) / program_unique_total * 100) if program_unique_total > 0 else 0
+            
             program_summary_data.append({
                 'Program': program,
-                'Total Subjects': total,
-                'Scheduled': scheduled,
-                'Unscheduled': total - scheduled,
-                'Match Rate (%)': round(match_rate, 1)
+                'Total Instances': total,
+                'Scheduled Instances': scheduled,
+                'Unscheduled Instances': total - scheduled,
+                'Instance Match Rate (%)': round(match_rate, 1),
+                'Total Unique Subjects': program_unique_total,
+                'Unique Subjects Matched': len(program_unique_matched),
+                'Unique Subjects Unmatched': len(program_unique_unmatched),
+                'Unique Subject Match Rate (%)': round(program_unique_match_rate, 1)
             })
         
         program_summary_df = pd.DataFrame(program_summary_data)
         program_summary_df.to_excel(writer, sheet_name="Program_Summary", index=False)
         
-        # Add unmatched subjects sheet for debugging
+        # Add unmatched subjects sheet for debugging (instances)
         unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
         if not unmatched_subjects.empty:
-            unmatched_subjects.to_excel(writer, sheet_name="Unmatched_Subjects", index=False)
+            unmatched_subjects.to_excel(writer, sheet_name="Unmatched_Instances", index=False)
+        
+        # NEW: Separate sheet for unique unmatched subjects only
+        unique_unmatched_df = pd.DataFrame([
+            item for item in unique_subjects_summary if item['Status'] == 'Unmatched'
+        ])
+        if not unique_unmatched_df.empty:
+            unique_unmatched_df.to_excel(writer, sheet_name="Unique_Unmatched_Only", index=False)
 
     output.seek(0)
     return output
@@ -3562,6 +3652,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
