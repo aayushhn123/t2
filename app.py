@@ -947,12 +947,202 @@ def read_timetable(uploaded_file):
         # Update available_cols after adding missing columns
         available_cols = [col for col in cols if col in df_non.columns]
         
+        # STORE ORIGINAL DATA FOR FILTER OPTIONS
+        st.session_state.original_data_df = df.copy()
+        
         return df_non[available_cols], df_ele[available_cols] if available_cols else df_ele, df
         
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
         st.error(f"Error details: {type(e).__name__}")
         return None, None, None
+
+def create_filter_selectors():
+    """
+    Create Program, Stream, and Year selectors based on the uploaded data
+    Returns: dict with selected filters
+    """
+    if 'original_data_df' not in st.session_state or st.session_state.original_data_df is None:
+        return None
+    
+    df = st.session_state.original_data_df
+    
+    st.markdown("### 🎯 Filter Selection")
+    st.info("Select which Programs, Streams, and Years to include in the timetable generation. All are selected by default.")
+    
+    # Extract unique values
+    available_programs = sorted([prog for prog in df['Program'].unique() if str(prog) != 'nan'])
+    available_streams = sorted([stream for stream in df['Stream'].unique() if str(stream) != 'nan' and str(stream) != ''])
+    available_semesters = sorted(df['Semester'].unique())
+    
+    # Convert semesters to years (approximate)
+    semester_to_year = {}
+    year_to_semesters = {}
+    
+    for sem in available_semesters:
+        if sem > 0:
+            # Calculate year based on semester (2 semesters per year)
+            year = ((sem - 1) // 2) + 1
+            semester_to_year[sem] = year
+            if year not in year_to_semesters:
+                year_to_semesters[year] = []
+            year_to_semesters[year].append(sem)
+    
+    available_years = sorted(year_to_semesters.keys())
+    
+    # Create three columns for filters
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("#### 📚 Programs")
+        selected_programs = []
+        select_all_programs = st.checkbox("Select All Programs", value=True, key="all_programs")
+        
+        if select_all_programs:
+            selected_programs = available_programs
+            # Show all programs as selected (disabled checkboxes)
+            for program in available_programs:
+                st.checkbox(program, value=True, disabled=True, key=f"prog_{program}")
+        else:
+            for program in available_programs:
+                if st.checkbox(program, value=False, key=f"prog_{program}"):
+                    selected_programs.append(program)
+    
+    with col2:
+        st.markdown("#### 🌊 Streams")
+        selected_streams = []
+        select_all_streams = st.checkbox("Select All Streams", value=True, key="all_streams")
+        
+        if select_all_streams:
+            selected_streams = available_streams
+            # Show all streams as selected (disabled checkboxes)
+            for stream in available_streams:
+                st.checkbox(stream, value=True, disabled=True, key=f"stream_{stream}")
+        else:
+            for stream in available_streams:
+                if st.checkbox(stream, value=False, key=f"stream_{stream}"):
+                    selected_streams.append(stream)
+    
+    with col3:
+        st.markdown("#### 📅 Years")
+        selected_years = []
+        select_all_years = st.checkbox("Select All Years", value=True, key="all_years")
+        
+        if select_all_years:
+            selected_years = available_years
+            # Show all years as selected (disabled checkboxes)
+            for year in available_years:
+                year_sems = year_to_semesters[year]
+                sem_text = f" (Sem {', '.join(map(str, year_sems))})"
+                st.checkbox(f"Year {year}{sem_text}", value=True, disabled=True, key=f"year_{year}")
+        else:
+            for year in available_years:
+                year_sems = year_to_semesters[year]
+                sem_text = f" (Sem {', '.join(map(str, year_sems))})"
+                if st.checkbox(f"Year {year}{sem_text}", value=False, key=f"year_{year}"):
+                    selected_years.append(year)
+    
+    # Convert selected years back to semesters
+    selected_semesters = []
+    for year in selected_years:
+        selected_semesters.extend(year_to_semesters[year])
+    
+    # Show selection summary
+    st.markdown("#### 📋 Current Selection Summary")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.info(f"**Programs:** {len(selected_programs)}/{len(available_programs)} selected")
+        if len(selected_programs) <= 5:
+            st.write(", ".join(selected_programs))
+        else:
+            st.write(f"{', '.join(selected_programs[:3])}... and {len(selected_programs)-3} more")
+    
+    with col2:
+        st.info(f"**Streams:** {len(selected_streams)}/{len(available_streams)} selected")
+        if len(selected_streams) <= 5:
+            st.write(", ".join(selected_streams))
+        else:
+            st.write(f"{', '.join(selected_streams[:3])}... and {len(selected_streams)-3} more")
+    
+    with col3:
+        st.info(f"**Years:** {len(selected_years)}/{len(available_years)} selected")
+        st.write(f"Semesters: {', '.join(map(str, sorted(selected_semesters)))}")
+    
+    # Calculate estimated subjects
+    if selected_programs and selected_streams and selected_semesters:
+        filter_mask = (
+            df['Program'].isin(selected_programs) &
+            df['Stream'].isin(selected_streams + ['']) &  # Include empty streams
+            df['Semester'].isin(selected_semesters)
+        )
+        estimated_subjects = len(df[filter_mask])
+        st.success(f"📊 **Estimated subjects to schedule:** {estimated_subjects}")
+    else:
+        st.warning("⚠️ No subjects match current selection criteria!")
+        estimated_subjects = 0
+    
+    return {
+        'programs': selected_programs,
+        'streams': selected_streams,
+        'semesters': selected_semesters,
+        'estimated_subjects': estimated_subjects
+    }
+
+def apply_filters_to_data(df_non_elec, df_ele, filter_selection):
+    """
+    Apply the selected filters to the dataframes
+    """
+    if not filter_selection or filter_selection['estimated_subjects'] == 0:
+        st.error("❌ No valid filter selection provided!")
+        return None, None
+    
+    selected_programs = filter_selection['programs']
+    selected_streams = filter_selection['streams']
+    selected_semesters = filter_selection['semesters']
+    
+    # Apply filters to non-elective dataframe
+    if df_non_elec is not None and not df_non_elec.empty:
+        filter_mask_non = (
+            df_non_elec['Program'].isin(selected_programs) &
+            (df_non_elec['Stream'].isin(selected_streams + ['']) | df_non_elec['Stream'].isna()) &
+            df_non_elec['Semester'].isin(selected_semesters)
+        )
+        df_non_elec_filtered = df_non_elec[filter_mask_non].copy()
+    else:
+        df_non_elec_filtered = df_non_elec
+    
+    # Apply filters to elective dataframe
+    if df_ele is not None and not df_ele.empty:
+        filter_mask_ele = (
+            df_ele['Program'].isin(selected_programs) &
+            (df_ele['Stream'].isin(selected_streams + ['']) | df_ele['Stream'].isna()) &
+            df_ele['Semester'].isin(selected_semesters)
+        )
+        df_ele_filtered = df_ele[filter_mask_ele].copy()
+    else:
+        df_ele_filtered = df_ele
+    
+    # Show filtering results
+    original_non_count = len(df_non_elec) if df_non_elec is not None else 0
+    filtered_non_count = len(df_non_elec_filtered) if df_non_elec_filtered is not None else 0
+    original_ele_count = len(df_ele) if df_ele is not None else 0
+    filtered_ele_count = len(df_ele_filtered) if df_ele_filtered is not None else 0
+    
+    st.success(f"🎯 **Filtering Applied:**")
+    st.write(f"   📚 Non-elective subjects: {filtered_non_count}/{original_non_count} ({filtered_non_count/original_non_count*100:.1f}%)")
+    st.write(f"   🎓 Elective subjects: {filtered_ele_count}/{original_ele_count} ({filtered_ele_count/original_ele_count*100:.1f}% if any)")
+    st.write(f"   📊 **Total subjects for scheduling:** {filtered_non_count + filtered_ele_count}")
+    
+    # Show breakdown by program
+    if df_non_elec_filtered is not None and not df_non_elec_filtered.empty:
+        st.write("   🔍 **Program breakdown:**")
+        for program in selected_programs:
+            prog_count = len(df_non_elec_filtered[df_non_elec_filtered['Program'] == program])
+            if prog_count > 0:
+                st.write(f"      • {program}: {prog_count} subjects")
+    
+    return df_non_elec_filtered, df_ele_filtered
 
    
 def wrap_text(pdf, text, col_width):
@@ -2945,6 +3135,8 @@ def main():
         st.session_state.overall_date_range = 0
     if 'unique_exam_days' not in st.session_state:
         st.session_state.unique_exam_days = 0
+    if 'original_data_df' not in st.session_state:
+        st.session_state.original_data_df = None
 
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
@@ -3053,6 +3245,7 @@ def main():
             <h4>🚀 Features</h4>
             <ul>
                 <li>📊 Excel file processing</li>
+                <li>🎯 Program/Stream/Year filtering</li>
                 <li>🎯 Common across semesters first</li>
                 <li>🔗 Common within semester scheduling</li>
                 <li>🔍 Gap-filling optimization</li>
@@ -3068,9 +3261,22 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
+    # Show filter selectors if file is uploaded
+    filter_selection = None
     if uploaded_file is not None:
-        if st.button("📄 Generate Timetable", type="primary", use_container_width=True):
-            with st.spinner("Processing your timetable... Please wait..."):
+        st.markdown("---")
+        
+        # First read the file to get data for filters
+        if st.session_state.original_data_df is None:
+            with st.spinner("Reading file to create filter options..."):
+                df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
+        
+        # Create filter selectors
+        filter_selection = create_filter_selectors()
+
+    if uploaded_file is not None and filter_selection and filter_selection['estimated_subjects'] > 0:
+        if st.button("🔄 Generate Filtered Timetable", type="primary", use_container_width=True):
+            with st.spinner("Processing your filtered timetable... Please wait..."):
                 try:
                     # Use holidays from session state
                     holidays_set = st.session_state.get('holidays_set', set())
@@ -3081,19 +3287,25 @@ def main():
                     valid_exam_days = len(get_valid_dates_in_range(base_date, end_date, holidays_set))
                     st.info(f"📅 Examination Period: {base_date.strftime('%d-%m-%Y')} to {end_date.strftime('%d-%m-%Y')} ({date_range_days} total days, {valid_exam_days} valid exam days)")
                 
-                    st.write("Reading timetable...")
+                    st.write("Reading and filtering timetable...")
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None:
-                        st.write("Processing subjects...")
+                        # Apply filters to the data
+                        df_non_elec_filtered, df_ele_filtered = apply_filters_to_data(df_non_elec, df_ele, filter_selection)
                         
-                        # NEW THREE-PHASE IMPROVED SCHEDULING ORDER:
-                        # SUPER SCHEDULING: All subjects in one comprehensive function
-                        st.info("🚀 SUPER SCHEDULING: All subjects with frequency-based priority and daily branch coverage")
-                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date)
+                        if df_non_elec_filtered is None or df_non_elec_filtered.empty:
+                            st.error("❌ No subjects match the selected filters!")
+                            return
                         
-                        # Step 5: Handle electives if they exist
-                        if df_ele is not None and not df_ele.empty:
+                        st.write("Processing filtered subjects...")
+                        
+                        # Use filtered data for scheduling
+                        st.info("🚀 FILTERED SUPER SCHEDULING: Processing selected programs, streams, and years only")
+                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec_filtered, holidays_set, base_date, end_date)
+                        
+                        # Step 5: Handle filtered electives if they exist
+                        if df_ele_filtered is not None and not df_ele_filtered.empty:
                             # Find the maximum date from non-elective scheduling
                             non_elec_dates = pd.to_datetime(df_scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             if not non_elec_dates.empty:
@@ -3109,7 +3321,7 @@ def main():
                                 
                                 if elective_day2 <= end_date:
                                     # Schedule electives globally
-                                    df_ele_scheduled = schedule_electives_globally(df_ele, max_non_elec_date, holidays_set)
+                                    df_ele_scheduled = schedule_electives_globally(df_ele_filtered, max_non_elec_date, holidays_set)
                                     
                                     # Combine non-electives and electives
                                     all_scheduled_subjects = pd.concat([df_scheduled, df_ele_scheduled], ignore_index=True)
@@ -3120,6 +3332,9 @@ def main():
                                 all_scheduled_subjects = df_scheduled
                         else:
                             all_scheduled_subjects = df_scheduled
+                        
+                        # Continue with the rest of the processing logic...
+                        # (Same as original but with filtered data)
                         
                         # Step 6: Create semester dictionary - only include successfully scheduled subjects
                         successfully_scheduled = all_scheduled_subjects[
@@ -3133,10 +3348,10 @@ def main():
                         ]
                         
                         if not out_of_range_subjects.empty:
-                            st.warning(f"⚠️ {len(out_of_range_subjects)} subjects could not be scheduled within the specified date range")
+                            st.warning(f"⚠️ {len(out_of_range_subjects)} filtered subjects could not be scheduled within the specified date range")
                             
-                            # Show breakdown by semester and branch
-                            with st.expander("📋 Subjects Not Scheduled (Out of Range)"):
+                            # Show breakdown by semester and branch for filtered subjects
+                            with st.expander("📋 Filtered Subjects Not Scheduled (Out of Range)"):
                                 for semester in sorted(out_of_range_subjects['Semester'].unique()):
                                     sem_subjects = out_of_range_subjects[out_of_range_subjects['Semester'] == semester]
                                     st.write(f"**Semester {semester}:** {len(sem_subjects)} subjects")
@@ -3154,24 +3369,24 @@ def main():
                                 sem_data = successfully_scheduled[successfully_scheduled["Semester"] == s].copy()
                                 sem_dict[s] = sem_data
                             
-                            st.write("Optimizing schedule by filling gaps...")
+                            st.write("Optimizing filtered schedule by filling gaps...")
                             sem_dict, gap_moves_made, gap_optimization_log = optimize_schedule_by_filling_gaps(
-                            sem_dict, holidays_set, base_date, end_date
+                                sem_dict, holidays_set, base_date, end_date
                             )
 
-                            # Step 8: Optimize OE subjects AFTER gap optimization
-                            if df_ele is not None and not df_ele.empty:
-                                st.write("Optimizing OE subjects...")
+                            # Step 8: Optimize OE subjects AFTER gap optimization for filtered data
+                            if df_ele_filtered is not None and not df_ele_filtered.empty:
+                                st.write("Optimizing filtered OE subjects...")
                                 sem_dict, oe_moves_made, oe_optimization_log = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)        
                             else:
                                 oe_moves_made = 0
                                 oe_optimization_log = []
 
                             # Show combined optimization results
-                            total_optimizations = (oe_moves_made if df_ele is not None and not df_ele.empty else 0) + gap_moves_made
+                            total_optimizations = (oe_moves_made if df_ele_filtered is not None and not df_ele_filtered.empty else 0) + gap_moves_made
                             if total_optimizations > 0:
                                 st.success(f"🎯 Total Optimizations Made: {total_optimizations}")
-                            if df_ele is not None and not df_ele.empty and oe_moves_made > 0:
+                            if df_ele_filtered is not None and not df_ele_filtered.empty and oe_moves_made > 0:
                                 st.info(f"📈 OE Optimizations: {oe_moves_made}")
                             if gap_moves_made > 0:
                                 st.info(f"📉 Gap Fill Optimizations: {gap_moves_made}")
@@ -3180,7 +3395,7 @@ def main():
                             st.session_state.original_df = original_df
                             st.session_state.processing_complete = True
 
-                            # Compute statistics
+                            # Compute statistics for filtered data
                             final_all_data = pd.concat(sem_dict.values(), ignore_index=True)
                             total_exams = len(final_all_data)
                             total_semesters = len(sem_dict)
@@ -3196,14 +3411,22 @@ def main():
                             st.session_state.total_branches = total_branches
                             st.session_state.overall_date_range = overall_date_range
                             st.session_state.unique_exam_days = unique_exam_days
+                            
+                            # Store filter information for display
+                            st.session_state.filter_applied = True
+                            st.session_state.filter_info = {
+                                'programs': filter_selection['programs'],
+                                'streams': filter_selection['streams'],
+                                'semesters': filter_selection['semesters']
+                            }
 
                             # Generate and store downloadable files
-                            st.write("Generating Excel...")
+                            st.write("Generating Excel for filtered data...")
                             try:
                                 excel_data = save_to_excel(sem_dict)
                                 if excel_data:
                                     st.session_state.excel_data = excel_data.getvalue()
-                                    st.success("✅ Excel file generated successfully")
+                                    st.success("✅ Filtered Excel file generated successfully")
                                 else:
                                     st.warning("⚠️ Excel generation completed but no data returned")
                                     st.session_state.excel_data = None
@@ -3211,12 +3434,12 @@ def main():
                                 st.error(f"❌ Excel generation failed: {str(e)}")
                                 st.session_state.excel_data = None
 
-                            st.write("Generating verification file...")
+                            st.write("Generating verification file for filtered data...")
                             try:
                                 verification_data = save_verification_excel(original_df, sem_dict)
                                 if verification_data:
                                     st.session_state.verification_data = verification_data.getvalue()
-                                    st.success("✅ Verification file generated successfully")
+                                    st.success("✅ Filtered verification file generated successfully")
                                 else:
                                     st.warning("⚠️ Verification file generation completed but no data returned")
                                     st.session_state.verification_data = None
@@ -3224,11 +3447,11 @@ def main():
                                 st.error(f"❌ Verification file generation failed: {str(e)}")
                                 st.session_state.verification_data = None
 
-                            st.write("Generating PDF...")
+                            st.write("Generating PDF for filtered data...")
                             try:
                                 if sem_dict:
                                     pdf_output = io.BytesIO()
-                                    temp_pdf_path = "temp_timetable.pdf"
+                                    temp_pdf_path = "temp_filtered_timetable.pdf"
                                     generate_pdf_timetable(sem_dict, temp_pdf_path)
                                     
                                     # Check if PDF was created successfully
@@ -3238,56 +3461,71 @@ def main():
                                         pdf_output.seek(0)
                                         st.session_state.pdf_data = pdf_output.getvalue()
                                         os.remove(temp_pdf_path)
-                                        st.success("✅ PDF generated successfully")
+                                        st.success("✅ Filtered PDF generated successfully")
                                     else:
                                         st.warning("⚠️ PDF generation completed but file not found")
                                         st.session_state.pdf_data = None
                                 else:
-                                    st.warning("⚠️ No data available for PDF generation")
+                                    st.warning("⚠️ No filtered data available for PDF generation")
                                     st.session_state.pdf_data = None
                             except Exception as e:
                                 st.error(f"❌ PDF generation failed: {str(e)}")
                                 st.session_state.pdf_data = None
 
-                            st.markdown('<div class="status-success">🎉 Timetable generated successfully with THREE-PHASE SCHEDULING and NO DOUBLE BOOKINGS!</div>',
+                            st.markdown('<div class="status-success">🎉 Filtered Timetable generated successfully with program/stream/year filtering!</div>',
                                         unsafe_allow_html=True)
                             
-                            # Show improved three-phase scheduling summary
-                            st.info("✅ **Three-Phase Scheduling Applied:**\n1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date\n2. 🔗 **Phase 2:** Common within semester subjects (COMP/ELEC appearing in multiple branches)\n3. 🔍 **Phase 3:** Truly uncommon subjects with gap-filling optimization within date range\n4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)\n5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester")
+                            # Show filtering summary
+                            filter_summary = f"""
+                            ✅ **Filtered Three-Phase Scheduling Applied:**
+                            📚 **Programs:** {', '.join(filter_selection['programs'])}
+                            🌊 **Streams:** {', '.join(filter_selection['streams'])}
+                            📅 **Years/Semesters:** {', '.join(map(str, sorted(filter_selection['semesters'])))}
                             
-                            # Show efficiency improvement
+                            1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date
+                            2. 🔗 **Phase 2:** Common within semester subjects (filtered)
+                            3. 🔍 **Phase 3:** Individual subjects with gap-filling optimization
+                            4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)
+                            5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester
+                            """
+                            st.info(filter_summary)
+                            
+                            # Show efficiency improvement for filtered data
                             efficiency = (unique_exam_days / overall_date_range) * 100 if overall_date_range > 0 else 0
-                            st.success(f"📊 **Schedule Efficiency: {efficiency:.1f}%** (Higher is better - more days utilized)")
+                            st.success(f"📊 **Filtered Schedule Efficiency: {efficiency:.1f}%** (Higher is better - more days utilized)")
                             
-                            # Show date range utilization
+                            # Show date range utilization for filtered data
                             date_range_utilization = (unique_exam_days / valid_exam_days) * 100 if valid_exam_days > 0 else 0
                             st.info(f"📅 **Date Range Utilization: {date_range_utilization:.1f}%** ({unique_exam_days}/{valid_exam_days} valid days used)")
                             
-                            # Count subjects by type for summary
+                            # Count subjects by type for filtered summary
                             common_across_count = len(final_all_data[final_all_data['CommonAcrossSems'] == True])
                             
-                            # Count common within semester
+                            # Count common within semester for filtered data
                             common_within_sem = final_all_data[
                                 (final_all_data['CommonAcrossSems'] == False) & 
                                 (final_all_data['Category'].isin(['COMP', 'ELEC']))
                             ]
-                            common_within_sem_groups = common_within_sem.groupby(['Semester', 'ModuleCode'])['Branch'].nunique()
-                            common_within_count = len(common_within_sem[
-                                common_within_sem.set_index(['Semester', 'ModuleCode']).index.map(
-                                    lambda x: common_within_sem_groups.get(x, 1) > 1
-                                )
-                            ])
+                            if not common_within_sem.empty:
+                                common_within_sem_groups = common_within_sem.groupby(['Semester', 'ModuleCode'])['Branch'].nunique()
+                                common_within_count = len(common_within_sem[
+                                    common_within_sem.set_index(['Semester', 'ModuleCode']).index.map(
+                                        lambda x: common_within_sem_groups.get(x, 1) > 1
+                                    )
+                                ])
+                            else:
+                                common_within_count = 0
                             
                             elective_count = len(final_all_data[final_all_data['OE'].notna() & (final_all_data['OE'].str.strip() != "")])
                             uncommon_count = total_exams - common_across_count - common_within_count - elective_count
                             
-                            st.success(f"📈 **Scheduling Breakdown:**\n• Common Across Semesters: {common_across_count}\n• Common Within Semester: {common_within_count}\n• Truly Uncommon: {uncommon_count}\n• Electives: {elective_count}")
+                            st.success(f"📈 **Filtered Scheduling Breakdown:**\n• Common Across Semesters: {common_across_count}\n• Common Within Semester: {common_within_count}\n• Truly Uncommon: {uncommon_count}\n• Electives: {elective_count}")
                             
                             # Show double booking verification
-                            st.success("✅ **No Double Bookings**: Each subbranch has max one exam per day")
+                            st.success("✅ **No Double Bookings**: Each filtered subbranch has max one exam per day")
                             
                         else:
-                            st.warning("No subjects could be scheduled within the specified date range.")
+                            st.warning("No filtered subjects could be scheduled within the specified date range.")
 
                     else:
                         st.markdown(
@@ -3297,10 +3535,25 @@ def main():
                 except Exception as e:
                     st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
                                 unsafe_allow_html=True)
+    elif uploaded_file is not None:
+        st.info("📋 Please adjust your filter selections above and ensure at least some subjects are selected.")
 
     # Display timetable results if processing is complete
     if st.session_state.processing_complete:
         st.markdown("---")
+
+        # Show filter information if applied
+        if hasattr(st.session_state, 'filter_applied') and st.session_state.filter_applied:
+            filter_info = st.session_state.filter_info
+            st.markdown("### 🎯 Applied Filters")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.info(f"**Programs:** {', '.join(filter_info['programs'])}")
+            with col2:
+                st.info(f"**Streams:** {', '.join(filter_info['streams'])}")
+            with col3:
+                st.info(f"**Semesters:** {', '.join(map(str, sorted(filter_info['semesters'])))}")
 
         # Download options
         st.markdown("### 📥 Download Options")
@@ -3309,10 +3562,11 @@ def main():
 
         with col1:
             if st.session_state.excel_data:
+                filename_suffix = "filtered" if hasattr(st.session_state, 'filter_applied') and st.session_state.filter_applied else "complete"
                 st.download_button(
                     label="📊 Download Excel File",
                     data=st.session_state.excel_data,
-                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"{filename_suffix}_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     key="download_excel"
@@ -3322,10 +3576,11 @@ def main():
 
         with col2:
             if st.session_state.pdf_data:
+                filename_suffix = "filtered" if hasattr(st.session_state, 'filter_applied') and st.session_state.filter_applied else "complete"
                 st.download_button(
                     label="📄 Download PDF File",
                     data=st.session_state.pdf_data,
-                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    file_name=f"{filename_suffix}_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                     mime="application/pdf",
                     use_container_width=True,
                     key="download_pdf"
@@ -3335,10 +3590,11 @@ def main():
 
         with col3:
             if st.session_state.verification_data:
+                filename_suffix = "filtered" if hasattr(st.session_state, 'filter_applied') and st.session_state.filter_applied else "complete"
                 st.download_button(
                     label="📋 Download Verification File",
                     data=st.session_state.verification_data,
-                    file_name=f"verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"{filename_suffix}_verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     key="download_verification"
@@ -3352,6 +3608,7 @@ def main():
                 st.session_state.processing_complete = False
                 st.session_state.timetable_data = {}
                 st.session_state.original_df = None
+                st.session_state.original_data_df = None
                 st.session_state.excel_data = None
                 st.session_state.pdf_data = None
                 st.session_state.verification_data = None
@@ -3360,13 +3617,16 @@ def main():
                 st.session_state.total_branches = 0
                 st.session_state.overall_date_range = 0
                 st.session_state.unique_exam_days = 0
+                if hasattr(st.session_state, 'filter_applied'):
+                    del st.session_state.filter_applied
+                if hasattr(st.session_state, 'filter_info'):
+                    del st.session_state.filter_info
                 st.rerun()
 
-        # Statistics Overview
-        # Statistics Overview
+        # Statistics Overview (same as original but with filter awareness)
         st.markdown("""
         <div class="stats-section">
-            <h2>📈 Complete Timetable Statistics</h2>
+            <h2>📈 Timetable Statistics</h2>
         </div>
         """, unsafe_allow_html=True)
 
@@ -3489,7 +3749,6 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>🎯 {efficiency_display}</h3><p>Schedule Efficiency</p></div>',
                         unsafe_allow_html=True)
 
-
         # Show gap-filling efficiency
         total_possible_slots = st.session_state.overall_date_range * 2  # 2 slots per day
         actual_exams = st.session_state.total_exams
@@ -3502,11 +3761,14 @@ def main():
         else:
             st.warning(f"🔍 **Slot Utilization:** {slot_utilization:.1f}% (Room for improvement)")
 
-        # Timetable Results
+        # Rest of the display logic remains the same...
+        # (Timetable Results section and subject display formatting)
+        
+        # Display timetable data
         st.markdown("---")
         st.markdown("""
         <div class="results-section">
-            <h2>📊 Complete Timetable Results</h2>
+            <h2>📊 Timetable Results</h2>
         </div>
         """, unsafe_allow_html=True)
 
@@ -3518,9 +3780,10 @@ def main():
             duration = row.get('Exam Duration', 3)
             is_common = row.get('CommonAcrossSems', False)
             semester = row['Semester']
+            program_type = row.get('Program', 'B TECH')
             
-            # Get preferred slot for this semester
-            preferred_slot = get_preferred_slot(semester)
+            # Get preferred slot for this semester and program
+            preferred_slot = get_preferred_slot(semester, program_type)
             
             time_range = ""
             
@@ -3554,7 +3817,7 @@ def main():
             
             return base_display + time_range
 
-        # Display timetable data
+        # Display timetable data for filtered results
         for sem, df_sem in st.session_state.timetable_data.items():
             st.markdown(f"### 📚 Semester {sem}")
 
@@ -3601,7 +3864,7 @@ def main():
                             st.error(f"Error displaying core subjects: {str(e)}")
                             # Fallback: show raw data
                             st.write("Showing raw data:")
-                            display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot']
+                            display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot', 'Program']
                             available_cols = [col for col in display_cols if col in df_non_elec.columns]
                             st.dataframe(df_non_elec[available_cols], use_container_width=True)
 
@@ -3636,7 +3899,7 @@ def main():
                             st.error(f"Error displaying elective subjects: {str(e)}")
                             # Fallback: show raw data
                             st.write("Showing raw data:")
-                            display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot']
+                            display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot', 'Program']
                             available_cols = [col for col in display_cols if col in df_elec.columns]
                             st.dataframe(df_elec[available_cols], use_container_width=True)
 
@@ -3644,15 +3907,12 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div class="footer">
-        <p>🎓 <strong>Three-Phase Timetable Generator with Date Range Control & Gap-Filling</strong></p>
+        <p><strong>Enhanced Timetable Generator with Program/Stream/Year Filtering</strong></p>
         <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Common across semesters first • Common within semester • Gap-filling optimization • One exam per day per branch • OE optimization • Date range enforcement • Maximum efficiency • Verification export</p>
+        <p style="font-size: 0.9em;">Filtered scheduling • Program-aware time slots • Common across semesters first • Gap-filling optimization • One exam per day per branch • OE optimization • Date range enforcement • Maximum efficiency • Verification export</p>
     </div>
     """, unsafe_allow_html=True)
     
 if __name__ == "__main__":
     main()
-
-
-
 
