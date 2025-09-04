@@ -354,14 +354,230 @@ def get_preferred_slot(semester, program_type="B TECH"):
             even_sem_position = semester // 2
             return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
 
+def create_independent_program_units(program_subjects, program_name):
+    """
+    Create atomic units for independent programs (DIPLOMA, MBA TECH, MCA)
+    These programs don't share subjects across programs, only within their own program
+    
+    Args:
+        program_subjects: DataFrame with subjects from one independent program
+        program_name: Name of the program (DIPLOMA, MBA TECH, MCA)
+    
+    Returns:
+        dict: Dictionary of atomic units for this program
+    """
+    atomic_units = {}
+    
+    for module_code, group in program_subjects.groupby('ModuleCode'):
+        # For independent programs, only check commonality WITHIN the program
+        branch_sem_combinations = []
+        unique_branches = set()
+        unique_semesters = set()
+        
+        for _, row in group.iterrows():
+            branch_sem = f"{row['Branch']}_{row['Semester']}"
+            branch_sem_combinations.append(branch_sem)
+            unique_branches.add(row['Branch'])
+            unique_semesters.add(row['Semester'])
+        
+        frequency = len(set(branch_sem_combinations))
+        
+        # Check commonality only within this independent program
+        is_common_across = group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False
+        is_common_within = group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
+        
+        # For independent programs, commonality is only within the program
+        is_common = is_common_across or is_common_within or frequency > 1
+        
+        atomic_unit = {
+            'module_code': module_code,
+            'subject_name': group['Subject'].iloc[0],
+            'frequency': frequency,
+            'is_common': is_common,
+            'is_common_across': is_common_across,
+            'is_common_within': is_common_within,
+            'branch_sem_combinations': list(set(branch_sem_combinations)),
+            'all_rows': list(group.index),
+            'group_data': group,
+            'scheduled': False,
+            'scheduled_date': None,
+            'scheduled_slot': None,
+            'category': group['Category'].iloc[0] if 'Category' in group.columns else 'UNKNOWN',
+            'cross_semester_span': len(unique_semesters) > 1,
+            'cross_branch_span': len(unique_branches) > 1,
+            'cross_program_span': False,  # Independent programs don't span across programs
+            'unique_semesters': list(unique_semesters),
+            'unique_branches': list(unique_branches),
+            'unique_programs': [program_name],
+            'primary_program': program_name,
+            'is_independent_program': True
+        }
+        
+        # Calculate priority for independent programs (lower base priority since no cross-program conflicts)
+        priority_score = frequency * 8  # Slightly lower base multiplier
+        
+        if is_common_across:
+            priority_score += 35  # Lower than regular programs since no cross-program conflicts
+        elif is_common_within:
+            priority_score += 20
+        elif frequency > 1:
+            priority_score += 12
+        
+        if atomic_unit['cross_semester_span']:
+            priority_score += 12
+        if atomic_unit['cross_branch_span']:
+            priority_score += 8
+        
+        # Add program-specific bonus for scheduling efficiency
+        if program_name == "DIPLOMA":
+            priority_score += 5  # Diploma programs typically have fewer semesters
+        elif program_name == "MCA":
+            priority_score += 3  # MCA programs have specific requirements
+        
+        atomic_unit['priority_score'] = priority_score
+        atomic_units[f"{program_name}_{module_code}"] = atomic_unit
+    
+    return atomic_units
+
+def create_regular_program_units(regular_subjects):
+    """
+    Create atomic units for regular programs (B TECH, B TECH INTG, M TECH)
+    These programs can share subjects across programs
+    
+    Args:
+        regular_subjects: DataFrame with subjects from regular programs
+    
+    Returns:
+        dict: Dictionary of atomic units for regular programs
+    """
+    atomic_units = {}
+    
+    for module_code, group in regular_subjects.groupby('ModuleCode'):
+        # For regular programs, check commonality across ALL programs
+        branch_sem_combinations = []
+        unique_branches = set()
+        unique_semesters = set()
+        unique_programs = set()
+        
+        for _, row in group.iterrows():
+            branch_sem = f"{row['Branch']}_{row['Semester']}"
+            branch_sem_combinations.append(branch_sem)
+            unique_branches.add(row['Branch'])
+            unique_semesters.add(row['Semester'])
+            unique_programs.add(row.get('Program', 'B TECH'))
+        
+        frequency = len(set(branch_sem_combinations))
+        
+        # Check commonality across regular programs
+        is_common_across = group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False
+        is_common_within = group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
+        is_common = is_common_across or is_common_within or frequency > 1
+        
+        primary_program = group['Program'].iloc[0] if 'Program' in group.columns else 'B TECH'
+        
+        atomic_unit = {
+            'module_code': module_code,
+            'subject_name': group['Subject'].iloc[0],
+            'frequency': frequency,
+            'is_common': is_common,
+            'is_common_across': is_common_across,
+            'is_common_within': is_common_within,
+            'branch_sem_combinations': list(set(branch_sem_combinations)),
+            'all_rows': list(group.index),
+            'group_data': group,
+            'scheduled': False,
+            'scheduled_date': None,
+            'scheduled_slot': None,
+            'category': group['Category'].iloc[0] if 'Category' in group.columns else 'UNKNOWN',
+            'cross_semester_span': len(unique_semesters) > 1,
+            'cross_branch_span': len(unique_branches) > 1,
+            'cross_program_span': len(unique_programs) > 1,
+            'unique_semesters': list(unique_semesters),
+            'unique_branches': list(unique_branches),
+            'unique_programs': list(unique_programs),
+            'primary_program': primary_program,
+            'is_independent_program': False
+        }
+        
+        # Calculate priority for regular programs (higher due to cross-program conflicts)
+        priority_score = frequency * 10
+        
+        if is_common_across:
+            priority_score += 50  # Higher priority for cross-program common subjects
+        elif is_common_within:
+            priority_score += 25
+        elif frequency > 1:
+            priority_score += 15
+        
+        if atomic_unit['cross_semester_span']:
+            priority_score += 15
+        if atomic_unit['cross_branch_span']:
+            priority_score += 10
+        if atomic_unit['cross_program_span']:
+            priority_score += 20
+        
+        atomic_unit['priority_score'] = priority_score
+        atomic_units[module_code] = atomic_unit
+    
+    return atomic_units
+
+def has_program_conflicts(atomic_unit, daily_scheduled_branch_sem, date_str):
+    """
+    Check for conflicts considering program independence
+    
+    Args:
+        atomic_unit: The atomic unit being checked
+        daily_scheduled_branch_sem: Dict tracking scheduled subjects by date
+        date_str: Date string being checked
+    
+    Returns:
+        bool: True if there are conflicts, False otherwise
+    """
+    if date_str not in daily_scheduled_branch_sem:
+        return False
+    
+    for branch_sem in atomic_unit['branch_sem_combinations']:
+        if branch_sem in daily_scheduled_branch_sem[date_str]:
+            if atomic_unit['is_independent_program']:
+                # Independent programs only conflict with same program
+                existing_info = daily_scheduled_branch_sem[date_str][branch_sem]
+                if existing_info['program'] == atomic_unit['primary_program']:
+                    return True  # Conflict within same independent program
+                # No conflict with different programs
+            else:
+                # Regular programs conflict with any subject in same branch-semester
+                return True
+    
+    return False
+
+def update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit):
+    """
+    Update the daily tracking structure with program information
+    
+    Args:
+        daily_scheduled_branch_sem: Dict to update
+        date_str: Date string
+        atomic_unit: Atomic unit being scheduled
+    """
+    if date_str not in daily_scheduled_branch_sem:
+        daily_scheduled_branch_sem[date_str] = {}
+    
+    for branch_sem in atomic_unit['branch_sem_combinations']:
+        daily_scheduled_branch_sem[date_str][branch_sem] = {
+            'program': atomic_unit['primary_program'],
+            'is_independent': atomic_unit['is_independent_program'],
+            'subject': atomic_unit['subject_name'],
+            'module_code': atomic_unit['module_code']
+        }
+
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     """
-    FIXED ZERO-UNSCHEDULED SUPER SCHEDULING FUNCTION with enhanced program support
-    1. Groups common subjects as atomic units (all instances together)
-    2. Schedules common subjects completely before moving to next day
-    3. Ensures NO common subject is ever split across different dates
+    PROGRAM-AWARE ATOMIC SCHEDULING FUNCTION with independent program handling
+    1. Separates independent programs (DIPLOMA, MBA TECH, MCA) from regular programs
+    2. Creates program-aware atomic units
+    3. Schedules with program-specific conflict checking
     4. Maintains daily branch coverage and zero-unscheduled guarantee
-    5. Enhanced support for DIPLOMA, M TECH, and other program types
+    5. Enhanced support for all program types with independence handling
     
     Args:
         df: DataFrame with ALL subjects (will filter internally)
@@ -372,10 +588,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     Returns:
         DataFrame with ALL subjects scheduled (ZERO unscheduled guarantee)
     """
-    st.info("🚀 ENHANCED SCHEDULING: Supporting B TECH, DIPLOMA, M TECH, and all program types")
+    st.info("🚀 PROGRAM-AWARE SCHEDULING: Independent handling for DIPLOMA, MBA TECH, MCA")
     
-    # STEP 1: COMPREHENSIVE SUBJECT ANALYSIS with program awareness
-    st.write("🔍 **Step 1:** Enhanced analysis supporting all program types...")
+    # STEP 1: PROGRAM SEPARATION AND ANALYSIS
+    st.write("📊 **Step 1:** Program separation and enhanced analysis...")
     
     total_subjects_count = len(df)
     
@@ -389,27 +605,32 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         st.info("No eligible subjects to schedule")
         return df
     
-    # Enhanced program type analysis
-    program_types = eligible_subjects['Program'].unique() if 'Program' in eligible_subjects.columns else ['B TECH']
-    st.write(f"📚 **Program types found:** {', '.join(program_types)}")
+    # Define independent programs that don't share subjects with others
+    independent_programs = {'DIPLOMA', 'MBA TECH', 'MCA'}
     
-    # Program-specific statistics
-    for program in program_types:
-        if 'Program' in eligible_subjects.columns:
-            program_subjects = eligible_subjects[eligible_subjects['Program'] == program]
-        else:
-            program_subjects = eligible_subjects
-        program_semesters = sorted(program_subjects['Semester'].unique())
-        program_branches = program_subjects['Branch'].unique()
-        
-        st.write(f"  • **{program}:** {len(program_subjects)} subjects, Semesters {program_semesters}, {len(program_branches)} branches")
+    # Separate independent and regular programs
+    independent_subjects = eligible_subjects[eligible_subjects['Program'].isin(independent_programs)].copy()
+    regular_subjects = eligible_subjects[~eligible_subjects['Program'].isin(independent_programs)].copy()
+    
+    st.write(f"🔄 **Program breakdown:**")
+    st.write(f"   • Independent programs: {len(independent_subjects)} subjects")
+    for program in independent_programs:
+        program_count = len(independent_subjects[independent_subjects['Program'] == program])
+        if program_count > 0:
+            st.write(f"     - {program}: {program_count} subjects")
+    
+    st.write(f"   • Regular programs (B TECH, etc.): {len(regular_subjects)} subjects")
+    if not regular_subjects.empty:
+        regular_program_counts = regular_subjects['Program'].value_counts()
+        for program, count in regular_program_counts.items():
+            st.write(f"     - {program}: {count} subjects")
 
     # Helper functions
     def find_next_valid_day(start_date, holidays_set):
         return find_next_valid_day_in_range(start_date, end_date, holidays_set)
     
-    # STEP 2: CREATE ATOMIC SUBJECT UNITS (CRITICAL FIX)
-    st.write("🔗 **Step 2:** Creating atomic subject units (common subjects as single units)...")
+    # STEP 2: CREATE PROGRAM-AWARE ATOMIC UNITS
+    st.write("🔗 **Step 2:** Creating program-aware atomic units...")
     
     # Identify ALL unique branch-semester combinations
     all_branch_sem_combinations = set()
@@ -427,95 +648,59 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     
     st.write(f"🎯 **Coverage target:** {len(all_branch_sem_combinations)} branch-semester combinations")
     
-    # Create ATOMIC SUBJECT UNITS - each unit must be scheduled as a whole
     atomic_subject_units = {}
     
-    for module_code, group in eligible_subjects.groupby('ModuleCode'):
-        # Calculate metrics
-        branch_sem_combinations = []
-        unique_branches = set()
-        unique_semesters = set()
-        unique_programs = set()
-        
-        for _, row in group.iterrows():
-            branch_sem = f"{row['Branch']}_{row['Semester']}"
-            branch_sem_combinations.append(branch_sem)
-            unique_branches.add(row['Branch'])
-            unique_semesters.add(row['Semester'])
-            if 'Program' in row:
-                unique_programs.add(row['Program'])
-        
-        frequency = len(set(branch_sem_combinations))
-        
-        # Determine if this is a common subject
-        is_common_across = group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False
-        is_common_within = group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
-        is_common = is_common_across or is_common_within or frequency > 1
-        
-        # Get program type for time slot calculation
-        primary_program = group['Program'].iloc[0] if 'Program' in group.columns else 'B TECH'
-        
-        # Create atomic unit
-        atomic_unit = {
-            'module_code': module_code,
-            'subject_name': group['Subject'].iloc[0],
-            'frequency': frequency,
-            'is_common': is_common,
-            'is_common_across': is_common_across,
-            'is_common_within': is_common_within,
-            'branch_sem_combinations': list(set(branch_sem_combinations)),
-            'all_rows': list(group.index),  # All dataframe indices for this subject
-            'group_data': group,
-            'scheduled': False,
-            'scheduled_date': None,
-            'scheduled_slot': None,
-            'category': group['Category'].iloc[0] if 'Category' in group.columns else 'UNKNOWN',
-            'cross_semester_span': len(unique_semesters) > 1,
-            'cross_branch_span': len(unique_branches) > 1,
-            'cross_program_span': len(unique_programs) > 1,
-            'unique_semesters': list(unique_semesters),
-            'unique_branches': list(unique_branches),
-            'unique_programs': list(unique_programs),
-            'primary_program': primary_program
-        }
-        
-        # Calculate priority score
-        priority_score = frequency * 10  # Base frequency weight
-        
-        if is_common_across:
-            priority_score += 50  # Highest priority
-        elif is_common_within:
-            priority_score += 25  # High priority
-        elif frequency > 1:
-            priority_score += 15  # Medium priority for multi-branch
-        
-        if atomic_unit['cross_semester_span']:
-            priority_score += 15
-        if atomic_unit['cross_branch_span']:
-            priority_score += 10
-        if atomic_unit['cross_program_span']:
-            priority_score += 20  # High priority for cross-program subjects
-        
-        atomic_unit['priority_score'] = priority_score
-        atomic_subject_units[module_code] = atomic_unit
+    # Process independent programs separately
+    for program in independent_programs:
+        program_subjects = independent_subjects[independent_subjects['Program'] == program]
+        if not program_subjects.empty:
+            st.write(f"   📚 Processing {program}: {len(program_subjects)} subjects")
+            atomic_units = create_independent_program_units(program_subjects, program)
+            atomic_subject_units.update(atomic_units)
+    
+    # Process regular programs with cross-program commonality checking
+    if not regular_subjects.empty:
+        st.write(f"   🔗 Processing regular programs: {len(regular_subjects)} subjects")
+        regular_units = create_regular_program_units(regular_subjects)
+        atomic_subject_units.update(regular_units)
     
     # Sort atomic units by priority
     sorted_atomic_units = sorted(atomic_subject_units.values(), key=lambda x: x['priority_score'], reverse=True)
     
-    # Categorize units
-    very_high_priority = [unit for unit in sorted_atomic_units if unit['is_common_across'] or unit['frequency'] >= 8 or unit['cross_program_span']]
-    high_priority = [unit for unit in sorted_atomic_units if unit['is_common_within'] and unit not in very_high_priority]
-    medium_priority = [unit for unit in sorted_atomic_units if unit['frequency'] >= 2 and unit not in very_high_priority and unit not in high_priority]
-    low_priority = [unit for unit in sorted_atomic_units if unit not in very_high_priority and unit not in high_priority and unit not in medium_priority]
+    # Categorize units with program awareness
+    very_high_priority = [unit for unit in sorted_atomic_units 
+                         if (unit['is_common_across'] or unit['frequency'] >= 8 or 
+                             (unit['cross_program_span'] and not unit['is_independent_program']))]
     
-    st.write(f"🎯 **Atomic unit classification:**")
-    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units (common across sems + freq≥8 + cross-program)")
-    st.write(f"   📊 High Priority: {len(high_priority)} units (common within sem)")
+    high_priority = [unit for unit in sorted_atomic_units 
+                    if unit['is_common_within'] and unit not in very_high_priority]
+    
+    independent_priority = [unit for unit in sorted_atomic_units 
+                          if unit['is_independent_program'] and 
+                             (unit['is_common_across'] or unit['frequency'] >= 3) and
+                             unit not in very_high_priority and unit not in high_priority]
+    
+    medium_priority = [unit for unit in sorted_atomic_units 
+                      if unit['frequency'] >= 2 and 
+                         unit not in very_high_priority and 
+                         unit not in high_priority and 
+                         unit not in independent_priority]
+    
+    low_priority = [unit for unit in sorted_atomic_units 
+                   if unit not in very_high_priority and 
+                      unit not in high_priority and 
+                      unit not in independent_priority and 
+                      unit not in medium_priority]
+    
+    st.write(f"🎯 **Program-aware unit classification:**")
+    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units (cross-program common)")
+    st.write(f"   📊 High Priority: {len(high_priority)} units (within-program common)")
+    st.write(f"   🏫 Independent Priority: {len(independent_priority)} units (DIPLOMA/MBA TECH/MCA common)")
     st.write(f"   📋 Medium Priority: {len(medium_priority)} units (multi-branch)")
     st.write(f"   📄 Low Priority: {len(low_priority)} units (individual)")
     
-    # STEP 3: ATOMIC SCHEDULING ENGINE with program awareness
-    st.write("🚀 **Step 3:** Enhanced atomic scheduling engine...")
+    # STEP 3: PROGRAM-AWARE ATOMIC SCHEDULING ENGINE
+    st.write("🚀 **Step 3:** Program-aware atomic scheduling engine...")
     
     daily_scheduled_branch_sem = {}
     scheduled_count = 0
@@ -523,8 +708,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     scheduling_day = 0
     target_days = 15
     
-    # Create master queue maintaining priority order
-    master_queue = very_high_priority + high_priority + medium_priority + low_priority
+    # Create master queue with program-aware priority order
+    master_queue = (very_high_priority + 
+                   high_priority + 
+                   independent_priority + 
+                   medium_priority + 
+                   low_priority)
     unscheduled_units = master_queue.copy()
     
     while scheduling_day < target_days and unscheduled_units:
@@ -539,29 +728,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         
         st.write(f"📅 **Day {scheduling_day} ({date_str})**")
         
-        # Initialize tracking for this date
-        if date_str not in daily_scheduled_branch_sem:
-            daily_scheduled_branch_sem[date_str] = set()
-        
         day_scheduled_units = []
         
         # PHASE A: Schedule atomic units that can fit completely on this day
         units_to_remove = []
         
         for atomic_unit in unscheduled_units:
-            # Check if this unit can be scheduled on this day (no conflicts)
-            conflicts = False
-            available_branch_sems = []
-            
-            for branch_sem in atomic_unit['branch_sem_combinations']:
-                if branch_sem in daily_scheduled_branch_sem[date_str]:
-                    conflicts = True
-                    break
-                else:
-                    available_branch_sems.append(branch_sem)
-            
-            # If no conflicts, schedule the ENTIRE atomic unit
-            if not conflicts and available_branch_sems:
+            # Use program-aware conflict checking
+            if not has_program_conflicts(atomic_unit, daily_scheduled_branch_sem, date_str):
                 # Determine time slot based on program type and semester preference
                 semester_counts = {}
                 for sem in atomic_unit['unique_semesters']:
@@ -580,9 +754,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     df.loc[row_idx, 'Time Slot'] = time_slot
                     unit_scheduled_count += 1
                 
-                # Update tracking
-                for branch_sem in atomic_unit['branch_sem_combinations']:
-                    daily_scheduled_branch_sem[date_str].add(branch_sem)
+                # Update tracking with program information
+                update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit)
                 
                 atomic_unit['scheduled'] = True
                 atomic_unit['scheduled_date'] = date_str
@@ -592,13 +765,16 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                 day_scheduled_units.append(atomic_unit)
                 units_to_remove.append(atomic_unit)
                 
+                # Enhanced logging
                 unit_type = "COMMON" if atomic_unit['is_common'] else "INDIVIDUAL"
-                program_info = f" [{primary_program}]" if primary_program != "B TECH" else ""
-                st.write(f"  ✅ **{unit_type} ATOMIC{program_info}:** {atomic_unit['subject_name']} → "
+                program_type = "INDEPENDENT" if atomic_unit['is_independent_program'] else "REGULAR"
+                program_info = f"[{atomic_unit['primary_program']}]"
+                
+                st.write(f"  ✅ **{program_type} {unit_type}{program_info}:** {atomic_unit['subject_name']} → "
                         f"{len(atomic_unit['branch_sem_combinations'])} branches "
                         f"(priority: {atomic_unit['priority_score']}) at {time_slot}")
                 
-                # CRITICAL: If this is a common subject, verify no splitting occurred
+                # Verify no splitting occurred for common subjects
                 if atomic_unit['is_common']:
                     dates_used = set()
                     for row_idx in atomic_unit['all_rows']:
@@ -609,14 +785,15 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     if len(dates_used) > 1:
                         st.error(f"❌ CRITICAL ERROR: {atomic_unit['subject_name']} scheduled across {len(dates_used)} dates!")
                     else:
-                        st.write(f"    ✅ Common subject integrity verified for {atomic_unit['subject_name']}")
+                        st.write(f"    ✅ Subject integrity verified for {atomic_unit['subject_name']}")
         
         # Remove scheduled units from unscheduled list
         for unit in units_to_remove:
             unscheduled_units.remove(unit)
         
         # PHASE B: Fill any remaining branch-semester combinations with individual subjects
-        remaining_branch_sems = list(all_branch_sem_combinations - daily_scheduled_branch_sem[date_str])
+        remaining_branch_sems = list(all_branch_sem_combinations - 
+                                   set(daily_scheduled_branch_sem.get(date_str, {}).keys()))
         
         if remaining_branch_sems:
             st.write(f"  🎯 **FILLING GAPS:** {len(remaining_branch_sems)} remaining slots...")
@@ -639,7 +816,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                             df.loc[row_idx, 'Time Slot'] = time_slot
                         
                         # Update tracking
-                        daily_scheduled_branch_sem[date_str].add(unit_branch_sem)
+                        update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit)
                         remaining_branch_sems.remove(unit_branch_sem)
                         
                         atomic_unit['scheduled'] = True
@@ -649,15 +826,16 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                         
                         additional_fills.append(atomic_unit)
                         
-                        program_info = f" [{primary_program}]" if primary_program != "B TECH" else ""
-                        st.write(f"    📄 **GAP FILL{program_info}:** {atomic_unit['subject_name']} at {time_slot}")
+                        program_type = "INDEPENDENT" if atomic_unit['is_independent_program'] else "REGULAR"
+                        program_info = f"[{atomic_unit['primary_program']}]"
+                        st.write(f"    📄 **GAP FILL {program_type}{program_info}:** {atomic_unit['subject_name']} at {time_slot}")
             
             # Remove gap-filled units
             for unit in additional_fills:
                 unscheduled_units.remove(unit)
         
         # Daily verification
-        final_coverage = len(daily_scheduled_branch_sem[date_str])
+        final_coverage = len(daily_scheduled_branch_sem.get(date_str, {}))
         coverage_percent = (final_coverage / len(all_branch_sem_combinations)) * 100
         
         st.write(f"  📊 **Daily Summary:** {len(day_scheduled_units) + len(additional_fills)} units scheduled, "
@@ -691,20 +869,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             
             st.write(f"  📅 **Extended Day {extended_day} ({date_str})**")
             
-            if date_str not in daily_scheduled_branch_sem:
-                daily_scheduled_branch_sem[date_str] = set()
-            
             # Schedule remaining units
             units_scheduled_today = []
             for atomic_unit in unscheduled_units.copy():
-                # Check if unit can be scheduled (no conflicts)
-                conflicts = False
-                for branch_sem in atomic_unit['branch_sem_combinations']:
-                    if branch_sem in daily_scheduled_branch_sem[date_str]:
-                        conflicts = True
-                        break
-                
-                if not conflicts:
+                # Use program-aware conflict checking
+                if not has_program_conflicts(atomic_unit, daily_scheduled_branch_sem, date_str):
                     # Schedule the unit with program-aware time slot
                     preferred_semester = atomic_unit['unique_semesters'][0]
                     primary_program = atomic_unit['primary_program']
@@ -714,8 +883,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                         df.loc[row_idx, 'Exam Date'] = date_str
                         df.loc[row_idx, 'Time Slot'] = time_slot
                     
-                    for branch_sem in atomic_unit['branch_sem_combinations']:
-                        daily_scheduled_branch_sem[date_str].add(branch_sem)
+                    update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit)
                     
                     atomic_unit['scheduled'] = True
                     scheduled_count += len(atomic_unit['all_rows'])
@@ -738,7 +906,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ]
     
-    # CRITICAL: Verify NO common subjects are split
+    # Verify NO common subjects are split
     split_subjects = 0
     properly_grouped_common = 0
     
@@ -760,24 +928,27 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     total_days_used = len(daily_scheduled_branch_sem)
     success_rate = (len(successfully_scheduled) / len(eligible_subjects)) * 100
     
-    st.success(f"🏆 **ENHANCED ATOMIC SCHEDULING COMPLETE:**")
+    st.success(f"🏆 **PROGRAM-AWARE ATOMIC SCHEDULING COMPLETE:**")
     st.write(f"   📚 **Total subjects scheduled:** {len(successfully_scheduled)}/{len(eligible_subjects)} ({success_rate:.1f}%)")
     st.write(f"   📅 **Days used:** {total_days_used}")
     st.write(f"   ✅ **Properly grouped common subjects:** {properly_grouped_common}")
     st.write(f"   ❌ **Split common subjects:** {split_subjects}")
     
     # Program-wise statistics
-    program_stats = {}
-    for program in program_types:
-        if 'Program' in successfully_scheduled.columns:
-            program_scheduled = successfully_scheduled[successfully_scheduled['Program'] == program]
-        else:
-            program_scheduled = successfully_scheduled
-        program_stats[program] = len(program_scheduled)
-    
     st.write(f"   📊 **Program-wise scheduling:**")
-    for program, count in program_stats.items():
-        st.write(f"      • {program}: {count} subjects")
+    
+    # Independent programs stats
+    for program in independent_programs:
+        program_scheduled = successfully_scheduled[successfully_scheduled['Program'] == program]
+        if len(program_scheduled) > 0:
+            st.write(f"      • {program}: {len(program_scheduled)} subjects (Independent)")
+    
+    # Regular programs stats
+    regular_programs = successfully_scheduled[~successfully_scheduled['Program'].isin(independent_programs)]
+    if not regular_programs.empty:
+        regular_program_counts = regular_programs['Program'].value_counts()
+        for program, count in regular_program_counts.items():
+            st.write(f"      • {program}: {count} subjects (Regular)")
     
     if split_subjects == 0:
         st.success("🎉 **PERFECT: NO COMMON SUBJECTS SPLIT!**")
@@ -3979,5 +4150,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
