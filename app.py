@@ -2014,11 +2014,11 @@ def save_verification_excel(original_df, semester_wise_timetable):
     scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False)
     
     # Debug: Check ModuleCode extraction
-    st.write("🔍 **ModuleCode extraction check:**")
+    st.write("📋 **ModuleCode extraction check:**")
     module_codes_sample = scheduled_data[['Subject', 'ExtractedModuleCode']].head(3)
     st.dataframe(module_codes_sample)
 
-    # Handle different possible column names in original data with enhanced mapping
+    # Enhanced column mapping to include Campus/School information
     column_mapping = {
         "Module Abbreviation": ["Module Abbreviation", "ModuleCode", "Module Code", "Code", "Subject Code"],
         "Current Session": ["Current Session", "Semester", "Current Academic Session", "Academic Session", "Session"],
@@ -2029,7 +2029,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
         "Student count": ["Student count", "StudentCount", "Student_count", "Count", "Student Count", "Enrollment"],
         "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems", "Common Across Sems", "Cross Semester"],
         "Is Common": ["Is Common", "IsCommon", "is common", "Is_Common", "is_common", "Common"],
-        "Circuit": ["Circuit", "Is_Circuit", "CircuitBranch"]
+        "Circuit": ["Circuit", "Is_Circuit", "CircuitBranch"],
+        # NEW: Campus/School name mappings
+        "Campus Name": ["Campus Name", "Campus", "School Name", "School", "Campus_Name", "School_Name", "Institution", "Campus/School"]
     }
     
     # Find actual column names
@@ -2039,10 +2041,14 @@ def save_verification_excel(original_df, semester_wise_timetable):
             if possible_name in original_df.columns:
                 actual_columns[standard_name] = possible_name
                 break
-        if standard_name not in actual_columns:
+        if standard_name not in actual_columns and standard_name != "Campus Name":
             st.warning(f"⚠️ Column '{standard_name}' not found in original data")
     
-    st.write(f"🔍 **Mapped columns:** {actual_columns}")
+    # Special handling for Campus Name - it's optional
+    if "Campus Name" not in actual_columns:
+        st.info("ℹ️ Campus/School name column not found - will use default values")
+    
+    st.write(f"📋 **Mapped columns:** {actual_columns}")
 
     # Create verification dataframe with available columns
     columns_to_include = list(actual_columns.values())
@@ -2052,6 +2058,14 @@ def save_verification_excel(original_df, semester_wise_timetable):
     reverse_mapping = {v: k for k, v in actual_columns.items()}
     verification_df = verification_df.rename(columns=reverse_mapping)
 
+    # Add campus information if not present
+    if "Campus Name" not in verification_df.columns:
+        verification_df["Campus Name"] = "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING"
+    else:
+        # Clean up campus names - fill empty values with default
+        verification_df["Campus Name"] = verification_df["Campus Name"].fillna("MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING")
+        verification_df["Campus Name"] = verification_df["Campus Name"].replace("", "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING")
+    
     # Add new columns for scheduled information
     verification_df["Exam Date"] = ""
     verification_df["Time Slot"] = ""  # Semester default timing
@@ -2264,7 +2278,14 @@ def save_verification_excel(original_df, semester_wise_timetable):
         program_matched = len(verification_df[(verification_df['Program Type'] == program) & (verification_df['Scheduling Status'] == 'Scheduled')])
         st.write(f"      • {program}: {program_matched}/{count} scheduled ({(program_matched/count*100):.1f}%)")
 
-    # Create unique subjects summary
+    # Campus-wise statistics (NEW)
+    campus_stats = verification_df['Campus Name'].value_counts()
+    st.write(f"   🏫 **Campus-wise breakdown:**")
+    for campus, count in campus_stats.items():
+        campus_matched = len(verification_df[(verification_df['Campus Name'] == campus) & (verification_df['Scheduling Status'] == 'Scheduled')])
+        st.write(f"      • {campus}: {campus_matched}/{count} scheduled ({(campus_matched/count*100):.1f}%)")
+
+    # Create unique subjects summary with campus information
     unique_subjects_summary = []
     
     # Get subject names for unique matched subjects
@@ -2274,6 +2295,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             subject_name = subject_rows['Module Description'].iloc[0] if 'Module Description' in subject_rows.columns else module_code
             programs = ', '.join(subject_rows['Program Type'].unique())
             semesters = ', '.join(map(str, sorted(subject_rows['Current Session'].unique())))
+            campuses = ', '.join(subject_rows['Campus Name'].unique())  # NEW
             instances = len(subject_rows)
             unique_subjects_summary.append({
                 'Module Code': module_code,
@@ -2281,6 +2303,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 'Status': 'Matched',
                 'Programs': programs,
                 'Semesters': semesters,
+                'Campus/School': campuses,  # NEW
                 'Total Instances': instances
             })
     
@@ -2291,6 +2314,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             subject_name = subject_rows['Module Description'].iloc[0] if 'Module Description' in subject_rows.columns else module_code
             programs = ', '.join(subject_rows['Program Type'].unique())
             semesters = ', '.join(map(str, sorted(subject_rows['Current Session'].unique())))
+            campuses = ', '.join(subject_rows['Campus Name'].unique())  # NEW
             instances = len(subject_rows)
             unique_subjects_summary.append({
                 'Module Code': module_code,
@@ -2298,20 +2322,22 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 'Status': 'Unmatched',
                 'Programs': programs,
                 'Semesters': semesters,
+                'Campus/School': campuses,  # NEW
                 'Total Instances': instances
             })
 
-    # Save to Excel with enhanced sheets
+    # Save to Excel with enhanced sheets including campus information
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         verification_df.to_excel(writer, sheet_name="Verification", index=False)
         
-        # Enhanced summary sheet with unique subject counts
+        # Enhanced summary sheet with unique subject counts and campus info
         summary_data = {
             "Metric": [
                 "Total Subject Instances", "Scheduled Instances", "Unscheduled Instances", "Instance Match Rate (%)",
                 "Total Unique Subjects", "Unique Subjects Matched", "Unique Subjects Unmatched", "Unique Subject Match Rate (%)",
-                "Common Across Semesters", "Common Within Semester", "Uncommon Subjects"
+                "Common Across Semesters", "Common Within Semester", "Uncommon Subjects",
+                "Total Campuses/Schools"  # NEW
             ],
             "Value": [
                 matched_count + unmatched_count, 
@@ -2324,20 +2350,21 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 round(unique_matched_count/total_unique_subjects*100, 1) if total_unique_subjects > 0 else 0,
                 len(verification_df[verification_df["Is Common Status"] == "Common Across Semesters"]),
                 len(verification_df[verification_df["Is Common Status"] == "Common Within Semester"]),
-                len(verification_df[verification_df["Is Common Status"] == "Uncommon"])
+                len(verification_df[verification_df["Is Common Status"] == "Uncommon"]),
+                len(campus_stats)  # NEW
             ]
         }
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
         
-        # NEW: Unique Subjects Summary Sheet
+        # NEW: Unique Subjects Summary Sheet with Campus information
         if unique_subjects_summary:
             unique_subjects_df = pd.DataFrame(unique_subjects_summary)
             # Sort by status (Matched first) then by module code
             unique_subjects_df = unique_subjects_df.sort_values(['Status', 'Module Code'])
             unique_subjects_df.to_excel(writer, sheet_name="Unique_Subjects", index=False)
         
-        # Program-wise summary sheet
+        # Enhanced Program-wise summary sheet
         program_summary_data = []
         for program in verification_df['Program Type'].unique():
             program_data = verification_df[verification_df['Program Type'] == program]
@@ -2360,8 +2387,12 @@ def save_verification_excel(original_df, semester_wise_timetable):
             program_unique_total = len(program_unique_matched | program_unique_unmatched)
             program_unique_match_rate = (len(program_unique_matched) / program_unique_total * 100) if program_unique_total > 0 else 0
             
+            # Get campus information for this program
+            program_campuses = ', '.join(program_data['Campus Name'].unique())
+            
             program_summary_data.append({
                 'Program': program,
+                'Campus/School': program_campuses,  # NEW
                 'Total Instances': total,
                 'Scheduled Instances': scheduled,
                 'Unscheduled Instances': total - scheduled,
@@ -2374,6 +2405,29 @@ def save_verification_excel(original_df, semester_wise_timetable):
         
         program_summary_df = pd.DataFrame(program_summary_data)
         program_summary_df.to_excel(writer, sheet_name="Program_Summary", index=False)
+        
+        # NEW: Campus-wise summary sheet
+        campus_summary_data = []
+        for campus in verification_df['Campus Name'].unique():
+            campus_data = verification_df[verification_df['Campus Name'] == campus]
+            scheduled = len(campus_data[campus_data['Scheduling Status'] == 'Scheduled'])
+            total = len(campus_data)
+            match_rate = (scheduled / total * 100) if total > 0 else 0
+            
+            # Get programs for this campus
+            campus_programs = ', '.join(sorted(campus_data['Program Type'].unique()))
+            
+            campus_summary_data.append({
+                'Campus/School': campus,
+                'Programs': campus_programs,
+                'Total Instances': total,
+                'Scheduled Instances': scheduled,
+                'Unscheduled Instances': total - scheduled,
+                'Instance Match Rate (%)': round(match_rate, 1)
+            })
+        
+        campus_summary_df = pd.DataFrame(campus_summary_data)
+        campus_summary_df.to_excel(writer, sheet_name="Campus_Summary", index=False)
         
         # Add unmatched subjects sheet for debugging (instances)
         unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
@@ -4150,6 +4204,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
