@@ -970,10 +970,28 @@ def create_filter_selectors():
     st.markdown("### 🎯 Filter Selection")
     st.info("Select which Programs, Streams, and Years to include in the timetable generation. All are selected by default.")
     
-    # Extract unique values
-    available_programs = sorted([prog for prog in df['Program'].unique() if str(prog) != 'nan'])
-    available_streams = sorted([stream for stream in df['Stream'].unique() if str(stream) != 'nan' and str(stream) != ''])
-    available_semesters = sorted(df['Semester'].unique())
+    # Extract unique values with error handling
+    try:
+        available_programs = sorted([prog for prog in df['Program'].unique() if str(prog) != 'nan' and pd.notna(prog)])
+    except KeyError:
+        st.error("❌ 'Program' column not found in the uploaded file!")
+        return None
+    
+    # Handle Stream column with fallback
+    available_streams = []
+    if 'Stream' in df.columns:
+        available_streams = sorted([stream for stream in df['Stream'].unique() if str(stream) != 'nan' and pd.notna(stream) and str(stream) != ''])
+    else:
+        st.warning("⚠️ 'Stream' column not found. Using programs only for filtering.")
+        # Create dummy streams based on programs
+        available_streams = ["All Streams"]
+    
+    # Handle Semester column
+    try:
+        available_semesters = sorted([sem for sem in df['Semester'].unique() if pd.notna(sem) and sem > 0])
+    except KeyError:
+        st.error("❌ 'Semester' column not found in the uploaded file!")
+        return None
     
     # Convert semesters to years (approximate)
     semester_to_year = {}
@@ -1011,17 +1029,22 @@ def create_filter_selectors():
     with col2:
         st.markdown("#### 🌊 Streams")
         selected_streams = []
-        select_all_streams = st.checkbox("Select All Streams", value=True, key="all_streams")
         
-        if select_all_streams:
-            selected_streams = available_streams
-            # Show all streams as selected (disabled checkboxes)
-            for stream in available_streams:
-                st.checkbox(stream, value=True, disabled=True, key=f"stream_{stream}")
+        if available_streams and available_streams != ["All Streams"]:
+            select_all_streams = st.checkbox("Select All Streams", value=True, key="all_streams")
+            
+            if select_all_streams:
+                selected_streams = available_streams
+                # Show all streams as selected (disabled checkboxes)
+                for stream in available_streams:
+                    st.checkbox(stream, value=True, disabled=True, key=f"stream_{stream}")
+            else:
+                for stream in available_streams:
+                    if st.checkbox(stream, value=False, key=f"stream_{stream}"):
+                        selected_streams.append(stream)
         else:
-            for stream in available_streams:
-                if st.checkbox(stream, value=False, key=f"stream_{stream}"):
-                    selected_streams.append(stream)
+            st.info("No specific streams found - using all available data")
+            selected_streams = ["All Streams"]
     
     with col3:
         st.markdown("#### 📅 Years")
@@ -1059,39 +1082,51 @@ def create_filter_selectors():
             st.write(f"{', '.join(selected_programs[:3])}... and {len(selected_programs)-3} more")
     
     with col2:
-        st.info(f"**Streams:** {len(selected_streams)}/{len(available_streams)} selected")
-        if len(selected_streams) <= 5:
-            st.write(", ".join(selected_streams))
+        if available_streams != ["All Streams"]:
+            st.info(f"**Streams:** {len(selected_streams)}/{len(available_streams)} selected")
+            if len(selected_streams) <= 5:
+                st.write(", ".join(selected_streams))
+            else:
+                st.write(f"{', '.join(selected_streams[:3])}... and {len(selected_streams)-3} more")
         else:
-            st.write(f"{', '.join(selected_streams[:3])}... and {len(selected_streams)-3} more")
+            st.info("**Streams:** All available data")
     
     with col3:
         st.info(f"**Years:** {len(selected_years)}/{len(available_years)} selected")
         st.write(f"Semesters: {', '.join(map(str, sorted(selected_semesters)))}")
     
-    # Calculate estimated subjects
-    if selected_programs and selected_streams and selected_semesters:
-        filter_mask = (
-            df['Program'].isin(selected_programs) &
-            df['Stream'].isin(selected_streams + ['']) &  # Include empty streams
-            df['Semester'].isin(selected_semesters)
-        )
-        estimated_subjects = len(df[filter_mask])
-        st.success(f"📊 **Estimated subjects to schedule:** {estimated_subjects}")
-    else:
-        st.warning("⚠️ No subjects match current selection criteria!")
+    # Calculate estimated subjects with error handling
+    try:
+        if selected_programs and selected_semesters:
+            # Build filter mask based on available columns
+            filter_mask = df['Program'].isin(selected_programs) & df['Semester'].isin(selected_semesters)
+            
+            # Add stream filter only if Stream column exists and is not dummy
+            if 'Stream' in df.columns and available_streams != ["All Streams"]:
+                # Include empty streams and selected streams
+                stream_filter = df['Stream'].isin(selected_streams + ['']) | df['Stream'].isna()
+                filter_mask = filter_mask & stream_filter
+            
+            estimated_subjects = len(df[filter_mask])
+            st.success(f"📊 **Estimated subjects to schedule:** {estimated_subjects}")
+        else:
+            st.warning("⚠️ No subjects match current selection criteria!")
+            estimated_subjects = 0
+    except Exception as e:
+        st.error(f"❌ Error calculating estimated subjects: {str(e)}")
         estimated_subjects = 0
     
     return {
         'programs': selected_programs,
         'streams': selected_streams,
         'semesters': selected_semesters,
-        'estimated_subjects': estimated_subjects
+        'estimated_subjects': estimated_subjects,
+        'has_stream_column': 'Stream' in df.columns and available_streams != ["All Streams"]
     }
 
 def apply_filters_to_data(df_non_elec, df_ele, filter_selection):
     """
-    Apply the selected filters to the dataframes
+    Apply the selected filters to the dataframes with enhanced error handling
     """
     if not filter_selection or filter_selection['estimated_subjects'] == 0:
         st.error("❌ No valid filter selection provided!")
@@ -1100,26 +1135,53 @@ def apply_filters_to_data(df_non_elec, df_ele, filter_selection):
     selected_programs = filter_selection['programs']
     selected_streams = filter_selection['streams']
     selected_semesters = filter_selection['semesters']
+    has_stream_column = filter_selection['has_stream_column']
     
     # Apply filters to non-elective dataframe
     if df_non_elec is not None and not df_non_elec.empty:
-        filter_mask_non = (
-            df_non_elec['Program'].isin(selected_programs) &
-            (df_non_elec['Stream'].isin(selected_streams + ['']) | df_non_elec['Stream'].isna()) &
-            df_non_elec['Semester'].isin(selected_semesters)
-        )
-        df_non_elec_filtered = df_non_elec[filter_mask_non].copy()
+        try:
+            # Start with Program and Semester filters
+            filter_mask_non = (
+                df_non_elec['Program'].isin(selected_programs) &
+                df_non_elec['Semester'].isin(selected_semesters)
+            )
+            
+            # Add Stream filter only if the column exists and we have real streams
+            if has_stream_column and 'Stream' in df_non_elec.columns:
+                stream_filter = (
+                    df_non_elec['Stream'].isin(selected_streams + ['']) | 
+                    df_non_elec['Stream'].isna()
+                )
+                filter_mask_non = filter_mask_non & stream_filter
+            
+            df_non_elec_filtered = df_non_elec[filter_mask_non].copy()
+        except Exception as e:
+            st.error(f"❌ Error filtering non-elective data: {str(e)}")
+            return None, None
     else:
         df_non_elec_filtered = df_non_elec
     
     # Apply filters to elective dataframe
     if df_ele is not None and not df_ele.empty:
-        filter_mask_ele = (
-            df_ele['Program'].isin(selected_programs) &
-            (df_ele['Stream'].isin(selected_streams + ['']) | df_ele['Stream'].isna()) &
-            df_ele['Semester'].isin(selected_semesters)
-        )
-        df_ele_filtered = df_ele[filter_mask_ele].copy()
+        try:
+            # Start with Program and Semester filters
+            filter_mask_ele = (
+                df_ele['Program'].isin(selected_programs) &
+                df_ele['Semester'].isin(selected_semesters)
+            )
+            
+            # Add Stream filter only if the column exists and we have real streams
+            if has_stream_column and 'Stream' in df_ele.columns:
+                stream_filter = (
+                    df_ele['Stream'].isin(selected_streams + ['']) | 
+                    df_ele['Stream'].isna()
+                )
+                filter_mask_ele = filter_mask_ele & stream_filter
+            
+            df_ele_filtered = df_ele[filter_mask_ele].copy()
+        except Exception as e:
+            st.error(f"❌ Error filtering elective data: {str(e)}")
+            df_ele_filtered = df_ele
     else:
         df_ele_filtered = df_ele
     
@@ -1130,8 +1192,10 @@ def apply_filters_to_data(df_non_elec, df_ele, filter_selection):
     filtered_ele_count = len(df_ele_filtered) if df_ele_filtered is not None else 0
     
     st.success(f"🎯 **Filtering Applied:**")
-    st.write(f"   📚 Non-elective subjects: {filtered_non_count}/{original_non_count} ({filtered_non_count/original_non_count*100:.1f}%)")
-    st.write(f"   🎓 Elective subjects: {filtered_ele_count}/{original_ele_count} ({filtered_ele_count/original_ele_count*100:.1f}% if any)")
+    if original_non_count > 0:
+        st.write(f"   📚 Non-elective subjects: {filtered_non_count}/{original_non_count} ({filtered_non_count/original_non_count*100:.1f}%)")
+    if original_ele_count > 0:
+        st.write(f"   🎓 Elective subjects: {filtered_ele_count}/{original_ele_count} ({filtered_ele_count/original_ele_count*100:.1f}%)")
     st.write(f"   📊 **Total subjects for scheduling:** {filtered_non_count + filtered_ele_count}")
     
     # Show breakdown by program
@@ -3915,4 +3979,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
