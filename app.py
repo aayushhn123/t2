@@ -2247,7 +2247,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
 
     # Extract ModuleCode from scheduled data more robustly
-    scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\), expand=False)
+    scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False)
     
     # Debug: Check ModuleCode extraction
     st.write("📋 **Enhanced ModuleCode extraction check:**")
@@ -4305,6 +4305,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
