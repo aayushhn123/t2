@@ -266,7 +266,6 @@ BRANCH_FULL_FORM = {
     "B TECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
     "M TECH": "MASTER OF TECHNOLOGY",
     "MBA TECH": "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT",
-    "MBA TECH Y5": "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT - YEAR 5",
     "MCA": "MASTER OF COMPUTER APPLICATIONS",
     "DIPLOMA": "DIPLOMA IN ENGINEERING"
 }
@@ -345,14 +344,6 @@ def get_preferred_slot(semester, program_type="B TECH"):
     elif program_type == "MCA":
         # MCA programs - prefer morning slots
         return "10:00 AM - 1:00 PM" if semester <= 3 else "2:00 PM - 5:00 PM"
-    
-    elif program_type == "MBA TECH":
-        # Regular MBA TECH (Years 1-4) - prefer afternoon slots
-        return "2:00 PM - 5:00 PM" if semester <= 4 else "10:00 AM - 1:00 PM"
-    
-    elif program_type == "MBA TECH Y5":
-        # MBA TECH Year 5 (semesters 9-10) - prefer morning slots for final year
-        return "10:00 AM - 1:00 PM"
     
     else:
         # Default B TECH logic
@@ -582,7 +573,7 @@ def update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit):
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     """
     PROGRAM-AWARE ATOMIC SCHEDULING FUNCTION with independent program handling
-    1. Separates independent programs (DIPLOMA, MBA TECH, MBA TECH Y5, MCA) from regular programs
+    1. Separates independent programs (DIPLOMA, MBA TECH, MCA) from regular programs
     2. Creates program-aware atomic units
     3. Schedules with program-specific conflict checking
     4. Maintains daily branch coverage and zero-unscheduled guarantee
@@ -597,7 +588,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     Returns:
         DataFrame with ALL subjects scheduled (ZERO unscheduled guarantee)
     """
-    st.info("🚀 PROGRAM-AWARE SCHEDULING: Independent handling for DIPLOMA, MBA TECH, MBA TECH Y5, MCA")
+    st.info("🚀 PROGRAM-AWARE SCHEDULING: Independent handling for DIPLOMA, MBA TECH, MCA")
     
     # STEP 1: PROGRAM SEPARATION AND ANALYSIS
     st.write("📊 **Step 1:** Program separation and enhanced analysis...")
@@ -615,13 +606,13 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         return df
     
     # Define independent programs that don't share subjects with others
-    independent_programs = {'DIPLOMA', 'MBA TECH', 'MBA TECH Y5', 'MCA'}
+    independent_programs = {'DIPLOMA', 'MBA TECH', 'MCA'}
     
     # Separate independent and regular programs
     independent_subjects = eligible_subjects[eligible_subjects['Program'].isin(independent_programs)].copy()
     regular_subjects = eligible_subjects[~eligible_subjects['Program'].isin(independent_programs)].copy()
     
-    st.write(f"🔥 **Program breakdown:**")
+    st.write(f"🔄 **Program breakdown:**")
     st.write(f"   • Independent programs: {len(independent_subjects)} subjects")
     for program in independent_programs:
         program_count = len(independent_subjects[independent_subjects['Program'] == program])
@@ -704,7 +695,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     st.write(f"🎯 **Program-aware unit classification:**")
     st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units (cross-program common)")
     st.write(f"   📊 High Priority: {len(high_priority)} units (within-program common)")
-    st.write(f"   🏫 Independent Priority: {len(independent_priority)} units (DIPLOMA/MBA TECH/MBA TECH Y5/MCA common)")
+    st.write(f"   🏫 Independent Priority: {len(independent_priority)} units (DIPLOMA/MBA TECH/MCA common)")
     st.write(f"   📋 Medium Priority: {len(medium_priority)} units (multi-branch)")
     st.write(f"   📄 Low Priority: {len(low_priority)} units (individual)")
     
@@ -944,7 +935,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     st.write(f"   ❌ **Split common subjects:** {split_subjects}")
     
     # Program-wise statistics
-    # Program-wise statistics
     st.write(f"   📊 **Program-wise scheduling:**")
     
     # Independent programs stats
@@ -1038,10 +1028,6 @@ def read_timetable(uploaded_file):
                 "DIPLOMA Sem IV": 4, "DIPLOMA Sem V": 5, "DIPLOMA Sem VI": 6,
                 # M TECH variations  
                 "M TECH Sem I": 1, "M TECH Sem II": 2, "M TECH Sem III": 3, "M TECH Sem IV": 4,
-                # MBA TECH variations
-                "MBA TECH Sem I": 1, "MBA TECH Sem II": 2, "MBA TECH Sem III": 3, "MBA TECH Sem IV": 4,
-                "MBA TECH Sem V": 5, "MBA TECH Sem VI": 6, "MBA TECH Sem VII": 7, "MBA TECH Sem VIII": 8,
-                "MBA TECH Sem IX": 9, "MBA TECH Sem X": 10,
                 # Direct numeric
                 "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, 
                 "9": 9, "10": 10, "11": 11, "12": 12
@@ -1055,11 +1041,6 @@ def read_timetable(uploaded_file):
         def create_branch_identifier(row):
             program = str(row.get("Program", "")).strip()
             stream = str(row.get("Stream", "")).strip()
-            semester = row.get("Semester", 0)
-            
-            # Special handling for MBA TECH Year 5 (semesters 9-10)
-            if program == "MBA TECH" and semester >= 9:
-                program = "MBA TECH Y5"  # Treat as separate program
             
             # Handle cases where stream might be empty or same as program
             if not stream or stream == "nan" or stream == program:
@@ -1721,22 +1702,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         elif sheet_name.startswith("MTECH_"):
             program_type = "M TECH"
             main_branch = main_branch.replace("MTECH_", "")
-        elif sheet_name.startswith("MBATECH_Y5_"):
-            program_type = "MBA TECH Y5"
-            main_branch = main_branch.replace("MBATECH_Y5_", "")
-        elif sheet_name.startswith("MBATECH_"):
-            program_type = "MBA TECH"
-            main_branch = main_branch.replace("MBATECH_", "")
         elif "M TECH" in main_branch:
             program_type = "M TECH"
         elif "DIPLOMA" in main_branch:
             program_type = "DIPLOMA"
         elif "MCA" in main_branch:
             program_type = "MCA"
-        elif "MBA TECH Y5" in main_branch:
-            program_type = "MBA TECH Y5"
-        elif "MBA TECH" in main_branch:
-            program_type = "MBA TECH"
         
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
         semester = parts[1] if len(parts) > 1 else ""
@@ -2527,10 +2498,6 @@ def save_to_excel(semester_wise_timetable):
             standard_duration = 2.5  # DIPLOMA might have shorter exams
         elif program_type == "M TECH":
             standard_duration = 3  # M TECH standard duration
-        elif program_type == "MBA TECH":
-            standard_duration = 3  # MBA TECH standard duration
-        elif program_type == "MBA TECH Y5":
-            standard_duration = 3  # MBA TECH Y5 standard duration
         
         # Show exam time if:
         # 1. Duration is not standard for the program
@@ -2562,10 +2529,6 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = f"DIPL_{main_branch}_Sem_{roman_sem}"
                     elif program_type == "M TECH":
                         sheet_name = f"MTECH_{main_branch}_Sem_{roman_sem}"
-                    elif program_type == "MBA TECH Y5":
-                        sheet_name = f"MBATECH_Y5_{main_branch}_Sem_{roman_sem}"
-                    elif program_type == "MBA TECH":
-                        sheet_name = f"MBATECH_{main_branch}_Sem_{roman_sem}"
                     else:
                         sheet_name = f"{main_branch}_Sem_{roman_sem}"
                     
@@ -2612,10 +2575,6 @@ def save_to_excel(semester_wise_timetable):
                                     standard_duration = 3
                                     if program_type == "DIPLOMA":
                                         standard_duration = 2.5
-                                    elif program_type == "MBA TECH":
-                                        standard_duration = 3
-                                    elif program_type == "MBA TECH Y5":
-                                        standard_duration = 3
                                     
                                     if duration != standard_duration:
                                         # Non-standard duration
@@ -2741,10 +2700,6 @@ def save_to_excel(semester_wise_timetable):
                             standard_duration = 3
                             if program_type == "DIPLOMA":
                                 standard_duration = 2.5
-                            elif program_type == "MBA TECH":
-                                standard_duration = 3
-                            elif program_type == "MBA TECH Y5":
-                                standard_duration = 3
                                 
                             if duration != standard_duration:
                                 try:
@@ -2780,10 +2735,6 @@ def save_to_excel(semester_wise_timetable):
                             elective_sheet_name = f"DIPL_{main_branch}_Sem_{roman_sem}_Electives"
                         elif program_type == "M TECH":
                             elective_sheet_name = f"MTECH_{main_branch}_Sem_{roman_sem}_Electives"
-                        elif program_type == "MBA TECH Y5":
-                            elective_sheet_name = f"MBATECH_Y5_{main_branch}_Sem_{roman_sem}_Electives"
-                        elif program_type == "MBA TECH":
-                            elective_sheet_name = f"MBATECH_{main_branch}_Sem_{roman_sem}_Electives"
                         else:
                             elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
                         
@@ -4253,7 +4204,6 @@ def main():
     
 if __name__ == "__main__":
     main()
-
 
 
 
