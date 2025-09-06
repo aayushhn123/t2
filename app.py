@@ -366,31 +366,59 @@ def safe_get_boolean(value, default=False):
 
 
 def normalize_date_to_ddmmyyyy(date_val):
-    """Convert any date format to DD-MM-YYYY string format"""
-    if pd.isna(date_val) or date_val == "":
+    """Convert any date format to DD-MM-YYYY string format with enhanced error handling"""
+    if pd.isna(date_val) or date_val == "" or date_val is None:
         return ""
+    
+    # Handle numeric values that might be Excel date serials
+    if isinstance(date_val, (int, float)):
+        try:
+            # Convert Excel serial date to datetime
+            if date_val > 0:  # Valid Excel date serial
+                date_obj = pd.to_datetime(date_val, origin='1899-12-30', unit='D', errors='coerce')
+                if pd.notna(date_obj):
+                    return date_obj.strftime("%d-%m-%Y")
+            return ""
+        except:
+            return ""
     
     if isinstance(date_val, pd.Timestamp):
         return date_val.strftime("%d-%m-%Y")
     elif isinstance(date_val, str):
+        date_str = str(date_val).strip()
+        
+        # Handle empty strings or placeholder values
+        if not date_str or date_str.lower() in ['nan', 'nat', 'none', 'null']:
+            return ""
+            
         try:
-            parsed = pd.to_datetime(date_val, format="%d-%m-%Y", errors='raise')
+            # Try DD-MM-YYYY format first
+            parsed = pd.to_datetime(date_str, format="%d-%m-%Y", errors='raise')
             return parsed.strftime("%d-%m-%Y")
         except:
             try:
-                parsed = pd.to_datetime(date_val, dayfirst=True, errors='raise')
+                # Try with dayfirst=True for other formats
+                parsed = pd.to_datetime(date_str, dayfirst=True, errors='raise')
                 return parsed.strftime("%d-%m-%Y")
             except:
-                return str(date_val)
+                try:
+                    # Try without dayfirst for US format
+                    parsed = pd.to_datetime(date_str, errors='raise')
+                    return parsed.strftime("%d-%m-%Y")
+                except:
+                    # If all parsing fails, return the original string if it looks like a date
+                    if any(char.isdigit() for char in date_str) and any(char in date_str for char in ['-', '/', '.']):
+                        return str(date_str)
+                    return ""
     else:
         try:
             parsed = pd.to_datetime(date_val, errors='coerce')
             if pd.notna(parsed):
                 return parsed.strftime("%d-%m-%Y")
             else:
-                return str(date_val)
+                return ""
         except:
-            return str(date_val)
+            return ""
 
 def get_valid_dates_in_range(start_date, end_date, holidays_set):
     """
@@ -438,14 +466,44 @@ def find_next_valid_day_in_range(start_date, end_date, holidays_set):
 def get_preferred_slot(semester, program_type="B TECH"):
     """
     Calculate preferred time slot based on semester number and program type
+    Enhanced with input validation
     
     Args:
-        semester (int): Semester number
+        semester (int/str/float): Semester number (can be various types)
         program_type (str): Program type (B TECH, DIPLOMA, M TECH, etc.)
     
     Returns:
         str: Preferred time slot
     """
+    # Validate and convert semester to integer
+    try:
+        if pd.isna(semester) or semester is None:
+            semester = 1  # Default to semester 1
+        elif isinstance(semester, str):
+            # Handle string representations
+            semester_str = str(semester).strip()
+            if semester_str == "" or semester_str.lower() in ['nan', 'none']:
+                semester = 1
+            else:
+                semester = int(float(semester_str))  # Convert through float to handle "1.0"
+        elif isinstance(semester, float):
+            semester = int(semester)
+        else:
+            semester = int(semester)
+        
+        # Ensure semester is positive
+        if semester <= 0:
+            semester = 1
+            
+    except (ValueError, TypeError):
+        semester = 1  # Default fallback
+    
+    # Validate program_type
+    if not isinstance(program_type, str) or program_type.strip() == "":
+        program_type = "B TECH"  # Default fallback
+    
+    program_type = str(program_type).strip()
+    
     # Different scheduling preferences based on program type
     if program_type == "DIPLOMA":
         # DIPLOMA programs typically have 6 semesters
@@ -460,6 +518,10 @@ def get_preferred_slot(semester, program_type="B TECH"):
     elif program_type == "MCA":
         # MCA programs - prefer morning slots
         return "10:00 AM - 1:00 PM" if semester <= 3 else "2:00 PM - 5:00 PM"
+    
+    elif program_type == "MBA TECH Year 5+":
+        # MBA TECH Year 5+ - senior preference
+        return "2:00 PM - 5:00 PM" if semester % 2 != 0 else "10:00 AM - 1:00 PM"
     
     else:
         # Default B TECH logic
@@ -2960,6 +3022,8 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
     
     return df_ele
 
+# Fix for the gap optimization function - replace the problematic section
+
 def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_date):
     """
     Enhanced gap optimization that respects program independence
@@ -3006,6 +3070,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                 
                 return True
         except Exception as e:
+            st.write(f"Error moving subject: {e}")
             return False
         
         return False
@@ -3020,29 +3085,6 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     def get_subbranch_semester_key(subbranch, semester):
         return f"{subbranch}_{semester}"
     
-    # Helper function to determine if subject can be moved (enhanced)
-    def is_subject_moveable_enhanced(row):
-        """Enhanced moveability check considering program independence"""
-        effective_program = get_effective_program_name(row)
-        semester = row.get('Semester', 0)
-        
-        # Basic filters (same as before)
-        category = safe_get_string(row.get('Category', ''))
-        oe_value = safe_get_string(row.get('OE', ''))
-        is_common_within = safe_get_string(row.get('IsCommon', 'NO'), 'NO').upper() == 'YES'
-        is_common_across = safe_get_boolean(row.get('CommonAcrossSems', False))
-        
-        # Exclude INTD, OE, and common subjects
-        if category == 'INTD' or oe_value or is_common_within or is_common_across:
-            return False, "Common or special subject"
-        
-        # For independent programs, allow movement only within their own program context
-        if is_program_independent(effective_program, semester):
-            return True, f"Independent program ({effective_program}) - moveable"
-        
-        # For regular programs, allow movement
-        return True, "Regular program - moveable"
-    
     # Build enhanced schedule grid with program awareness
     all_scheduled_data = all_data[
         (all_data['Exam Date'] != "") & 
@@ -3055,6 +3097,11 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     
     for _, row in all_scheduled_data.iterrows():
         date_str = row['Exam Date']
+        
+        # Skip invalid dates
+        if not date_str or pd.isna(date_str) or str(date_str).strip() == "":
+            continue
+            
         subbranch_sem_key = get_subbranch_semester_key(row['SubBranch'], row['Semester'])
         
         if date_str not in schedule_grid:
@@ -3098,9 +3145,19 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         
         subbranch_semester_combinations.add(subbranch_sem_key)
     
-    # Get all dates in the schedule range
-    all_scheduled_dates = sorted(schedule_grid.keys(), 
-                                key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+    # Get all dates in the schedule range - FIXED DATE HANDLING
+    all_scheduled_dates = []
+    for date_str in schedule_grid.keys():
+        try:
+            # Validate date format
+            datetime.strptime(date_str, "%d-%m-%Y")
+            all_scheduled_dates.append(date_str)
+        except (ValueError, TypeError):
+            st.write(f"Warning: Invalid date format found: {date_str}")
+            continue
+    
+    # Sort dates properly
+    all_scheduled_dates = sorted(all_scheduled_dates, key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
     
     if not all_scheduled_dates:
         return df_dict, 0, []
@@ -3163,11 +3220,15 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                 if subject_info.get('is_independent', False):
                     priority_score += 5  # Independent programs get slight priority
                 
-                # Prefer subjects from later dates for moving up
-                date_obj = datetime.strptime(date_str, "%d-%m-%Y")
-                last_date_obj = datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y")
-                days_from_end = (last_date_obj - date_obj).days
-                priority_score += max(0, 20 - days_from_end)
+                # Prefer subjects from later dates for moving up - FIXED DATE COMPARISON
+                try:
+                    date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+                    last_date_obj = datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y")
+                    days_from_end = (last_date_obj - date_obj).days
+                    priority_score += max(0, 20 - days_from_end)
+                except (ValueError, TypeError):
+                    st.write(f"Warning: Could not parse date for priority calculation: {date_str}")
+                    continue
                 
                 if priority_score > 0:
                     independence_level = subject_info.get('independence_level', 'NONE')
@@ -3193,17 +3254,6 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     
     st.write(f"🎯 Found {len(uncommon_moveable_subjects)} enhanced moveable subjects")
     
-    # Show enhanced breakdown of subject types
-    subject_type_counts = {}
-    for moveable in uncommon_moveable_subjects:
-        subject_type = moveable['subject_type']
-        subject_type_counts[subject_type] = subject_type_counts.get(subject_type, 0) + 1
-    
-    if subject_type_counts:
-        st.info("📋 Enhanced moveable subject breakdown:")
-        for subject_type, count in subject_type_counts.items():
-            st.write(f"  • {subject_type}: {count} subjects")
-    
     # Enhanced optimization process - ONLY move uncommon subjects with program respect
     moves_made = 0
     optimization_log = []
@@ -3225,70 +3275,47 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             
             # Enhanced check - subject can move to this gap with program independence
             if subbranch_sem_key in available_subbranches:
-                gap_date_obj = datetime.strptime(gap_date, "%d-%m-%Y")
-                current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
-                
-                # Only move if it's moving to an earlier date
-                if gap_date_obj < current_date_obj:
-                    # Enhanced check: ensure no program conflicts in target gap
-                    can_move = True
+                try:
+                    # FIXED DATE COMPARISON - ensure both are datetime objects
+                    gap_date_obj = datetime.strptime(gap_date, "%d-%m-%Y")
+                    current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
                     
-                    # For independent programs, check if same program already scheduled on this date
-                    if subject_info.get('is_independent', False):
-                        if gap_date in schedule_grid:
-                            for existing_key, existing_info in schedule_grid[gap_date].items():
-                                if (existing_info.get('effective_program') == effective_program and 
-                                    existing_info.get('is_independent', False)):
-                                    # Same independent program already has something scheduled
-                                    if existing_key != subbranch_sem_key:  # Different subbranch
-                                        can_move = False
-                                        break
-                    
-                    if can_move:
-                        # Move the subject with enhanced tracking
-                        if move_subject_enhanced(df_dict, subject_info, gap_date, schedule_grid, current_date, subbranch_sem_key):
-                            available_subbranches.remove(subbranch_sem_key)
-                            uncommon_moveable_subjects.remove(moveable)
-                            moves_made += 1
-                            
-                            days_moved_up = (current_date_obj - gap_date_obj).days
-                            optimization_log.append(
-                                f"Moved {subject_type} subject: {subject_info['subject']} "
-                                f"({subject_info['subbranch']}, Sem {subject_info['semester']}) "
-                                f"from {current_date} to {gap_date} (moved up {days_moved_up} days)"
-                            )
+                    # Only move if it's moving to an earlier date
+                    if gap_date_obj < current_date_obj:
+                        # Enhanced check: ensure no program conflicts in target gap
+                        can_move = True
+                        
+                        # For independent programs, check if same program already scheduled on this date
+                        if subject_info.get('is_independent', False):
+                            if gap_date in schedule_grid:
+                                for existing_key, existing_info in schedule_grid[gap_date].items():
+                                    if (existing_info.get('effective_program') == effective_program and 
+                                        existing_info.get('is_independent', False)):
+                                        # Same independent program already has something scheduled
+                                        if existing_key != subbranch_sem_key:  # Different subbranch
+                                            can_move = False
+                                            break
+                        
+                        if can_move:
+                            # Move the subject with enhanced tracking
+                            if move_subject_enhanced(df_dict, subject_info, gap_date, schedule_grid, current_date, subbranch_sem_key):
+                                available_subbranches.remove(subbranch_sem_key)
+                                uncommon_moveable_subjects.remove(moveable)
+                                moves_made += 1
+                                
+                                days_moved_up = (current_date_obj - gap_date_obj).days
+                                optimization_log.append(
+                                    f"Moved {subject_type} subject: {subject_info['subject']} "
+                                    f"({subject_info['subbranch']}, Sem {subject_info['semester']}) "
+                                    f"from {current_date} to {gap_date} (moved up {days_moved_up} days)"
+                                )
+                                
+                except (ValueError, TypeError) as e:
+                    st.write(f"Warning: Date comparison error for {current_date} vs {gap_date}: {e}")
+                    continue
         
         # Update gap's available subbranches
         gap['available_subbranches'] = available_subbranches
-    
-    # Calculate span reduction
-    if moves_made > 0:
-        # Recalculate the schedule span
-        updated_all_data = pd.concat(df_dict.values(), ignore_index=True)
-        updated_scheduled = updated_all_data[
-            (updated_all_data['Exam Date'] != "") & 
-            (updated_all_data['Exam Date'] != "Out of Range")
-        ].copy()
-        
-        if not updated_scheduled.empty:
-            updated_scheduled['Exam Date'] = updated_scheduled['Exam Date'].apply(normalize_date_to_ddmmyyyy)
-            updated_dates = sorted(updated_scheduled['Exam Date'].unique(), 
-                                 key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
-            
-            if updated_dates:
-                new_first_date = updated_dates[0]
-                new_last_date = updated_dates[-1]
-                
-                original_span = (datetime.strptime(all_scheduled_dates[-1], "%d-%m-%Y") - 
-                               datetime.strptime(all_scheduled_dates[0], "%d-%m-%Y")).days + 1
-                new_span = (datetime.strptime(new_last_date, "%d-%m-%Y") - 
-                           datetime.strptime(new_first_date, "%d-%m-%Y")).days + 1
-                
-                span_reduction = original_span - new_span
-                
-                if span_reduction > 0:
-                    optimization_log.append(f"Schedule span reduced by {span_reduction} days with program independence!")
-                    st.success(f"📉 Schedule span reduced from {original_span} to {new_span} days (saved {span_reduction} days)")
     
     # Ensure all dates in df_dict are properly formatted
     for sem in df_dict:
@@ -4305,6 +4332,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
