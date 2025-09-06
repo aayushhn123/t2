@@ -312,7 +312,7 @@ def is_program_independent(program_name, semester=None):
         bool: True if program should be independent
     """
     # Standard independent programs
-    if program_name in {'DIPLOMA', 'MCA'}:
+    if program_name in {'DIPLOMA'}:
         return True
     
     # Special case for MBA TECH Year 5+
@@ -338,7 +338,7 @@ def should_check_cross_program_commonality(program1, program2):
         bool: True if should check cross-program commonality
     """
     # Independent programs don't share subjects with any other program
-    independent_programs = {'DIPLOMA', 'MCA', 'MBA TECH Year 5+'}
+    independent_programs = {'DIPLOMA', 'MBA TECH Year 5+'}
     
     if program1 in independent_programs or program2 in independent_programs:
         return False
@@ -4305,6 +4305,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
