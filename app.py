@@ -320,39 +320,12 @@ def find_next_valid_day_in_range(start_date, end_date, holidays_set):
     return None
 
 def get_preferred_slot(semester, program_type="B TECH"):
-    """
-    Calculate preferred time slot based on semester number and program type
-    
-    Args:
-        semester (int): Semester number
-        program_type (str): Program type (B TECH, DIPLOMA, M TECH, etc.)
-    
-    Returns:
-        str: Preferred time slot
-    """
-    # Different scheduling preferences based on program type
-    if program_type == "DIPLOMA":
-        # DIPLOMA programs typically have 6 semesters
-        # Alternate between morning and afternoon for load balancing
-        return "10:00 AM - 1:00 PM" if semester % 2 != 0 else "2:00 PM - 5:00 PM"
-    
-    elif program_type == "M TECH":
-        # M TECH programs typically have 4 semesters
-        # Prefer afternoon slots for postgraduate programs
-        return "2:00 PM - 5:00 PM" if semester <= 2 else "10:00 AM - 1:00 PM"
-    
-    elif program_type == "MCA":
-        # MCA programs - prefer morning slots
-        return "10:00 AM - 1:00 PM" if semester <= 3 else "2:00 PM - 5:00 PM"
-    
-    else:
-        # Default B TECH logic
-        if semester % 2 != 0:  # Odd semester
-            odd_sem_position = (semester + 1) // 2
-            return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        else:  # Even semester
-            even_sem_position = semester // 2
-            return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+    if semester % 2 != 0:  # Odd semester
+        odd_sem_position = (semester + 1) // 2
+        return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+    else:  # Even semester
+        even_sem_position = semester // 2
+        return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     """
@@ -3433,5 +3406,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
