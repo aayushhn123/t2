@@ -276,122 +276,6 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 # Cache for text wrapping results
 wrap_text_cache = {}
 
-def get_effective_program_name(row):
-    """
-    Determine the effective program name for scheduling purposes
-    Handles special cases like MBA TECH Year 5+
-    
-    Args:
-        row: DataFrame row containing subject information
-    
-    Returns:
-        str: Effective program name for scheduling
-    """
-    program = row.get('Program', 'B TECH')
-    semester = row.get('Semester', 0)
-    
-    # Special handling for MBA TECH
-    if program == 'MBA TECH':
-        if semester >= 9:  # Year 5 and above
-            return 'MBA TECH Year 5+'
-        else:
-            return 'MBA TECH'  # Regular MBA TECH (Years 1-4)
-    
-    return program
-
-
-def is_program_independent(program_name, semester=None):
-    """
-    Check if a program should be treated as independent
-    
-    Args:
-        program_name: Name of the program
-        semester: Semester number (needed for MBA TECH)
-    
-    Returns:
-        bool: True if program should be independent
-    """
-    # Standard independent programs
-    if program_name in {'DIPLOMA'}:
-        return True
-    
-    # Special case for MBA TECH Year 5+
-    if program_name == 'MBA TECH' and semester and semester >= 9:
-        return True
-    
-    # Effective program names
-    if program_name == 'MBA TECH Year 5+':
-        return True
-    
-    return False
-
-
-def should_check_cross_program_commonality(program1, program2):
-    """
-    Determine if two programs should check for cross-program commonality
-    
-    Args:
-        program1: First program name
-        program2: Second program name
-    
-    Returns:
-        bool: True if should check cross-program commonality
-    """
-    # Independent programs don't share subjects with any other program
-    independent_programs = {'DIPLOMA', 'MBA TECH Year 5+'}
-    
-    if program1 in independent_programs or program2 in independent_programs:
-        return False
-    
-    # Regular programs can share subjects with each other
-    return True
-
-
-def safe_get_string(value, default=""):
-    """Safely get string value from potentially NaN/None values"""
-    if pd.isna(value) or value is None:
-        return default
-    return str(value).strip()
-
-
-def safe_get_boolean(value, default=False):
-    """Safely get boolean value from potentially NaN/None values"""
-    if pd.isna(value) or value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().upper() in ['TRUE', 'YES', '1']
-    return bool(value)
-
-
-def normalize_date_to_ddmmyyyy(date_val):
-    """Convert any date format to DD-MM-YYYY string format"""
-    if pd.isna(date_val) or date_val == "":
-        return ""
-    
-    if isinstance(date_val, pd.Timestamp):
-        return date_val.strftime("%d-%m-%Y")
-    elif isinstance(date_val, str):
-        try:
-            parsed = pd.to_datetime(date_val, format="%d-%m-%Y", errors='raise')
-            return parsed.strftime("%d-%m-%Y")
-        except:
-            try:
-                parsed = pd.to_datetime(date_val, dayfirst=True, errors='raise')
-                return parsed.strftime("%d-%m-%Y")
-            except:
-                return str(date_val)
-    else:
-        try:
-            parsed = pd.to_datetime(date_val, errors='coerce')
-            if pd.notna(parsed):
-                return parsed.strftime("%d-%m-%Y")
-            else:
-                return str(date_val)
-        except:
-            return str(date_val)
-
 def get_valid_dates_in_range(start_date, end_date, holidays_set):
     """
     Get all valid examination dates within the specified range.
@@ -470,291 +354,13 @@ def get_preferred_slot(semester, program_type="B TECH"):
             even_sem_position = semester // 2
             return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
 
-def create_independent_program_units(program_subjects, program_name):
-    """
-    Create atomic units for independent programs (DIPLOMA, MBA TECH Year 5+, MCA)
-    These programs don't share subjects across programs, only within their own program
-    ENHANCED: Completely isolated from other programs
-    
-    Args:
-        program_subjects: DataFrame with subjects from one independent program
-        program_name: Name of the program (DIPLOMA, MBA TECH Year 5+, MCA)
-    
-    Returns:
-        dict: Dictionary of atomic units for this program
-    """
-    atomic_units = {}
-    
-    for module_code, group in program_subjects.groupby('ModuleCode'):
-        # For independent programs, only check commonality WITHIN the program
-        branch_sem_combinations = []
-        unique_branches = set()
-        unique_semesters = set()
-        
-        for _, row in group.iterrows():
-            branch_sem = f"{row['Branch']}_{row['Semester']}"
-            branch_sem_combinations.append(branch_sem)
-            unique_branches.add(row['Branch'])
-            unique_semesters.add(row['Semester'])
-        
-        frequency = len(set(branch_sem_combinations))
-        
-        # Check commonality ONLY within this independent program (no cross-program checking)
-        is_common_across = group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False
-        is_common_within = group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
-        
-        # Enhanced commonality logic for independent programs
-        # Check if subject appears in multiple branch-semester combinations within this program
-        if frequency > 1:
-            is_common_within = True
-        
-        # Check if subject spans multiple semesters within this program
-        if len(unique_semesters) > 1:
-            is_common_across = True
-        
-        # Final commonality determination - strictly within program
-        is_common = is_common_across or is_common_within
-        
-        # Create unique key for independent program to avoid conflicts
-        unit_key = f"{program_name}_{module_code}"
-        
-        atomic_unit = {
-            'module_code': module_code,
-            'subject_name': group['Subject'].iloc[0],
-            'frequency': frequency,
-            'is_common': is_common,
-            'is_common_across': is_common_across,
-            'is_common_within': is_common_within,
-            'branch_sem_combinations': list(set(branch_sem_combinations)),
-            'all_rows': list(group.index),
-            'group_data': group,
-            'scheduled': False,
-            'scheduled_date': None,
-            'scheduled_slot': None,
-            'category': group['Category'].iloc[0] if 'Category' in group.columns else 'UNKNOWN',
-            'cross_semester_span': len(unique_semesters) > 1,
-            'cross_branch_span': len(unique_branches) > 1,
-            'cross_program_span': False,  # Independent programs NEVER span across programs
-            'unique_semesters': list(unique_semesters),
-            'unique_branches': list(unique_branches),
-            'unique_programs': [program_name],
-            'primary_program': program_name,
-            'is_independent_program': True,
-            'independence_level': 'COMPLETE'  # New field to indicate complete independence
-        }
-        
-        # Calculate priority for independent programs with enhanced scoring
-        priority_score = frequency * 6  # Lower base multiplier since no cross-program conflicts
-        
-        # Program-specific priority adjustments
-        if program_name == "DIPLOMA":
-            # DIPLOMA subjects get moderate priority
-            if is_common_across:
-                priority_score += 25
-            elif is_common_within:
-                priority_score += 15
-            elif frequency > 1:
-                priority_score += 10
-            priority_score += 5  # Base bonus for DIPLOMA
-            
-        elif program_name == "MBA TECH Year 5+":
-            # MBA TECH Year 5+ gets higher priority due to seniority
-            if is_common_across:
-                priority_score += 30
-            elif is_common_within:
-                priority_score += 20
-            elif frequency > 1:
-                priority_score += 12
-            priority_score += 8  # Higher bonus for MBA TECH Year 5+
-            
-        elif program_name == "MCA":
-            # MCA subjects get standard priority
-            if is_common_across:
-                priority_score += 28
-            elif is_common_within:
-                priority_score += 18
-            elif frequency > 1:
-                priority_score += 11
-            priority_score += 6  # Standard bonus for MCA
-        
-        # Additional priority factors
-        if atomic_unit['cross_semester_span']:
-            priority_score += 8
-        if atomic_unit['cross_branch_span']:
-            priority_score += 6
-        
-        atomic_unit['priority_score'] = priority_score
-        atomic_units[unit_key] = atomic_unit
-    
-    return atomic_units
-
-
-def create_regular_program_units(regular_subjects):
-    """
-    Create atomic units for regular programs (B TECH, B TECH INTG, M TECH, MBA TECH Years 1-4)
-    These programs can share subjects across programs
-    ENHANCED: Only checks cross-program commonality among regular programs
-    
-    Args:
-        regular_subjects: DataFrame with subjects from regular programs
-    
-    Returns:
-        dict: Dictionary of atomic units for regular programs
-    """
-    atomic_units = {}
-    
-    for module_code, group in regular_subjects.groupby('ModuleCode'):
-        # For regular programs, check commonality across regular programs only
-        branch_sem_combinations = []
-        unique_branches = set()
-        unique_semesters = set()
-        unique_programs = set()
-        
-        for _, row in group.iterrows():
-            branch_sem = f"{row['Branch']}_{row['Semester']}"
-            branch_sem_combinations.append(branch_sem)
-            unique_branches.add(row['Branch'])
-            unique_semesters.add(row['Semester'])
-            
-            # Use effective program name
-            effective_program = get_effective_program_name(row)
-            unique_programs.add(effective_program)
-        
-        frequency = len(set(branch_sem_combinations))
-        
-        # Check commonality across regular programs (excluding independent programs)
-        is_common_across = group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False
-        is_common_within = group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
-        is_common = is_common_across or is_common_within or frequency > 1
-        
-        primary_program = get_effective_program_name(group.iloc[0])
-        
-        atomic_unit = {
-            'module_code': module_code,
-            'subject_name': group['Subject'].iloc[0],
-            'frequency': frequency,
-            'is_common': is_common,
-            'is_common_across': is_common_across,
-            'is_common_within': is_common_within,
-            'branch_sem_combinations': list(set(branch_sem_combinations)),
-            'all_rows': list(group.index),
-            'group_data': group,
-            'scheduled': False,
-            'scheduled_date': None,
-            'scheduled_slot': None,
-            'category': group['Category'].iloc[0] if 'Category' in group.columns else 'UNKNOWN',
-            'cross_semester_span': len(unique_semesters) > 1,
-            'cross_branch_span': len(unique_branches) > 1,
-            'cross_program_span': len(unique_programs) > 1,
-            'unique_semesters': list(unique_semesters),
-            'unique_branches': list(unique_branches),
-            'unique_programs': list(unique_programs),
-            'primary_program': primary_program,
-            'is_independent_program': False,
-            'independence_level': 'NONE'
-        }
-        
-        # Calculate priority for regular programs (higher due to cross-program conflicts)
-        priority_score = frequency * 10
-        
-        if is_common_across:
-            priority_score += 50  # Higher priority for cross-program common subjects
-        elif is_common_within:
-            priority_score += 25
-        elif frequency > 1:
-            priority_score += 15
-        
-        if atomic_unit['cross_semester_span']:
-            priority_score += 15
-        if atomic_unit['cross_branch_span']:
-            priority_score += 10
-        if atomic_unit['cross_program_span']:
-            priority_score += 20
-        
-        atomic_unit['priority_score'] = priority_score
-        atomic_units[module_code] = atomic_unit
-    
-    return atomic_units
-
-
-def has_program_conflicts(atomic_unit, daily_scheduled_branch_sem, date_str):
-    """
-    Enhanced conflict checking with strict program independence
-    
-    Args:
-        atomic_unit: The atomic unit being checked
-        daily_scheduled_branch_sem: Dict tracking scheduled subjects by date
-        date_str: Date string being checked
-    
-    Returns:
-        bool: True if there are conflicts, False otherwise
-    """
-    if date_str not in daily_scheduled_branch_sem:
-        return False
-    
-    for branch_sem in atomic_unit['branch_sem_combinations']:
-        if branch_sem in daily_scheduled_branch_sem[date_str]:
-            existing_info = daily_scheduled_branch_sem[date_str][branch_sem]
-            
-            if atomic_unit['is_independent_program']:
-                # Independent programs have enhanced conflict checking
-                independence_level = atomic_unit.get('independence_level', 'STANDARD')
-                
-                if independence_level == 'COMPLETE':
-                    # Complete independence: only conflict with exact same program
-                    if existing_info['program'] == atomic_unit['primary_program']:
-                        return True  # Conflict within same independent program
-                    # No conflict with any other program (including other independent programs)
-                    continue
-                else:
-                    # Standard independence: conflict with same program only
-                    if existing_info['program'] == atomic_unit['primary_program']:
-                        return True
-                    continue
-            else:
-                # Regular programs conflict with any subject in same branch-semester
-                # EXCEPT they don't conflict with independent programs
-                if existing_info.get('is_independent', False):
-                    # Regular program doesn't conflict with independent program
-                    continue
-                else:
-                    # Regular program conflicts with other regular programs
-                    return True
-    
-    return False
-
-
-def update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit):
-    """
-    Enhanced daily tracking with program independence information
-    
-    Args:
-        daily_scheduled_branch_sem: Dict to update
-        date_str: Date string
-        atomic_unit: Atomic unit being scheduled
-    """
-    if date_str not in daily_scheduled_branch_sem:
-        daily_scheduled_branch_sem[date_str] = {}
-    
-    for branch_sem in atomic_unit['branch_sem_combinations']:
-        daily_scheduled_branch_sem[date_str][branch_sem] = {
-            'program': atomic_unit['primary_program'],
-            'is_independent': atomic_unit['is_independent_program'],
-            'independence_level': atomic_unit.get('independence_level', 'STANDARD'),
-            'subject': atomic_unit['subject_name'],
-            'module_code': atomic_unit['module_code'],
-            'is_common': atomic_unit['is_common'],
-            'frequency': atomic_unit['frequency']
-        }
-
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     """
-    ENHANCED PROGRAM-AWARE ATOMIC SCHEDULING FUNCTION with strict program independence
-    1. Strictly separates independent programs (DIPLOMA, MBA TECH Year 5+, MCA) from regular programs
-    2. Creates program-specific atomic units with no cross-program checking for independent programs
-    3. Schedules with program-specific conflict checking
+    FIXED ZERO-UNSCHEDULED SUPER SCHEDULING FUNCTION: 
+    1. Groups common subjects as atomic units (all instances together)
+    2. Schedules common subjects completely before moving to next day
+    3. Ensures NO common subject is ever split across different dates
     4. Maintains daily branch coverage and zero-unscheduled guarantee
-    5. Enhanced support for all program types with complete independence handling
     
     Args:
         df: DataFrame with ALL subjects (will filter internally)
@@ -765,10 +371,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     Returns:
         DataFrame with ALL subjects scheduled (ZERO unscheduled guarantee)
     """
-    st.info("🚀 ENHANCED PROGRAM-AWARE SCHEDULING: Complete independence for DIPLOMA, MBA TECH Year 5+, MCA")
+    st.info("🚀 FIXED ZERO-UNSCHEDULED SUPER SCHEDULING: Atomic common subject grouping → Priority scheduling → Daily completion")
     
-    # STEP 1: ENHANCED PROGRAM SEPARATION AND ANALYSIS
-    st.write("📊 **Step 1:** Enhanced program separation with strict independence...")
+    # STEP 1: COMPREHENSIVE SUBJECT ANALYSIS
+    st.write("🔍 **Step 1:** Comprehensive analysis of ALL subjects...")
     
     total_subjects_count = len(df)
     
@@ -782,60 +388,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         st.info("No eligible subjects to schedule")
         return df
     
-    # Separate subjects into independent and regular categories
-    independent_subjects_list = []
-    regular_subjects_list = []
-    
-    for _, row in eligible_subjects.iterrows():
-        effective_program = get_effective_program_name(row)
-        semester = row.get('Semester', 0)
-        
-        if is_program_independent(effective_program, semester):
-            independent_subjects_list.append(row)
-        else:
-            regular_subjects_list.append(row)
-    
-    # Convert back to DataFrames
-    if independent_subjects_list:
-        independent_subjects = pd.DataFrame(independent_subjects_list).reset_index(drop=True)
-    else:
-        independent_subjects = pd.DataFrame()
-        
-    if regular_subjects_list:
-        regular_subjects = pd.DataFrame(regular_subjects_list).reset_index(drop=True)
-    else:
-        regular_subjects = pd.DataFrame()
-    
-    st.write(f"📄 **Enhanced Program breakdown:**")
-    st.write(f"   • Independent programs: {len(independent_subjects)} subjects")
-    
-    # Show breakdown of independent programs
-    if not independent_subjects.empty:
-        independent_program_counts = {}
-        for _, row in independent_subjects.iterrows():
-            effective_program = get_effective_program_name(row)
-            independent_program_counts[effective_program] = independent_program_counts.get(effective_program, 0) + 1
-        
-        for program, count in independent_program_counts.items():
-            st.write(f"     - {program}: {count} subjects")
-    
-    st.write(f"   • Regular programs: {len(regular_subjects)} subjects")
-    if not regular_subjects.empty:
-        regular_program_counts = {}
-        for _, row in regular_subjects.iterrows():
-            effective_program = get_effective_program_name(row)
-            if not is_program_independent(effective_program, row.get('Semester', 0)):
-                regular_program_counts[effective_program] = regular_program_counts.get(effective_program, 0) + 1
-        
-        for program, count in regular_program_counts.items():
-            st.write(f"     - {program}: {count} subjects")
-
     # Helper functions
     def find_next_valid_day(start_date, holidays_set):
         return find_next_valid_day_in_range(start_date, end_date, holidays_set)
     
-    # STEP 2: CREATE ENHANCED PROGRAM-AWARE ATOMIC UNITS
-    st.write("🔗 **Step 2:** Creating enhanced program-aware atomic units with strict independence...")
+    # STEP 2: CREATE ATOMIC SUBJECT UNITS (CRITICAL FIX)
+    st.write("🔗 **Step 2:** Creating atomic subject units (common subjects as single units)...")
     
     # Identify ALL unique branch-semester combinations
     all_branch_sem_combinations = set()
@@ -847,76 +405,89 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         branch_sem_details[branch_sem] = {
             'branch': row['Branch'],
             'semester': row['Semester'],
-            'subbranch': row['SubBranch'],
-            'program': get_effective_program_name(row)
+            'subbranch': row['SubBranch']
         }
     
     st.write(f"🎯 **Coverage target:** {len(all_branch_sem_combinations)} branch-semester combinations")
     
+    # Create ATOMIC SUBJECT UNITS - each unit must be scheduled as a whole
     atomic_subject_units = {}
     
-    # Process independent programs separately with NO cross-program checking
-    independent_program_groups = {}
-    
-    if not independent_subjects.empty:
-        # Group independent subjects by effective program
-        for _, row in independent_subjects.iterrows():
-            effective_program = get_effective_program_name(row)
-            
-            if effective_program not in independent_program_groups:
-                independent_program_groups[effective_program] = []
-            independent_program_groups[effective_program].append(row)
+    for module_code, group in eligible_subjects.groupby('ModuleCode'):
+        # Calculate metrics
+        branch_sem_combinations = []
+        unique_branches = set()
+        unique_semesters = set()
         
-        # Process each independent program group
-        for effective_program, subjects_list in independent_program_groups.items():
-            program_subjects = pd.DataFrame(subjects_list).reset_index(drop=True)
-            st.write(f"   📚 Processing {effective_program}: {len(program_subjects)} subjects (INDEPENDENT)")
-            atomic_units = create_independent_program_units(program_subjects, effective_program)
-            atomic_subject_units.update(atomic_units)
-    
-    # Process regular programs with cross-program commonality checking (EXCLUDING independent programs)
-    if not regular_subjects.empty:
-        st.write(f"   🔗 Processing regular programs: {len(regular_subjects)} subjects (CROSS-PROGRAM COMMON)")
-        regular_units = create_regular_program_units(regular_subjects)
-        atomic_subject_units.update(regular_units)
+        for _, row in group.iterrows():
+            branch_sem = f"{row['Branch']}_{row['Semester']}"
+            branch_sem_combinations.append(branch_sem)
+            unique_branches.add(row['Branch'])
+            unique_semesters.add(row['Semester'])
+        
+        frequency = len(set(branch_sem_combinations))
+        
+        # Determine if this is a common subject
+        is_common_across = group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False
+        is_common_within = group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
+        is_common = is_common_across or is_common_within or frequency > 1
+        
+        # Create atomic unit
+        atomic_unit = {
+            'module_code': module_code,
+            'subject_name': group['Subject'].iloc[0],
+            'frequency': frequency,
+            'is_common': is_common,
+            'is_common_across': is_common_across,
+            'is_common_within': is_common_within,
+            'branch_sem_combinations': list(set(branch_sem_combinations)),
+            'all_rows': list(group.index),  # All dataframe indices for this subject
+            'group_data': group,
+            'scheduled': False,
+            'scheduled_date': None,
+            'scheduled_slot': None,
+            'category': group['Category'].iloc[0] if 'Category' in group.columns else 'UNKNOWN',
+            'cross_semester_span': len(unique_semesters) > 1,
+            'cross_branch_span': len(unique_branches) > 1,
+            'unique_semesters': list(unique_semesters),
+            'unique_branches': list(unique_branches)
+        }
+        
+        # Calculate priority score
+        priority_score = frequency * 10  # Base frequency weight
+        
+        if is_common_across:
+            priority_score += 50  # Highest priority
+        elif is_common_within:
+            priority_score += 25  # High priority
+        elif frequency > 1:
+            priority_score += 15  # Medium priority for multi-branch
+        
+        if atomic_unit['cross_semester_span']:
+            priority_score += 15
+        if atomic_unit['cross_branch_span']:
+            priority_score += 10
+        
+        atomic_unit['priority_score'] = priority_score
+        atomic_subject_units[module_code] = atomic_unit
     
     # Sort atomic units by priority
     sorted_atomic_units = sorted(atomic_subject_units.values(), key=lambda x: x['priority_score'], reverse=True)
     
-    # Categorize units with enhanced program awareness
-    very_high_priority = [unit for unit in sorted_atomic_units 
-                         if (unit['is_common_across'] or unit['frequency'] >= 8 or 
-                             (unit['cross_program_span'] and not unit['is_independent_program']))]
+    # Categorize units
+    very_high_priority = [unit for unit in sorted_atomic_units if unit['is_common_across'] or unit['frequency'] >= 8]
+    high_priority = [unit for unit in sorted_atomic_units if unit['is_common_within'] and unit not in very_high_priority]
+    medium_priority = [unit for unit in sorted_atomic_units if unit['frequency'] >= 2 and unit not in very_high_priority and unit not in high_priority]
+    low_priority = [unit for unit in sorted_atomic_units if unit not in very_high_priority and unit not in high_priority and unit not in medium_priority]
     
-    high_priority = [unit for unit in sorted_atomic_units 
-                    if unit['is_common_within'] and unit not in very_high_priority]
-    
-    independent_priority = [unit for unit in sorted_atomic_units 
-                          if unit['is_independent_program'] and 
-                             (unit['is_common_across'] or unit['frequency'] >= 3) and
-                             unit not in very_high_priority and unit not in high_priority]
-    
-    medium_priority = [unit for unit in sorted_atomic_units 
-                      if unit['frequency'] >= 2 and 
-                         unit not in very_high_priority and 
-                         unit not in high_priority and 
-                         unit not in independent_priority]
-    
-    low_priority = [unit for unit in sorted_atomic_units 
-                   if unit not in very_high_priority and 
-                      unit not in high_priority and 
-                      unit not in independent_priority and 
-                      unit not in medium_priority]
-    
-    st.write(f"🎯 **Enhanced program-aware unit classification:**")
-    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units (cross-program common)")
-    st.write(f"   📊 High Priority: {len(high_priority)} units (within-program common)")
-    st.write(f"   🏫 Independent Priority: {len(independent_priority)} units (DIPLOMA/MBA TECH Year 5+/MCA common)")
+    st.write(f"🎯 **Atomic unit classification:**")
+    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units (common across sems + freq≥8)")
+    st.write(f"   📊 High Priority: {len(high_priority)} units (common within sem)")
     st.write(f"   📋 Medium Priority: {len(medium_priority)} units (multi-branch)")
     st.write(f"   📄 Low Priority: {len(low_priority)} units (individual)")
     
-    # STEP 3: ENHANCED PROGRAM-AWARE ATOMIC SCHEDULING ENGINE
-    st.write("🚀 **Step 3:** Enhanced program-aware atomic scheduling engine...")
+    # STEP 3: ATOMIC SCHEDULING ENGINE
+    st.write("🚀 **Step 3:** Atomic scheduling engine (no subject splitting allowed)...")
     
     daily_scheduled_branch_sem = {}
     scheduled_count = 0
@@ -924,12 +495,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     scheduling_day = 0
     target_days = 15
     
-    # Create master queue with enhanced program-aware priority order
-    master_queue = (very_high_priority + 
-                   high_priority + 
-                   independent_priority + 
-                   medium_priority + 
-                   low_priority)
+    # Create master queue maintaining priority order
+    master_queue = very_high_priority + high_priority + medium_priority + low_priority
     unscheduled_units = master_queue.copy()
     
     while scheduling_day < target_days and unscheduled_units:
@@ -944,24 +511,36 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         
         st.write(f"📅 **Day {scheduling_day} ({date_str})**")
         
+        # Initialize tracking for this date
+        if date_str not in daily_scheduled_branch_sem:
+            daily_scheduled_branch_sem[date_str] = set()
+        
         day_scheduled_units = []
         
         # PHASE A: Schedule atomic units that can fit completely on this day
         units_to_remove = []
         
         for atomic_unit in unscheduled_units:
-            # Use enhanced program-aware conflict checking
-            if not has_program_conflicts(atomic_unit, daily_scheduled_branch_sem, date_str):
-                # Determine time slot based on program type and semester preference
+            # Check if this unit can be scheduled on this day (no conflicts)
+            conflicts = False
+            available_branch_sems = []
+            
+            for branch_sem in atomic_unit['branch_sem_combinations']:
+                if branch_sem in daily_scheduled_branch_sem[date_str]:
+                    conflicts = True
+                    break
+                else:
+                    available_branch_sems.append(branch_sem)
+            
+            # If no conflicts, schedule the ENTIRE atomic unit
+            if not conflicts and available_branch_sems:
+                # Determine time slot based on semester preference
                 semester_counts = {}
                 for sem in atomic_unit['unique_semesters']:
                     semester_counts[sem] = semester_counts.get(sem, 0) + 1
                 
                 preferred_semester = max(semester_counts.keys()) if semester_counts else atomic_unit['unique_semesters'][0]
-                primary_program = atomic_unit['primary_program']
-                
-                # Use enhanced time slot calculation
-                time_slot = get_preferred_slot(preferred_semester, primary_program)
+                time_slot = get_preferred_slot(preferred_semester)
                 
                 # Schedule ALL instances of this subject
                 unit_scheduled_count = 0
@@ -970,8 +549,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     df.loc[row_idx, 'Time Slot'] = time_slot
                     unit_scheduled_count += 1
                 
-                # Update tracking with enhanced program information
-                update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit)
+                # Update tracking
+                for branch_sem in atomic_unit['branch_sem_combinations']:
+                    daily_scheduled_branch_sem[date_str].add(branch_sem)
                 
                 atomic_unit['scheduled'] = True
                 atomic_unit['scheduled_date'] = date_str
@@ -981,17 +561,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                 day_scheduled_units.append(atomic_unit)
                 units_to_remove.append(atomic_unit)
                 
-                # Enhanced logging with independence information
                 unit_type = "COMMON" if atomic_unit['is_common'] else "INDIVIDUAL"
-                independence_info = f"[{atomic_unit.get('independence_level', 'NONE')}]"
-                program_type = "INDEPENDENT" if atomic_unit['is_independent_program'] else "REGULAR"
-                program_info = f"[{atomic_unit['primary_program']}]"
-                
-                st.write(f"  ✅ **{program_type} {unit_type}{independence_info}{program_info}:** {atomic_unit['subject_name']} → "
+                st.write(f"  ✅ **{unit_type} ATOMIC:** {atomic_unit['subject_name']} → "
                         f"{len(atomic_unit['branch_sem_combinations'])} branches "
                         f"(priority: {atomic_unit['priority_score']}) at {time_slot}")
                 
-                # Verify no splitting occurred for common subjects
+                # CRITICAL: If this is a common subject, verify no splitting occurred
                 if atomic_unit['is_common']:
                     dates_used = set()
                     for row_idx in atomic_unit['all_rows']:
@@ -1002,15 +577,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     if len(dates_used) > 1:
                         st.error(f"❌ CRITICAL ERROR: {atomic_unit['subject_name']} scheduled across {len(dates_used)} dates!")
                     else:
-                        st.write(f"    ✅ Subject integrity verified for {atomic_unit['subject_name']}")
+                        st.write(f"    ✅ Common subject integrity verified for {atomic_unit['subject_name']}")
         
         # Remove scheduled units from unscheduled list
         for unit in units_to_remove:
             unscheduled_units.remove(unit)
         
         # PHASE B: Fill any remaining branch-semester combinations with individual subjects
-        remaining_branch_sems = list(all_branch_sem_combinations - 
-                                   set(daily_scheduled_branch_sem.get(date_str, {}).keys()))
+        remaining_branch_sems = list(all_branch_sem_combinations - daily_scheduled_branch_sem[date_str])
         
         if remaining_branch_sems:
             st.write(f"  🎯 **FILLING GAPS:** {len(remaining_branch_sems)} remaining slots...")
@@ -1022,10 +596,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     unit_branch_sem = atomic_unit['branch_sem_combinations'][0]  # Individual has only one
                     
                     if unit_branch_sem in remaining_branch_sems:
-                        # Determine time slot based on program type
+                        # Determine time slot
                         preferred_semester = atomic_unit['unique_semesters'][0]
-                        primary_program = atomic_unit['primary_program']
-                        time_slot = get_preferred_slot(preferred_semester, primary_program)
+                        time_slot = get_preferred_slot(preferred_semester)
                         
                         # Schedule this individual subject
                         for row_idx in atomic_unit['all_rows']:
@@ -1033,7 +606,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                             df.loc[row_idx, 'Time Slot'] = time_slot
                         
                         # Update tracking
-                        update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit)
+                        daily_scheduled_branch_sem[date_str].add(unit_branch_sem)
                         remaining_branch_sems.remove(unit_branch_sem)
                         
                         atomic_unit['scheduled'] = True
@@ -1043,17 +616,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                         
                         additional_fills.append(atomic_unit)
                         
-                        independence_info = f"[{atomic_unit.get('independence_level', 'NONE')}]"
-                        program_type = "INDEPENDENT" if atomic_unit['is_independent_program'] else "REGULAR"
-                        program_info = f"[{atomic_unit['primary_program']}]"
-                        st.write(f"    📄 **GAP FILL {program_type}{independence_info}{program_info}:** {atomic_unit['subject_name']} at {time_slot}")
+                        st.write(f"    📄 **GAP FILL:** {atomic_unit['subject_name']} at {time_slot}")
             
             # Remove gap-filled units
             for unit in additional_fills:
                 unscheduled_units.remove(unit)
         
         # Daily verification
-        final_coverage = len(daily_scheduled_branch_sem.get(date_str, {}))
+        final_coverage = len(daily_scheduled_branch_sem[date_str])
         coverage_percent = (final_coverage / len(all_branch_sem_combinations)) * 100
         
         st.write(f"  📊 **Daily Summary:** {len(day_scheduled_units) + len(additional_fills)} units scheduled, "
@@ -1087,21 +657,30 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             
             st.write(f"  📅 **Extended Day {extended_day} ({date_str})**")
             
+            if date_str not in daily_scheduled_branch_sem:
+                daily_scheduled_branch_sem[date_str] = set()
+            
             # Schedule remaining units
             units_scheduled_today = []
             for atomic_unit in unscheduled_units.copy():
-                # Use enhanced program-aware conflict checking
-                if not has_program_conflicts(atomic_unit, daily_scheduled_branch_sem, date_str):
-                    # Schedule the unit with enhanced program-aware time slot
+                # Check if unit can be scheduled (no conflicts)
+                conflicts = False
+                for branch_sem in atomic_unit['branch_sem_combinations']:
+                    if branch_sem in daily_scheduled_branch_sem[date_str]:
+                        conflicts = True
+                        break
+                
+                if not conflicts:
+                    # Schedule the unit
                     preferred_semester = atomic_unit['unique_semesters'][0]
-                    primary_program = atomic_unit['primary_program']
-                    time_slot = get_preferred_slot(preferred_semester, primary_program)
+                    time_slot = get_preferred_slot(preferred_semester)
                     
                     for row_idx in atomic_unit['all_rows']:
                         df.loc[row_idx, 'Exam Date'] = date_str
                         df.loc[row_idx, 'Time Slot'] = time_slot
                     
-                    update_daily_tracking(daily_scheduled_branch_sem, date_str, atomic_unit)
+                    for branch_sem in atomic_unit['branch_sem_combinations']:
+                        daily_scheduled_branch_sem[date_str].add(branch_sem)
                     
                     atomic_unit['scheduled'] = True
                     scheduled_count += len(atomic_unit['all_rows'])
@@ -1114,8 +693,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             st.write(f"    📄 Extended day scheduled: {len(units_scheduled_today)} units")
             current_date = exam_date + timedelta(days=1)
     
-    # STEP 5: FINAL VERIFICATION AND STATISTICS WITH PROGRAM INDEPENDENCE
-    st.write("📊 **Step 5:** Final verification and enhanced statistics...")
+    # STEP 5: FINAL VERIFICATION AND STATISTICS
+    st.write("📊 **Step 5:** Final verification and statistics...")
     
     successfully_scheduled = df[
         (df['Exam Date'] != "") & 
@@ -1124,7 +703,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ]
     
-    # Verify NO common subjects are split (enhanced for program independence)
+    # CRITICAL: Verify NO common subjects are split
     split_subjects = 0
     properly_grouped_common = 0
     
@@ -1146,51 +725,19 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     total_days_used = len(daily_scheduled_branch_sem)
     success_rate = (len(successfully_scheduled) / len(eligible_subjects)) * 100
     
-    st.success(f"🏆 **ENHANCED PROGRAM-AWARE ATOMIC SCHEDULING COMPLETE:**")
+    st.success(f"🏆 **FIXED ATOMIC SCHEDULING COMPLETE:**")
     st.write(f"   📚 **Total subjects scheduled:** {len(successfully_scheduled)}/{len(eligible_subjects)} ({success_rate:.1f}%)")
     st.write(f"   📅 **Days used:** {total_days_used}")
     st.write(f"   ✅ **Properly grouped common subjects:** {properly_grouped_common}")
     st.write(f"   ❌ **Split common subjects:** {split_subjects}")
     
-    # Enhanced program-wise statistics with independence tracking
-    st.write(f"   📊 **Enhanced Program-wise scheduling:**")
-    
-    # Independent programs stats
-    independent_program_names = set()
-    for _, row in successfully_scheduled.iterrows():
-        effective_program = get_effective_program_name(row)
-        if is_program_independent(effective_program, row.get('Semester', 0)):
-            independent_program_names.add(effective_program)
-    
-    for program in sorted(independent_program_names):
-        program_scheduled = successfully_scheduled[
-            successfully_scheduled.apply(lambda row: get_effective_program_name(row) == program, axis=1)
-        ]
-        if len(program_scheduled) > 0:
-            st.write(f"      • {program}: {len(program_scheduled)} subjects (INDEPENDENT)")
-    
-    # Regular programs stats
-    regular_program_names = set()
-    for _, row in successfully_scheduled.iterrows():
-        effective_program = get_effective_program_name(row)
-        if not is_program_independent(effective_program, row.get('Semester', 0)):
-            regular_program_names.add(effective_program)
-    
-    for program in sorted(regular_program_names):
-        program_scheduled = successfully_scheduled[
-            successfully_scheduled.apply(lambda row: get_effective_program_name(row) == program, axis=1)
-        ]
-        if len(program_scheduled) > 0:
-            st.write(f"      • {program}: {len(program_scheduled)} subjects (REGULAR)")
-    
     if split_subjects == 0:
-        st.success("🎉 **PERFECT: NO COMMON SUBJECTS SPLIT WITH PROGRAM INDEPENDENCE!**")
+        st.success("🎉 **PERFECT: NO COMMON SUBJECTS SPLIT!**")
         st.balloons()
     else:
         st.error(f"❌ **CRITICAL: {split_subjects} common subjects were split across dates!**")
     
     return df
-
     
 def read_timetable(uploaded_file):
     try:
@@ -1362,257 +909,6 @@ def read_timetable(uploaded_file):
         st.error(f"Error details: {type(e).__name__}")
         return None, None, None
 
-def create_filter_selectors():
-    """
-    Create Program, Stream, and Year selectors based on the uploaded data
-    Returns: dict with selected filters
-    """
-    if 'original_data_df' not in st.session_state or st.session_state.original_data_df is None:
-        return None
-    
-    df = st.session_state.original_data_df
-    
-    st.markdown("### 🎯 Filter Selection")
-    st.info("Select which Programs, Streams, and Years to include in the timetable generation. All are selected by default.")
-    
-    # Extract unique values with error handling
-    try:
-        available_programs = sorted([prog for prog in df['Program'].unique() if str(prog) != 'nan' and pd.notna(prog)])
-    except KeyError:
-        st.error("❌ 'Program' column not found in the uploaded file!")
-        return None
-    
-    # Handle Stream column with fallback
-    available_streams = []
-    if 'Stream' in df.columns:
-        available_streams = sorted([stream for stream in df['Stream'].unique() if str(stream) != 'nan' and pd.notna(stream) and str(stream) != ''])
-    else:
-        st.warning("⚠️ 'Stream' column not found. Using programs only for filtering.")
-        # Create dummy streams based on programs
-        available_streams = ["All Streams"]
-    
-    # Handle Semester column
-    try:
-        available_semesters = sorted([sem for sem in df['Semester'].unique() if pd.notna(sem) and sem > 0])
-    except KeyError:
-        st.error("❌ 'Semester' column not found in the uploaded file!")
-        return None
-    
-    # Convert semesters to years (approximate)
-    semester_to_year = {}
-    year_to_semesters = {}
-    
-    for sem in available_semesters:
-        if sem > 0:
-            # Calculate year based on semester (2 semesters per year)
-            year = ((sem - 1) // 2) + 1
-            semester_to_year[sem] = year
-            if year not in year_to_semesters:
-                year_to_semesters[year] = []
-            year_to_semesters[year].append(sem)
-    
-    available_years = sorted(year_to_semesters.keys())
-    
-    # Create three columns for filters
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("#### 📚 Programs")
-        selected_programs = []
-        select_all_programs = st.checkbox("Select All Programs", value=True, key="all_programs")
-        
-        if select_all_programs:
-            selected_programs = available_programs
-            # Show all programs as selected (disabled checkboxes)
-            for program in available_programs:
-                st.checkbox(program, value=True, disabled=True, key=f"prog_{program}")
-        else:
-            for program in available_programs:
-                if st.checkbox(program, value=False, key=f"prog_{program}"):
-                    selected_programs.append(program)
-    
-    with col2:
-        st.markdown("#### 🌊 Streams")
-        selected_streams = []
-        
-        if available_streams and available_streams != ["All Streams"]:
-            select_all_streams = st.checkbox("Select All Streams", value=True, key="all_streams")
-            
-            if select_all_streams:
-                selected_streams = available_streams
-                # Show all streams as selected (disabled checkboxes)
-                for stream in available_streams:
-                    st.checkbox(stream, value=True, disabled=True, key=f"stream_{stream}")
-            else:
-                for stream in available_streams:
-                    if st.checkbox(stream, value=False, key=f"stream_{stream}"):
-                        selected_streams.append(stream)
-        else:
-            st.info("No specific streams found - using all available data")
-            selected_streams = ["All Streams"]
-    
-    with col3:
-        st.markdown("#### 📅 Years")
-        selected_years = []
-        select_all_years = st.checkbox("Select All Years", value=True, key="all_years")
-        
-        if select_all_years:
-            selected_years = available_years
-            # Show all years as selected (disabled checkboxes)
-            for year in available_years:
-                year_sems = year_to_semesters[year]
-                sem_text = f" (Sem {', '.join(map(str, year_sems))})"
-                st.checkbox(f"Year {year}{sem_text}", value=True, disabled=True, key=f"year_{year}")
-        else:
-            for year in available_years:
-                year_sems = year_to_semesters[year]
-                sem_text = f" (Sem {', '.join(map(str, year_sems))})"
-                if st.checkbox(f"Year {year}{sem_text}", value=False, key=f"year_{year}"):
-                    selected_years.append(year)
-    
-    # Convert selected years back to semesters
-    selected_semesters = []
-    for year in selected_years:
-        selected_semesters.extend(year_to_semesters[year])
-    
-    # Show selection summary
-    st.markdown("#### 📋 Current Selection Summary")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.info(f"**Programs:** {len(selected_programs)}/{len(available_programs)} selected")
-        if len(selected_programs) <= 5:
-            st.write(", ".join(selected_programs))
-        else:
-            st.write(f"{', '.join(selected_programs[:3])}... and {len(selected_programs)-3} more")
-    
-    with col2:
-        if available_streams != ["All Streams"]:
-            st.info(f"**Streams:** {len(selected_streams)}/{len(available_streams)} selected")
-            if len(selected_streams) <= 5:
-                st.write(", ".join(selected_streams))
-            else:
-                st.write(f"{', '.join(selected_streams[:3])}... and {len(selected_streams)-3} more")
-        else:
-            st.info("**Streams:** All available data")
-    
-    with col3:
-        st.info(f"**Years:** {len(selected_years)}/{len(available_years)} selected")
-        st.write(f"Semesters: {', '.join(map(str, sorted(selected_semesters)))}")
-    
-    # Calculate estimated subjects with error handling
-    try:
-        if selected_programs and selected_semesters:
-            # Build filter mask based on available columns
-            filter_mask = df['Program'].isin(selected_programs) & df['Semester'].isin(selected_semesters)
-            
-            # Add stream filter only if Stream column exists and is not dummy
-            if 'Stream' in df.columns and available_streams != ["All Streams"]:
-                # Include empty streams and selected streams
-                stream_filter = df['Stream'].isin(selected_streams + ['']) | df['Stream'].isna()
-                filter_mask = filter_mask & stream_filter
-            
-            estimated_subjects = len(df[filter_mask])
-            st.success(f"📊 **Estimated subjects to schedule:** {estimated_subjects}")
-        else:
-            st.warning("⚠️ No subjects match current selection criteria!")
-            estimated_subjects = 0
-    except Exception as e:
-        st.error(f"❌ Error calculating estimated subjects: {str(e)}")
-        estimated_subjects = 0
-    
-    return {
-        'programs': selected_programs,
-        'streams': selected_streams,
-        'semesters': selected_semesters,
-        'estimated_subjects': estimated_subjects,
-        'has_stream_column': 'Stream' in df.columns and available_streams != ["All Streams"]
-    }
-
-def apply_filters_to_data(df_non_elec, df_ele, filter_selection):
-    """
-    Apply the selected filters to the dataframes with enhanced error handling
-    """
-    if not filter_selection or filter_selection['estimated_subjects'] == 0:
-        st.error("❌ No valid filter selection provided!")
-        return None, None
-    
-    selected_programs = filter_selection['programs']
-    selected_streams = filter_selection['streams']
-    selected_semesters = filter_selection['semesters']
-    has_stream_column = filter_selection['has_stream_column']
-    
-    # Apply filters to non-elective dataframe
-    if df_non_elec is not None and not df_non_elec.empty:
-        try:
-            # Start with Program and Semester filters
-            filter_mask_non = (
-                df_non_elec['Program'].isin(selected_programs) &
-                df_non_elec['Semester'].isin(selected_semesters)
-            )
-            
-            # Add Stream filter only if the column exists and we have real streams
-            if has_stream_column and 'Stream' in df_non_elec.columns:
-                stream_filter = (
-                    df_non_elec['Stream'].isin(selected_streams + ['']) | 
-                    df_non_elec['Stream'].isna()
-                )
-                filter_mask_non = filter_mask_non & stream_filter
-            
-            df_non_elec_filtered = df_non_elec[filter_mask_non].copy()
-        except Exception as e:
-            st.error(f"❌ Error filtering non-elective data: {str(e)}")
-            return None, None
-    else:
-        df_non_elec_filtered = df_non_elec
-    
-    # Apply filters to elective dataframe
-    if df_ele is not None and not df_ele.empty:
-        try:
-            # Start with Program and Semester filters
-            filter_mask_ele = (
-                df_ele['Program'].isin(selected_programs) &
-                df_ele['Semester'].isin(selected_semesters)
-            )
-            
-            # Add Stream filter only if the column exists and we have real streams
-            if has_stream_column and 'Stream' in df_ele.columns:
-                stream_filter = (
-                    df_ele['Stream'].isin(selected_streams + ['']) | 
-                    df_ele['Stream'].isna()
-                )
-                filter_mask_ele = filter_mask_ele & stream_filter
-            
-            df_ele_filtered = df_ele[filter_mask_ele].copy()
-        except Exception as e:
-            st.error(f"❌ Error filtering elective data: {str(e)}")
-            df_ele_filtered = df_ele
-    else:
-        df_ele_filtered = df_ele
-    
-    # Show filtering results
-    original_non_count = len(df_non_elec) if df_non_elec is not None else 0
-    filtered_non_count = len(df_non_elec_filtered) if df_non_elec_filtered is not None else 0
-    original_ele_count = len(df_ele) if df_ele is not None else 0
-    filtered_ele_count = len(df_ele_filtered) if df_ele_filtered is not None else 0
-    
-    st.success(f"🎯 **Filtering Applied:**")
-    if original_non_count > 0:
-        st.write(f"   📚 Non-elective subjects: {filtered_non_count}/{original_non_count} ({filtered_non_count/original_non_count*100:.1f}%)")
-    if original_ele_count > 0:
-        st.write(f"   🎓 Elective subjects: {filtered_ele_count}/{original_ele_count} ({filtered_ele_count/original_ele_count*100:.1f}%)")
-    st.write(f"   📊 **Total subjects for scheduling:** {filtered_non_count + filtered_ele_count}")
-    
-    # Show breakdown by program
-    if df_non_elec_filtered is not None and not df_non_elec_filtered.empty:
-        st.write("   🔍 **Program breakdown:**")
-        for program in selected_programs:
-            prog_count = len(df_non_elec_filtered[df_non_elec_filtered['Program'] == program])
-            if prog_count > 0:
-                st.write(f"      • {program}: {prog_count} subjects")
-    
-    return df_non_elec_filtered, df_ele_filtered
-
    
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
@@ -1698,8 +994,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
     
-    # Add header with CORRECT time slot
-    header_height = 85
+    # Add header
+    header_height = 85  # Increased height to accommodate time slot
     pdf.set_y(0)
     current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
     pdf.set_font("Arial", size=14)
@@ -1723,7 +1019,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # FIXED: Add the correct time slot passed as parameter
+    # Add time slot if provided
     if time_slot:
         pdf.set_font("Arial", 'B', 14)
         pdf.set_xy(10, 59)
@@ -1778,7 +1074,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             # Add footer to new page
             add_footer_with_page_number(pdf, footer_height)
             
-            # FIXED: Add header to new page with correct time slot
+            # Add header to new page
             add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot)
             
             # Reprint header row
@@ -1806,7 +1102,7 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
 def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot=None):
-    """Add header to a new page with CORRECT time slot"""
+    """Add header to a new page"""
     pdf.set_y(0)
     pdf.set_font("Arial", size=14)
     text_width = pdf.get_string_width(current_date)
@@ -1827,7 +1123,7 @@ def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, br
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # FIXED: Add the correct time slot passed as parameter
+    # Add time slot if provided
     if time_slot:
         pdf.set_font("Arial", 'B', 14)
         pdf.set_xy(10, 59)
@@ -1895,23 +1191,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 num -= value
         return result
 
-    def get_semester_program_time_slot(semester, program_type):
-        """Get correct time slot based on semester and program type"""
-        if isinstance(semester, str):
-            # Extract numeric semester from string
-            if semester.isdigit():
-                sem_num = int(semester)
-            else:
-                # Handle roman numerals or semester strings
-                roman_to_num = {
-                    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
-                    'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12
-                }
-                sem_num = roman_to_num.get(semester, 1)
-        else:
-            sem_num = int(semester) if semester else 1
-        
-        return get_preferred_slot(sem_num, program_type)
+    def get_semester_default_time_slot(semester, branch):
+        # Get default time slot based on semester
+        if semester.isdigit():
+            sem_num = int(semester)
+            return get_preferred_slot(sem_num)
+        return "10:00 AM - 1:00 PM"  # Default fallback
 
     sheets_processed = 0
     
@@ -1924,25 +1209,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
             sheet_df = sheet_df.reset_index()
         
-        # Enhanced sheet name parsing to extract program type
+        # Parse sheet name
         parts = sheet_name.split('_Sem_')
         main_branch = parts[0]
-        
-        # Determine program type from sheet name
-        program_type = "B TECH"  # default
-        if sheet_name.startswith("DIPL_"):
-            program_type = "DIPLOMA"
-            main_branch = main_branch.replace("DIPL_", "")
-        elif sheet_name.startswith("MTECH_"):
-            program_type = "M TECH"
-            main_branch = main_branch.replace("MTECH_", "")
-        elif "M TECH" in main_branch:
-            program_type = "M TECH"
-        elif "DIPLOMA" in main_branch:
-            program_type = "DIPLOMA"
-        elif "MCA" in main_branch:
-            program_type = "MCA"
-        
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
         semester = parts[1] if len(parts) > 1 else ""
         
@@ -2007,8 +1276,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
 
-                # FIXED: Get the correct time slot for this semester and program
-                correct_time_slot = get_semester_program_time_slot(semester, program_type)
+                # Get the default time slot for this semester
+                default_time_slot = get_semester_default_time_slot(semester, main_branch)
 
                 # Convert Exam Date to desired format
                 try:
@@ -2017,6 +1286,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.warning(f"Date conversion error in {sheet_name}: {e}")
                     # Try alternative date parsing
                     chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
+
+                # NOTE: The subjects in the Excel already contain the exam times where needed
+                # due to the changes in save_to_excel function, so no additional processing needed here
 
                 # Calculate column widths
                 page_width = pdf.w - 2 * pdf.l_margin
@@ -2033,13 +1305,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 footer_height = 25
                 add_footer_with_page_number(pdf, footer_height)
                 
-                # FIXED: Pass the correct time slot
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, time_slot=correct_time_slot)
+                                 header_content=header_content, branches=chunk, time_slot=default_time_slot)
                 
                 sheets_processed += 1
 
-        # Handle electives (similar logic)
+        # Handle electives (similar logic - exam times already included in Excel)
         elif sheet_name.endswith('_Electives'):
             # Ensure we have the required columns
             required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
@@ -2066,6 +1337,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                st.warning(f"Date conversion error in electives {sheet_name}: {e}")
                elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
 
+            # NOTE: Elective subjects already contain exam times where needed from save_to_excel function
             # Clean subject display if SubjectDisplay column exists
             if 'SubjectDisplay' in elective_data.columns and 'OE' in elective_data.columns:
                # Remove OE tags that might be duplicated since they're already in the subject display
@@ -2101,11 +1373,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
            
-            # FIXED: Get correct time slot for electives based on program
-            elective_time_slot = get_semester_program_time_slot(semester, program_type)
+            # Get default time slot for electives
+            default_time_slot = get_semester_default_time_slot(semester, main_branch)
            
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                            header_content=header_content, branches=['All Streams'], time_slot=elective_time_slot)
+                            header_content=header_content, branches=['All Streams'], time_slot=default_time_slot)
            
             sheets_processed += 1
 
@@ -2115,7 +1387,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
    
     try:
        pdf.output(pdf_path)
-       st.success(f"✅ PDF generated successfully with {sheets_processed} pages and correct time slots")
+       st.success(f"✅ PDF generated successfully with {sheets_processed} pages")
     except Exception as e:
        st.error(f"❌ Error saving PDF: {e}")
        import traceback
@@ -2235,10 +1507,8 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
         st.success("🎉 PDF generation process completed successfully!")
     else:
         st.error("❌ Final PDF file does not exist!")
+
 def save_verification_excel(original_df, semester_wise_timetable):
-    """
-    Enhanced verification function that handles program independence
-    """
     if not semester_wise_timetable:
         st.error("No timetable data provided for verification")
         return None
@@ -2250,23 +1520,22 @@ def save_verification_excel(original_df, semester_wise_timetable):
     scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False)
     
     # Debug: Check ModuleCode extraction
-    st.write("📋 **Enhanced ModuleCode extraction check:**")
+    st.write("🔍 **ModuleCode extraction check:**")
     module_codes_sample = scheduled_data[['Subject', 'ExtractedModuleCode']].head(3)
     st.dataframe(module_codes_sample)
 
-    # Enhanced column mapping to include Campus/School information and program independence
+    # Handle different possible column names in original data
     column_mapping = {
-        "Module Abbreviation": ["Module Abbreviation", "ModuleCode", "Module Code", "Code", "Subject Code"],
-        "Current Session": ["Current Session", "Semester", "Current Academic Session", "Academic Session", "Session"],
+        "Module Abbreviation": ["Module Abbreviation", "ModuleCode", "Module Code", "Code"],
+        "Current Session": ["Current Session", "Semester", "Current Academic Session"],
         "Program": ["Program", "Programme"],
         "Stream": ["Stream", "Specialization", "Branch"],
-        "Module Description": ["Module Description", "SubjectName", "Subject Name", "Subject", "Subject Description"],
+        "Module Description": ["Module Description", "SubjectName", "Subject Name", "Subject"],
         "Exam Duration": ["Exam Duration", "Duration", "Exam_Duration"],
-        "Student count": ["Student count", "StudentCount", "Student_count", "Count", "Student Count", "Enrollment"],
-        "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems", "Common Across Sems", "Cross Semester"],
-        "Is Common": ["Is Common", "IsCommon", "is common", "Is_Common", "is_common", "Common"],
-        "Circuit": ["Circuit", "Is_Circuit", "CircuitBranch"],
-        "Campus Name": ["Campus Name", "Campus", "School Name", "School", "Campus_Name", "School_Name", "Institution", "Campus/School"]
+        "Student count": ["Student count", "StudentCount", "Student_count", "Count"],
+        "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems"],
+        "Is Common": ["Is Common", "IsCommon", "is common", "Is_Common", "is_common"],
+        "Circuit": ["Circuit", "Is_Circuit", "CircuitBranch"]
     }
     
     # Find actual column names
@@ -2276,14 +1545,10 @@ def save_verification_excel(original_df, semester_wise_timetable):
             if possible_name in original_df.columns:
                 actual_columns[standard_name] = possible_name
                 break
-        if standard_name not in actual_columns and standard_name != "Campus Name":
+        if standard_name not in actual_columns:
             st.warning(f"⚠️ Column '{standard_name}' not found in original data")
     
-    # Special handling for Campus Name - it's optional
-    if "Campus Name" not in actual_columns:
-        st.info("ℹ️ Campus/School name column not found - will use default values")
-    
-    st.write(f"📋 **Enhanced mapped columns:** {actual_columns}")
+    st.write(f"🔍 **Mapped columns:** {actual_columns}")
 
     # Create verification dataframe with available columns
     columns_to_include = list(actual_columns.values())
@@ -2293,43 +1558,24 @@ def save_verification_excel(original_df, semester_wise_timetable):
     reverse_mapping = {v: k for k, v in actual_columns.items()}
     verification_df = verification_df.rename(columns=reverse_mapping)
 
-    # Add campus information if not present
-    if "Campus Name" not in verification_df.columns:
-        verification_df["Campus Name"] = "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING"
-    else:
-        # Clean up campus names - fill empty values with default
-        verification_df["Campus Name"] = verification_df["Campus Name"].fillna("MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING")
-        verification_df["Campus Name"] = verification_df["Campus Name"].replace("", "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING")
-    
-    # Enhanced verification columns with program independence information
+    # Add new columns for scheduled information
     verification_df["Exam Date"] = ""
     verification_df["Time Slot"] = ""  # Semester default timing
     verification_df["Exam Time"] = ""  # Subject-specific timing
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
-    verification_df["Program Type"] = ""  # Enhanced program type
-    verification_df["Effective Program"] = ""  # New: Effective program with Year 5+ handling
-    verification_df["Independence Level"] = ""  # New: Program independence level
-    verification_df["Independence Category"] = ""  # New: Independent vs Regular
 
-    # Track enhanced statistics with program independence
+    # Track statistics
     matched_count = 0
     unmatched_count = 0
-    unique_subjects_matched = set()
-    unique_subjects_unmatched = set()
     
-    # Program independence tracking
-    independent_matched = 0
-    regular_matched = 0
-    
-    # Create comprehensive lookup for scheduled subjects with program independence
+    # Create comprehensive lookup for scheduled subjects
     scheduled_lookup = {}
     for idx, row in scheduled_data.iterrows():
         module_code = str(row['ExtractedModuleCode']).strip()
         if module_code and module_code != "nan":
             semester = row['Semester']
             branch = row['Branch']
-            effective_program = get_effective_program_name(row)
             
             # Create multiple possible keys for matching
             keys_to_try = [
@@ -2338,17 +1584,17 @@ def save_verification_excel(original_df, semester_wise_timetable):
             
             # Add branch variations for matching
             if '-' in branch:
-                program_part, stream = branch.split('-', 1)
-                keys_to_try.append(f"{module_code}_{semester}_{program_part.strip()}-{stream.strip()}")
+                program, stream = branch.split('-', 1)
+                keys_to_try.append(f"{module_code}_{semester}_{program.strip()}-{stream.strip()}")
             
             for key in keys_to_try:
                 if key not in scheduled_lookup:
                     scheduled_lookup[key] = []
                 scheduled_lookup[key].append(row)
     
-    st.write(f"📊 Created enhanced lookup with {len(scheduled_lookup)} unique keys")
+    st.write(f"📊 Created lookup with {len(scheduled_lookup)} unique keys")
     
-    # Enhanced processing for each row with program independence
+    # Process each row for matching
     for idx, row in verification_df.iterrows():
         try:
             # Get module code
@@ -2361,33 +1607,17 @@ def save_verification_excel(original_df, semester_wise_timetable):
             semester_value = row.get("Current Session", "")
             semester_num = convert_semester_to_number(semester_value)
             
-            # Enhanced program handling
+            # Create branch identifier
             program = str(row.get("Program", "")).strip()
             stream = str(row.get("Stream", "")).strip()
-            
-            # Create enhanced branch identifier
-            if not stream or stream == "nan" or stream == program:
-                branch = program
-            else:
-                branch = f"{program}-{stream}"
-            
-            # Enhanced program information with independence detection
-            effective_program = get_effective_program_name(row)
-            is_independent = is_program_independent(effective_program, semester_num)
-            
-            # Set enhanced program information in verification
-            verification_df.at[idx, "Program Type"] = program
-            verification_df.at[idx, "Effective Program"] = effective_program
-            verification_df.at[idx, "Independence Level"] = 'COMPLETE' if is_independent else 'NONE'
-            verification_df.at[idx, "Independence Category"] = 'INDEPENDENT' if is_independent else 'REGULAR'
+            branch = f"{program}-{stream}" if program and stream and program != "nan" and stream != "nan" else ""
             
             if not branch:
                 st.write(f"⚠️ Empty branch for module {module_code}")
                 unmatched_count += 1
-                unique_subjects_unmatched.add(module_code)
                 continue
             
-            # Enhanced matching with program independence consideration
+            # Try to find match using lookup
             lookup_key = f"{module_code}_{semester_num}_{branch}"
             match_found = False
             
@@ -2396,46 +1626,35 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 matched_subject = scheduled_lookup[lookup_key][0]  # Take first match
                 match_found = True
             else:
-                # Enhanced alternative matching with program independence
+                # Try alternative matching approaches
+                # 1. Try with just module code and semester (for common subjects)
                 for key, subjects in scheduled_lookup.items():
                     if key.startswith(f"{module_code}_{semester_num}_"):
+                        # Check if this is a common subject
                         matched_subject = subjects[0]
-                        
-                        # Enhanced commonality check with program independence
                         if matched_subject.get('CommonAcrossSems', False):
-                            # Check if programs are compatible for commonality
-                            matched_effective_program = get_effective_program_name(matched_subject)
-                            if should_check_cross_program_commonality(effective_program, matched_effective_program):
-                                match_found = True
-                                break
-                            elif effective_program == matched_effective_program:
-                                # Same program - always match
-                                match_found = True
-                                break
+                            match_found = True
+                            break
                 
-                # Enhanced partial branch matching with program independence
+                # 2. Try partial branch matching
                 if not match_found:
                     for key, subjects in scheduled_lookup.items():
                         if key.startswith(f"{module_code}_{semester_num}_"):
+                            # Extract branch from key
                             key_parts = key.split('_')
                             if len(key_parts) >= 3:
                                 key_branch = '_'.join(key_parts[2:])
-                                matched_subject = subjects[0]
-                                matched_effective_program = get_effective_program_name(matched_subject)
-                                
-                                # Enhanced branch similarity check with program independence
-                                if (branch in key_branch or key_branch in branch) and \
-                                   (effective_program == matched_effective_program or 
-                                    should_check_cross_program_commonality(effective_program, matched_effective_program)):
+                                # Check if branches are similar (same program or stream)
+                                if branch in key_branch or key_branch in branch:
+                                    matched_subject = subjects[0]
                                     match_found = True
                                     break
             
             if match_found:
-                # Found a match - enhanced processing
+                # Found a match
                 exam_date = matched_subject["Exam Date"]
                 assigned_time_slot = matched_subject["Time Slot"]
                 duration = row.get("Exam Duration", 3.0)
-                matched_effective_program = get_effective_program_name(matched_subject)
                 
                 # Handle duration
                 try:
@@ -2443,30 +1662,23 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 except:
                     duration = 3.0
                 
-                # Enhanced: Calculate Time Slot and Exam Time with program independence awareness
-                semester_default_slot = get_preferred_slot(semester_num, effective_program)
+                # UPDATED: Calculate Time Slot (semester default) and Exam Time (subject-specific)
+                semester_default_slot = get_preferred_slot(semester_num)
                 
-                # Time Slot = Semester default timing (enhanced program-aware)
+                # Time Slot = Semester default timing
                 verification_df.at[idx, "Time Slot"] = semester_default_slot
                 
-                # Enhanced Exam Time calculation with program independence
+                # Exam Time = Subject-specific timing
                 if assigned_time_slot and str(assigned_time_slot).strip() and str(assigned_time_slot) != "nan":
                     try:
-                        # Enhanced program-specific standard duration
-                        standard_duration = 3
-                        if effective_program == "DIPLOMA":
-                            standard_duration = 2.5
-                        elif effective_program == "MBA TECH Year 5+":
-                            standard_duration = 3  # MBA Year 5+ uses standard duration
-                        
-                        # Enhanced duration-based exam time calculation
-                        if duration != standard_duration:
+                        # Calculate subject-specific exam time based on duration
+                        if duration != 3:
                             # Non-standard duration: calculate specific time range
                             start_time = str(assigned_time_slot).split(" - ")[0].strip()
                             end_time = calculate_end_time(start_time, duration)
                             exam_time = f"{start_time} - {end_time}"
                         else:
-                            # Standard duration with enhanced logic
+                            # Standard 3-hour duration
                             if assigned_time_slot != semester_default_slot:
                                 # Common subject with different timing than semester default
                                 exam_time = str(assigned_time_slot)
@@ -2479,138 +1691,91 @@ def save_verification_excel(original_df, semester_wise_timetable):
                         verification_df.at[idx, "Exam Time"] = exam_time
                         
                     except Exception as e:
-                        st.write(f"⚠️ Error calculating enhanced time for {module_code}: {e}")
+                        st.write(f"⚠️ Error calculating time for {module_code}: {e}")
                         verification_df.at[idx, "Exam Time"] = str(assigned_time_slot)
                 else:
                     verification_df.at[idx, "Exam Time"] = "TBD"
                 
-                # Update other fields with enhanced program independence information
+                # Update other fields
                 verification_df.at[idx, "Exam Date"] = str(exam_date)
                 verification_df.at[idx, "Scheduling Status"] = "Scheduled"
                 
-                # Enhanced commonality status with program independence
+                # Determine commonality status based on both columns
                 common_across_sems = matched_subject.get('CommonAcrossSems', False)
                 is_common_within = matched_subject.get('IsCommon', 'NO') == 'YES'
                 
                 if common_across_sems:
-                    if is_independent:
-                        verification_df.at[idx, "Is Common Status"] = f"Common Across Semesters (Independent - {effective_program})"
-                    else:
-                        verification_df.at[idx, "Is Common Status"] = "Common Across Semesters (Regular)"
+                    verification_df.at[idx, "Is Common Status"] = "Common Across Semesters"
                 elif is_common_within:
-                    if is_independent:
-                        verification_df.at[idx, "Is Common Status"] = f"Common Within Semester (Independent - {effective_program})"
-                    else:
-                        verification_df.at[idx, "Is Common Status"] = "Common Within Semester (Regular)"
+                    verification_df.at[idx, "Is Common Status"] = "Common Within Semester"
                 else:
-                    verification_df.at[idx, "Is Common Status"] = f"Uncommon ({verification_df.at[idx, 'Independence Category']})"
+                    verification_df.at[idx, "Is Common Status"] = "Uncommon"
                 
                 matched_count += 1
-                unique_subjects_matched.add(module_code)
-                
-                # Enhanced program independence tracking
-                if is_independent:
-                    independent_matched += 1
-                else:
-                    regular_matched += 1
                 
             else:
-                # No match found - enhanced tracking
+                # No match found
                 verification_df.at[idx, "Exam Date"] = "Not Scheduled"
                 verification_df.at[idx, "Time Slot"] = "Not Scheduled"
                 verification_df.at[idx, "Exam Time"] = "Not Scheduled" 
                 verification_df.at[idx, "Is Common Status"] = "N/A"
                 verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
                 unmatched_count += 1
-                unique_subjects_unmatched.add(module_code)
                 
                 if unmatched_count <= 10:  # Show first 10 unmatched for debugging
-                    st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num}, {effective_program})")
+                    st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
                      
         except Exception as e:
-            st.error(f"Error processing enhanced row {idx}: {e}")
+            st.error(f"Error processing row {idx}: {e}")
             unmatched_count += 1
-            if module_code:
-                unique_subjects_unmatched.add(module_code)
 
-    # Enhanced statistics with program independence tracking
-    total_unique_subjects = len(unique_subjects_matched | unique_subjects_unmatched)
-    unique_matched_count = len(unique_subjects_matched)
-    unique_unmatched_count = len(unique_subjects_unmatched)
-    
-    st.success(f"✅ **Enhanced Verification Results with Program Independence:**")
-    st.write(f"   📚 **Total Instances:** Matched: {matched_count}, Unmatched: {unmatched_count}")
-    st.write(f"   🔗 **Unique Subjects:** Total: {total_unique_subjects}, Matched: {unique_matched_count}, Unmatched: {unique_unmatched_count}")
-    st.write(f"   📈 **Instance Match Rate:** {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
-    st.write(f"   🎯 **Unique Subject Match Rate:** {(unique_matched_count/total_unique_subjects*100):.1f}%")
-    st.write(f"   🏫 **Program Independence:** Independent: {independent_matched}, Regular: {regular_matched}")
+    st.success(f"✅ **Verification Results:**")
+    st.write(f"   📊 Matched: {matched_count} subjects")
+    st.write(f"   ⚠️ Unmatched: {unmatched_count} subjects")
+    st.write(f"   📈 Match rate: {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
 
-    # Enhanced program-wise statistics with independence
-    program_stats = verification_df['Effective Program'].value_counts()
-    st.write(f"   📊 **Enhanced Program-wise breakdown:**")
-    for program, count in program_stats.items():
-        program_matched = len(verification_df[(verification_df['Effective Program'] == program) & (verification_df['Scheduling Status'] == 'Scheduled')])
-        independence_status = "INDEPENDENT" if any(is_program_independent(program, sem) for sem in [1,2,3,4,5,6,7,8,9,10,11,12]) else "REGULAR"
-        st.write(f"      • {program} ({independence_status}): {program_matched}/{count} scheduled ({(program_matched/count*100):.1f}%)")
-
-    # Rest of the function continues with enhanced Excel generation...
-    # (Truncated for space, but would include all the Excel sheet creation with enhanced program independence information)
-    
+    # Save to Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        verification_df.to_excel(writer, sheet_name="Enhanced_Verification", index=False)
+        verification_df.to_excel(writer, sheet_name="Verification", index=False)
         
-        # Enhanced summary with program independence
+        # Add a summary sheet with breakdown by commonality
         summary_data = {
-            "Metric": [
-                "Total Subject Instances", "Scheduled Instances", "Unscheduled Instances", "Instance Match Rate (%)",
-                "Total Unique Subjects", "Unique Subjects Matched", "Unique Subjects Unmatched", "Unique Subject Match Rate (%)",
-                "Independent Program Matches", "Regular Program Matches", "Independence Efficiency (%)",
-                "Common Across Semesters", "Common Within Semester", "Uncommon Subjects",
-                "Total Programs", "Independent Programs", "Regular Programs"
-            ],
+            "Metric": ["Total Subjects", "Scheduled Subjects", "Unscheduled Subjects", "Match Rate (%)",
+                      "Common Across Semesters", "Common Within Semester", "Uncommon Subjects"],
             "Value": [
-                matched_count + unmatched_count, matched_count, unmatched_count, 
+                matched_count + unmatched_count, 
+                matched_count, 
+                unmatched_count, 
                 round(matched_count/(matched_count+unmatched_count)*100, 1) if (matched_count+unmatched_count) > 0 else 0,
-                total_unique_subjects, unique_matched_count, unique_unmatched_count,
-                round(unique_matched_count/total_unique_subjects*100, 1) if total_unique_subjects > 0 else 0,
-                independent_matched, regular_matched,
-                round(independent_matched/(independent_matched+regular_matched)*100, 1) if (independent_matched+regular_matched) > 0 else 0,
-                len(verification_df[verification_df["Is Common Status"].str.contains("Common Across", na=False)]),
-                len(verification_df[verification_df["Is Common Status"].str.contains("Common Within", na=False)]),
-                len(verification_df[verification_df["Is Common Status"].str.contains("Uncommon", na=False)]),
-                len(program_stats), 
-                len([p for p in program_stats.index if any(is_program_independent(p, s) for s in range(1,13))]),
-                len([p for p in program_stats.index if not any(is_program_independent(p, s) for s in range(1,13))])
+                len(verification_df[verification_df["Is Common Status"] == "Common Across Semesters"]),
+                len(verification_df[verification_df["Is Common Status"] == "Common Within Semester"]),
+                len(verification_df[verification_df["Is Common Status"] == "Uncommon"])
             ]
         }
         summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name="Enhanced_Summary", index=False)
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        
+        # Add unmatched subjects sheet for debugging
+        unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
+        if not unmatched_subjects.empty:
+            unmatched_subjects.to_excel(writer, sheet_name="Unmatched_Subjects", index=False)
 
     output.seek(0)
     return output
 
-
 def convert_semester_to_number(semester_value):
-    """Convert semester string to number with support for DIPLOMA and M TECH semesters"""
+    """Convert semester string to number with better error handling"""
     if pd.isna(semester_value):
         return 0
     
     semester_str = str(semester_value).strip()
     
     semester_map = {
-        # Standard semester mapping
         "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
         "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
-        "Sem IX": 9, "Sem X": 10, "Sem XI": 11, "Sem XII": 12,
-        # Numeric mapping
-        "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, 
-        "7": 7, "8": 8, "9": 9, "10": 10, "11": 11, "12": 12,
-        # DIPLOMA specific semesters (typically 6 semesters)
-        "DIPLOMA Sem I": 1, "DIPLOMA Sem II": 2, "DIPLOMA Sem III": 3,
-        "DIPLOMA Sem IV": 4, "DIPLOMA Sem V": 5, "DIPLOMA Sem VI": 6,
-        # M TECH specific semesters (typically 4 semesters)
-        "M TECH Sem I": 1, "M TECH Sem II": 2, "M TECH Sem III": 3, "M TECH Sem IV": 4
+        "Sem IX": 9, "Sem X": 10, "Sem XI": 11,
+        "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "11": 11
     }
     
     return semester_map.get(semester_str, 0)
@@ -2633,23 +1798,16 @@ def save_to_excel(semester_wise_timetable):
                 num -= value
         return result
 
-    def should_show_exam_time(row, semester_default_slot, program_type="B TECH"):
-        """Determine if subject needs to show specific exam time based on program type"""
+    def should_show_exam_time(row, semester_default_slot):
+        """Determine if subject needs to show specific exam time"""
         duration = row.get('Exam Duration', 3)
         assigned_slot = row.get('Time Slot', '')
         is_common_across = row.get('CommonAcrossSems', False)
         
-        # Program-specific duration standards
-        standard_duration = 3  # Default
-        if program_type == "DIPLOMA":
-            standard_duration = 2.5  # DIPLOMA might have shorter exams
-        elif program_type == "M TECH":
-            standard_duration = 3  # M TECH standard duration
-        
         # Show exam time if:
-        # 1. Duration is not standard for the program
+        # 1. Duration is not 3 hours
         # 2. Common subject assigned different time than semester default
-        return (duration != standard_duration) or (is_common_across and assigned_slot != semester_default_slot)
+        return (duration != 3) or (is_common_across and assigned_slot != semester_default_slot)
 
     output = io.BytesIO()
     
@@ -2661,32 +1819,21 @@ def save_to_excel(semester_wise_timetable):
                 for main_branch in df_sem["MainBranch"].unique():
                     df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
                     
-                    # Get program type for this main branch
-                    program_type = df_mb['Program'].iloc[0] if 'Program' in df_mb.columns else 'B TECH'
-                    
                     # Separate non-electives and electives
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
                     # Process non-electives
                     roman_sem = int_to_roman(sem)
-                    
-                    # Enhanced sheet naming for different programs
-                    if program_type == "DIPLOMA":
-                        sheet_name = f"DIPL_{main_branch}_Sem_{roman_sem}"
-                    elif program_type == "M TECH":
-                        sheet_name = f"MTECH_{main_branch}_Sem_{roman_sem}"
-                    else:
-                        sheet_name = f"{main_branch}_Sem_{roman_sem}"
-                    
+                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
                     
                     if not df_non_elec.empty:
-                        st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {program_type} {sheet_name}")
+                        st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
                         
-                        # Get program-specific semester default time slot
-                        semester_default_slot = get_preferred_slot(sem, program_type)
+                        # Get semester default time slot
+                        semester_default_slot = get_preferred_slot(sem)
                         
                         # Create a copy to avoid modifying the original
                         df_processed = df_non_elec.copy().reset_index(drop=True)
@@ -2713,17 +1860,12 @@ def save_to_excel(semester_wise_timetable):
                             base_subject = str(row.get('Subject', ''))
                             difficulty_suffix = difficulty_values[idx]
                             
-                            if should_show_exam_time(row, semester_default_slot, program_type):
+                            if should_show_exam_time(row, semester_default_slot):
                                 duration = row.get('Exam Duration', 3)
                                 assigned_slot = row.get('Time Slot', semester_default_slot)
                                 
                                 try:
-                                    # Program-specific duration standards
-                                    standard_duration = 3
-                                    if program_type == "DIPLOMA":
-                                        standard_duration = 2.5
-                                    
-                                    if duration != standard_duration:
+                                    if duration != 3:
                                         # Non-standard duration
                                         start_time = str(assigned_slot).split(" - ")[0].strip()
                                         end_time = calculate_end_time(start_time, duration)
@@ -2781,7 +1923,7 @@ def save_to_excel(semester_wise_timetable):
                         
                     else:
                         # Create empty sheet structure for branches with no subjects
-                        st.write(f"⚠️ No non-elective subjects for {program_type} {sheet_name}, creating empty structure")
+                        st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
                         
                         # Get all possible subbranches for this main branch from the semester
                         all_subbranches = df_sem[df_sem["MainBranch"] == main_branch]["SubBranch"].unique()
@@ -2812,12 +1954,12 @@ def save_to_excel(semester_wise_timetable):
 
                     # Process electives in a separate sheet (only if electives exist)
                     if not df_elec.empty:
-                        st.write(f"📊 Processing {len(df_elec)} elective subjects for {program_type} {sheet_name}")
+                        st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
                         
                         # Create a copy to avoid modifying the original
                         df_elec_processed = df_elec.copy().reset_index(drop=True)
                         
-                        # Add difficulty info safely for electives
+                        # Add difficulty info safely
                         difficulty_values_elec = []
                         for idx in range(len(df_elec_processed)):
                             row = df_elec_processed.iloc[idx]
@@ -2842,13 +1984,9 @@ def save_to_excel(semester_wise_timetable):
                             
                             base_display = f"{base_subject} [{oe_type}]"
                             
-                            # Add exam time for non-standard durations based on program
+                            # Add exam time for non-standard durations
                             duration = row.get('Exam Duration', 3)
-                            standard_duration = 3
-                            if program_type == "DIPLOMA":
-                                standard_duration = 2.5
-                                
-                            if duration != standard_duration:
+                            if duration != 3:
                                 try:
                                     assigned_slot = row.get('Time Slot', '10:00 AM - 1:00 PM')
                                     start_time = str(assigned_slot).split(" - ")[0].strip()
@@ -2877,17 +2015,10 @@ def save_to_excel(semester_wise_timetable):
                         ).dt.strftime("%d-%m-%Y")
                         elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
                         
-                        # Save to Excel with program-specific naming
-                        if program_type == "DIPLOMA":
-                            elective_sheet_name = f"DIPL_{main_branch}_Sem_{roman_sem}_Electives"
-                        elif program_type == "M TECH":
-                            elective_sheet_name = f"MTECH_{main_branch}_Sem_{roman_sem}_Electives"
-                        else:
-                            elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
-                        
+                        # Save to Excel
+                        elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
                         if len(elective_sheet_name) > 31:
                             elective_sheet_name = elective_sheet_name[:31]
-                            
                         elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
                         sheets_created += 1
                         st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
@@ -2896,20 +2027,20 @@ def save_to_excel(semester_wise_timetable):
             if sheets_created == 0:
                 st.error("❌ No sheets were created! Creating a dummy sheet to prevent Excel error.")
                 # Create a dummy sheet to prevent the "At least one sheet must be visible" error
-                dummy_df = pd.DataFrame({'Message': ['No data available for any program type']})
+                dummy_df = pd.DataFrame({'Message': ['No data available']})
                 dummy_df.to_excel(writer, sheet_name="No_Data", index=False)
                 
         output.seek(0)
         
         if sheets_created > 0:
-            st.success(f"✅ Enhanced Excel file created successfully with {sheets_created} sheets supporting all program types")
+            st.success(f"✅ Excel file created successfully with {sheets_created} required sheets")
         else:
             st.warning("⚠️ Excel file created with dummy sheet due to no data")
             
         return output
         
     except Exception as e:
-        st.error(f"Error creating enhanced Excel file: {e}")
+        st.error(f"Error creating Excel file: {e}")
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
         return None
@@ -2962,26 +2093,34 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
 
 def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_date):
     """
-    Enhanced gap optimization that respects program independence
-    ONLY MOVES: Subjects whose "Is Common" value is FALSE (uncommon subjects)
-    RESPECTS: Program independence for DIPLOMA, MBA TECH Year 5+, MCA
+    After all scheduling is done, try to move subjects up to fill gaps and reduce span.
+    ONLY MOVES: Subjects whose "Is Common" value is FALSE (uncommon subjects).
+    EXCLUDES: INTD subjects, OE subjects (electives), and ALL common subjects.
+    
+    Args:
+        df_dict (dict): Dictionary of semester dataframes
+        holidays_set (set): Set of holiday dates
+        start_date (datetime): Start date for examinations
+        end_date (datetime): End date for examinations
+    
+    Returns:
+        tuple: (updated_df_dict, moves_made, optimization_log)
     """
-    st.info("🎯 Enhanced gap optimization with strict program independence...")
+    st.info("🎯 Optimizing schedule by filling gaps (ONLY moving uncommon subjects)...")
     
     if not df_dict:
         return df_dict, 0, []
 
-    # Helper function to move a subject (enhanced for program independence)
-    def move_subject_enhanced(df_dict, subject_info, new_date, schedule_grid, old_date, subbranch_sem_key):
-        """Enhanced move subject function with program independence"""
+    # Helper function to move a subject (defined at the top)
+    def move_subject(df_dict, subject_info, new_date, schedule_grid, old_date, subbranch_sem_key):
+        """Move a single subject to a new date"""
         try:
             semester = subject_info['semester']
             branch = subject_info['branch']
             subject = subject_info['subject']
-            program = subject_info.get('effective_program', subject_info.get('program', 'B TECH'))
             
-            # Get preferred time slot for this semester and program
-            preferred_slot = get_preferred_slot(semester, program)
+            # Get preferred time slot for this semester
+            preferred_slot = get_preferred_slot(semester)
             
             # Update in the semester dictionary
             mask = (df_dict[semester]['Subject'] == subject) & \
@@ -3013,37 +2152,61 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     # Combine all data to analyze the schedule
     all_data = pd.concat(df_dict.values(), ignore_index=True)
     
-    # Apply enhanced date normalization
+    # Ensure all dates are in DD-MM-YYYY string format
+    def normalize_date_to_ddmmyyyy(date_val):
+        """Convert any date format to DD-MM-YYYY string format"""
+        if pd.isna(date_val) or date_val == "":
+            return ""
+        
+        if isinstance(date_val, pd.Timestamp):
+            return date_val.strftime("%d-%m-%Y")
+        elif isinstance(date_val, str):
+            try:
+                parsed = pd.to_datetime(date_val, format="%d-%m-%Y", errors='raise')
+                return parsed.strftime("%d-%m-%Y")
+            except:
+                try:
+                    parsed = pd.to_datetime(date_val, dayfirst=True, errors='raise')
+                    return parsed.strftime("%d-%m-%Y")
+                except:
+                    return str(date_val)
+        else:
+            try:
+                parsed = pd.to_datetime(date_val, errors='coerce')
+                if pd.notna(parsed):
+                    return parsed.strftime("%d-%m-%Y")
+                else:
+                    return str(date_val)
+            except:
+                return str(date_val)
+    
+    # Apply date normalization
     all_data['Exam Date'] = all_data['Exam Date'].apply(normalize_date_to_ddmmyyyy)
     
     # Helper function to get subbranch-semester key
     def get_subbranch_semester_key(subbranch, semester):
         return f"{subbranch}_{semester}"
     
-    # Helper function to determine if subject can be moved (enhanced)
-    def is_subject_moveable_enhanced(row):
-        """Enhanced moveability check considering program independence"""
-        effective_program = get_effective_program_name(row)
-        semester = row.get('Semester', 0)
-        
-        # Basic filters (same as before)
-        category = safe_get_string(row.get('Category', ''))
-        oe_value = safe_get_string(row.get('OE', ''))
-        is_common_within = safe_get_string(row.get('IsCommon', 'NO'), 'NO').upper() == 'YES'
-        is_common_across = safe_get_boolean(row.get('CommonAcrossSems', False))
-        
-        # Exclude INTD, OE, and common subjects
-        if category == 'INTD' or oe_value or is_common_within or is_common_across:
-            return False, "Common or special subject"
-        
-        # For independent programs, allow movement only within their own program context
-        if is_program_independent(effective_program, semester):
-            return True, f"Independent program ({effective_program}) - moveable"
-        
-        # For regular programs, allow movement
-        return True, "Regular program - moveable"
+    # Helper function to safely get string value (handles NaN)
+    def safe_get_string(value, default=""):
+        """Safely get string value from potentially NaN/None values"""
+        if pd.isna(value) or value is None:
+            return default
+        return str(value).strip()
     
-    # Build enhanced schedule grid with program awareness
+    # Helper function to safely get boolean value
+    def safe_get_boolean(value, default=False):
+        """Safely get boolean value from potentially NaN/None values"""
+        if pd.isna(value) or value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().upper() in ['TRUE', 'YES', '1']
+        return bool(value)
+    
+    # Build schedule grid: date -> subbranch_semester -> subject
+    # Include ALL subjects for gap detection
     all_scheduled_data = all_data[
         (all_data['Exam Date'] != "") & 
         (all_data['Exam Date'] != "Out of Range") & 
@@ -3060,17 +2223,15 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         if date_str not in schedule_grid:
             schedule_grid[date_str] = {}
         
-        # Enhanced subject info with program independence
-        effective_program = get_effective_program_name(row)
-        semester = row.get('Semester', 0)
-        
+        # Safely extract values with proper NaN handling
         oe_value = safe_get_string(row.get('OE', ''))
         is_common_within_raw = row.get('IsCommon', 'NO')
         is_common_within = safe_get_string(is_common_within_raw, 'NO').upper() == 'YES'
         category_value = safe_get_string(row.get('Category', ''))
         is_common_across = safe_get_boolean(row.get('CommonAcrossSems', False))
+        is_circuit = safe_get_boolean(row.get('Circuit', False))
         
-        # Enhanced eligibility check with program independence
+        # STRICT filtering: Only uncommon subjects are eligible for moving
         is_eligible_for_moving = (
             category_value != 'INTD' and      # Not INTD
             not oe_value and                  # Not OE
@@ -3081,19 +2242,16 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         schedule_grid[date_str][subbranch_sem_key] = {
             'subject': safe_get_string(row['Subject']),
             'branch': safe_get_string(row['Branch']),
-            'subbranch': safe_get_string(row['SubBranch']),
             'index': row.name,
-            'semester': semester,
+            'semester': row['Semester'],
+            'subbranch': safe_get_string(row['SubBranch']),
             'module_code': safe_get_string(row.get('ModuleCode', '')),
             'is_common_across': is_common_across,
             'is_common_within': is_common_within,
             'category': category_value,
+            'circuit': is_circuit,
             'oe': oe_value,
-            'is_eligible_for_moving': is_eligible_for_moving,
-            'program': row.get('Program', 'B TECH'),
-            'effective_program': effective_program,
-            'is_independent': is_program_independent(effective_program, semester),
-            'independence_level': 'COMPLETE' if is_program_independent(effective_program, semester) else 'NONE'
+            'is_eligible_for_moving': is_eligible_for_moving
         }
         
         subbranch_semester_combinations.add(subbranch_sem_key)
@@ -3116,7 +2274,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         holidays_set
     )
     
-    st.write(f"📊 Analyzing {len(valid_dates_in_range)} valid dates for enhanced gap optimization")
+    st.write(f"📊 Analyzing {len(valid_dates_in_range)} valid dates for gap optimization")
     st.write(f"📅 Current schedule spans from {all_scheduled_dates[0]} to {all_scheduled_dates[-1]}")
     
     # Identify gaps in the schedule
@@ -3143,25 +2301,25 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     
     st.write(f"🔍 Found {len(gaps)} gaps to potentially fill")
     
-    # Identify ONLY uncommon moveable subjects with program independence consideration
+    # Identify ONLY uncommon moveable subjects
     uncommon_moveable_subjects = []
     
     for date_str in reversed(all_scheduled_dates):  # Start from the end
         if date_str in schedule_grid:
             for subbranch_sem_key, subject_info in schedule_grid[date_str].items():
-                # Enhanced filter with program independence
+                # STRICT FILTER: Only consider truly uncommon subjects
                 if not subject_info.get('is_eligible_for_moving', False):
                     continue
                 
-                # Calculate priority score for uncommon subjects with program independence
+                # Calculate priority score for uncommon subjects
                 priority_score = 0
                 
                 # Base priority for uncommon subjects
                 priority_score += 10
                 
-                # Enhanced priority for independent programs
-                if subject_info.get('is_independent', False):
-                    priority_score += 5  # Independent programs get slight priority
+                # Bonus for circuit subjects (if individual)
+                if subject_info.get('circuit', False):
+                    priority_score += 5
                 
                 # Prefer subjects from later dates for moving up
                 date_obj = datetime.strptime(date_str, "%d-%m-%Y")
@@ -3170,45 +2328,74 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                 priority_score += max(0, 20 - days_from_end)
                 
                 if priority_score > 0:
-                    independence_level = subject_info.get('independence_level', 'NONE')
-                    effective_program = subject_info.get('effective_program', 'Unknown')
-                    
-                    if independence_level == 'COMPLETE':
-                        subject_type = f"Independent ({effective_program})"
-                    else:
-                        subject_type = "Regular"
+                    subject_type = "Uncommon Circuit" if subject_info.get('circuit', False) else "Uncommon"
                     
                     uncommon_moveable_subjects.append({
                         'current_date': date_str,
                         'subbranch_sem_key': subbranch_sem_key,
                         'subject_info': subject_info,
                         'priority_score': priority_score,
-                        'subject_type': subject_type,
-                        'effective_program': effective_program,
-                        'is_independent': subject_info.get('is_independent', False)
+                        'subject_type': subject_type
                     })
     
-    # Sort subjects by priority (highest first)
+    # Sort uncommon subjects by priority (highest first)
     uncommon_moveable_subjects.sort(key=lambda x: x['priority_score'], reverse=True)
     
-    st.write(f"🎯 Found {len(uncommon_moveable_subjects)} enhanced moveable subjects")
+    st.write(f"🎯 Found {len(uncommon_moveable_subjects)} uncommon moveable subjects")
     
-    # Show enhanced breakdown of subject types
+    # Show breakdown of subject types
     subject_type_counts = {}
     for moveable in uncommon_moveable_subjects:
         subject_type = moveable['subject_type']
         subject_type_counts[subject_type] = subject_type_counts.get(subject_type, 0) + 1
     
     if subject_type_counts:
-        st.info("📋 Enhanced moveable subject breakdown:")
+        st.info("📋 Moveable subject breakdown:")
         for subject_type, count in subject_type_counts.items():
             st.write(f"  • {subject_type}: {count} subjects")
     
-    # Enhanced optimization process - ONLY move uncommon subjects with program respect
+    # Show breakdown of excluded subjects - FIXED: Handle Series properly
+    try:
+        intd_count = len(all_scheduled_data[all_scheduled_data['Category'] == 'INTD'])
+    except:
+        intd_count = 0
+    
+    try:
+        oe_mask = all_scheduled_data['OE'].notna() & (all_scheduled_data['OE'].astype(str).str.strip() != "")
+        oe_count = len(all_scheduled_data[oe_mask])
+    except:
+        oe_count = 0
+    
+    try:
+        # Fixed: Apply safe_get_string to each element individually
+        common_within_count = 0
+        for _, row in all_scheduled_data.iterrows():
+            is_common_val = safe_get_string(row.get('IsCommon', 'NO'), 'NO').upper()
+            if is_common_val == 'YES':
+                common_within_count += 1
+    except:
+        common_within_count = 0
+    
+    try:
+        common_across_count = len(all_scheduled_data[all_scheduled_data['CommonAcrossSems'] == True])
+    except:
+        common_across_count = 0
+    
+    st.info("❌ **Excluded from optimization:**")
+    if intd_count > 0:
+        st.write(f"  • {intd_count} INTD subjects")
+    if oe_count > 0:
+        st.write(f"  • {oe_count} OE subjects")
+    if common_within_count > 0:
+        st.write(f"  • {common_within_count} common within semester subjects")
+    if common_across_count > 0:
+        st.write(f"  • {common_across_count} common across semester subjects")
+    
+    # Optimization process - ONLY move uncommon subjects
     moves_made = 0
     optimization_log = []
     
-    st.write("🔄 Moving ONLY uncommon subjects with program independence...")
+    st.write("🔄 Moving ONLY uncommon subjects...")
     for gap in gaps:
         gap_date = gap['date']
         available_subbranches = gap['available_subbranches'][:]  # Copy list
@@ -3221,42 +2408,26 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             subbranch_sem_key = moveable['subbranch_sem_key']
             subject_info = moveable['subject_info']
             subject_type = moveable['subject_type']
-            effective_program = moveable['effective_program']
             
-            # Enhanced check - subject can move to this gap with program independence
+            # Check if this subject can move to this gap
             if subbranch_sem_key in available_subbranches:
                 gap_date_obj = datetime.strptime(gap_date, "%d-%m-%Y")
                 current_date_obj = datetime.strptime(current_date, "%d-%m-%Y")
                 
                 # Only move if it's moving to an earlier date
                 if gap_date_obj < current_date_obj:
-                    # Enhanced check: ensure no program conflicts in target gap
-                    can_move = True
-                    
-                    # For independent programs, check if same program already scheduled on this date
-                    if subject_info.get('is_independent', False):
-                        if gap_date in schedule_grid:
-                            for existing_key, existing_info in schedule_grid[gap_date].items():
-                                if (existing_info.get('effective_program') == effective_program and 
-                                    existing_info.get('is_independent', False)):
-                                    # Same independent program already has something scheduled
-                                    if existing_key != subbranch_sem_key:  # Different subbranch
-                                        can_move = False
-                                        break
-                    
-                    if can_move:
-                        # Move the subject with enhanced tracking
-                        if move_subject_enhanced(df_dict, subject_info, gap_date, schedule_grid, current_date, subbranch_sem_key):
-                            available_subbranches.remove(subbranch_sem_key)
-                            uncommon_moveable_subjects.remove(moveable)
-                            moves_made += 1
-                            
-                            days_moved_up = (current_date_obj - gap_date_obj).days
-                            optimization_log.append(
-                                f"Moved {subject_type} subject: {subject_info['subject']} "
-                                f"({subject_info['subbranch']}, Sem {subject_info['semester']}) "
-                                f"from {current_date} to {gap_date} (moved up {days_moved_up} days)"
-                            )
+                    # Move the uncommon subject
+                    if move_subject(df_dict, subject_info, gap_date, schedule_grid, current_date, subbranch_sem_key):
+                        available_subbranches.remove(subbranch_sem_key)
+                        uncommon_moveable_subjects.remove(moveable)
+                        moves_made += 1
+                        
+                        days_moved_up = (current_date_obj - gap_date_obj).days
+                        optimization_log.append(
+                            f"Moved {subject_type} subject: {subject_info['subject']} "
+                            f"({subject_info['subbranch']}, Sem {subject_info['semester']}) "
+                            f"from {current_date} to {gap_date} (moved up {days_moved_up} days)"
+                        )
         
         # Update gap's available subbranches
         gap['available_subbranches'] = available_subbranches
@@ -3287,7 +2458,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                 span_reduction = original_span - new_span
                 
                 if span_reduction > 0:
-                    optimization_log.append(f"Schedule span reduced by {span_reduction} days with program independence!")
+                    optimization_log.append(f"Schedule span reduced by {span_reduction} days!")
                     st.success(f"📉 Schedule span reduced from {original_span} to {new_span} days (saved {span_reduction} days)")
     
     # Ensure all dates in df_dict are properly formatted
@@ -3295,32 +2466,59 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         df_dict[sem]['Exam Date'] = df_dict[sem]['Exam Date'].apply(normalize_date_to_ddmmyyyy)
     
     if moves_made > 0:
-        st.success(f"✅ Enhanced Gap Optimization: Made {moves_made} moves with program independence!")
-        with st.expander("📋 Enhanced Gap Optimization Details"):
+        st.success(f"✅ Gap Optimization: Made {moves_made} moves to fill gaps!")
+        with st.expander("📋 Gap Optimization Details"):
             for log in optimization_log:
                 st.write(f"• {log}")
     else:
-        st.info("ℹ️ No beneficial moves found for enhanced gap optimization (program independence respected)")
+        st.info("ℹ️ No beneficial moves found for gap optimization (only uncommon subjects considered)")
     
     return df_dict, moves_made, optimization_log
     
+
 def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     """
-    Enhanced OE optimization that respects program independence
     After main scheduling AND gap optimization, check if OE subjects can be moved to earlier COMPLETELY EMPTY days.
     CRITICAL: OE2 must be scheduled on the day immediately after OE1/OE5.
     UPDATED: Only moves to days with NO exams at all, runs AFTER gap optimization.
-    ENHANCED: Considers program independence when determining conflicts.
     """
     if not sem_dict:
         return sem_dict, 0, []
     
-    st.info("🎯 Enhanced OE optimization with program independence (after gap optimization)...")
+    st.info("🎯 Optimizing Open Elective (OE) placement (after gap optimization)...")
     
     # Combine all data to analyze the schedule
     all_data = pd.concat(sem_dict.values(), ignore_index=True)
     
-    # Apply enhanced date normalization
+    # Ensure all dates are in DD-MM-YYYY string format
+    def normalize_date_to_ddmmyyyy(date_val):
+        """Convert any date format to DD-MM-YYYY string format"""
+        if pd.isna(date_val) or date_val == "":
+            return ""
+        
+        if isinstance(date_val, pd.Timestamp):
+            return date_val.strftime("%d-%m-%Y")
+        elif isinstance(date_val, str):
+            try:
+                parsed = pd.to_datetime(date_val, format="%d-%m-%Y", errors='raise')
+                return parsed.strftime("%d-%m-%Y")
+            except:
+                try:
+                    parsed = pd.to_datetime(date_val, dayfirst=True, errors='raise')
+                    return parsed.strftime("%d-%m-%Y")
+                except:
+                    return str(date_val)
+        else:
+            try:
+                parsed = pd.to_datetime(date_val, errors='coerce')
+                if pd.notna(parsed):
+                    return parsed.strftime("%d-%m-%Y")
+                else:
+                    return str(date_val)
+            except:
+                return str(date_val)
+    
+    # Apply date normalization to all data
     all_data['Exam Date'] = all_data['Exam Date'].apply(normalize_date_to_ddmmyyyy)
     
     # Separate OE and non-OE data
@@ -3331,33 +2529,16 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
         st.info("No OE subjects to optimize")
         return sem_dict, 0, []
     
-    # Build enhanced schedule tracking: date -> count of ALL exams (including OE) with program awareness
+    # Build schedule tracking: date -> count of ALL exams (including OE)
     exam_count_per_date = {}
-    program_tracking_per_date = {}
     
-    # Count ALL scheduled exams per date with program independence tracking
+    # Count ALL scheduled exams per date
     for _, row in all_data.iterrows():
         if pd.notna(row['Exam Date']) and row['Exam Date'].strip() != "":
             date_str = row['Exam Date']
-            effective_program = get_effective_program_name(row)
-            semester = row.get('Semester', 0)
-            is_independent = is_program_independent(effective_program, semester)
-            
             if date_str not in exam_count_per_date:
                 exam_count_per_date[date_str] = 0
-                program_tracking_per_date[date_str] = {
-                    'independent_programs': set(),
-                    'regular_programs': set(),
-                    'total_subjects': 0
-                }
-            
             exam_count_per_date[date_str] += 1
-            program_tracking_per_date[date_str]['total_subjects'] += 1
-            
-            if is_independent:
-                program_tracking_per_date[date_str]['independent_programs'].add(effective_program)
-            else:
-                program_tracking_per_date[date_str]['regular_programs'].add(effective_program)
     
     # Find all dates in the schedule
     all_dates = sorted(exam_count_per_date.keys(), 
@@ -3366,20 +2547,20 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     if not all_dates:
         return sem_dict, 0, []
     
-    st.write(f"📊 Current enhanced schedule has exams on {len(all_dates)} different dates")
+    st.write(f"📊 Current schedule has exams on {len(all_dates)} different dates")
     
     # Get the date range from first to last exam
     start_date = datetime.strptime(all_dates[0], "%d-%m-%Y")
     end_date = datetime.strptime(all_dates[-1], "%d-%m-%Y")
     
-    # Find COMPLETELY EMPTY days in the schedule range (enhanced)
+    # Find COMPLETELY EMPTY days in the schedule range
     completely_empty_days = []
     current_date = start_date
     
     while current_date <= end_date:
         if current_date.weekday() != 6 and current_date.date() not in holidays:
             date_str = current_date.strftime("%d-%m-%Y")
-            # Check if this date has NO exams at all (enhanced check)
+            # Check if this date has NO exams at all
             if date_str not in exam_count_per_date:
                 completely_empty_days.append(date_str)
         current_date += timedelta(days=1)
@@ -3387,13 +2568,13 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     # Sort empty days chronologically
     completely_empty_days.sort(key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
     
-    st.write(f"🔍 Found {len(completely_empty_days)} completely empty days for enhanced OE optimization")
+    st.write(f"🔍 Found {len(completely_empty_days)} completely empty days for potential OE optimization")
     
     if not completely_empty_days:
-        st.info("ℹ️ No completely empty days available for enhanced OE optimization")
+        st.info("ℹ️ No completely empty days available for OE optimization")
         return sem_dict, 0, []
     
-    # Enhanced OE optimization processing
+    # Process OE optimization
     oe_data_copy = oe_data.copy()
     oe1_oe5_data = oe_data_copy[oe_data_copy['OE'].isin(['OE1', 'OE5'])]
     oe2_data = oe_data_copy[oe_data_copy['OE'] == 'OE2']
@@ -3401,7 +2582,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     moves_made = 0
     optimization_log = []
     
-    # Enhanced OE1/OE5 processing with program independence
+    # Process OE1/OE5 together (they should always be on the same date/time)
     if not oe1_oe5_data.empty:
         current_oe1_oe5_date = oe1_oe5_data['Exam Date'].iloc[0]
         current_oe1_oe5_date_obj = datetime.strptime(current_oe1_oe5_date, "%d-%m-%Y")
@@ -3424,24 +2605,23 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
             if next_day:
                 next_day_str = next_day.strftime("%d-%m-%Y")
                 
-                # Enhanced check: ensure next day is also completely empty with program independence
+                # Check if next day is also completely empty
                 if next_day_str in completely_empty_days:
                     best_oe1_oe5_date = empty_day
                     best_oe2_date = next_day_str
                     break
         
-        # Enhanced OE subject movement with program independence
+        # If we found suitable completely empty days, move OE subjects
         if best_oe1_oe5_date and best_oe2_date:
             days_saved = (current_oe1_oe5_date_obj - datetime.strptime(best_oe1_oe5_date, "%d-%m-%Y")).days
             
-            st.write(f"✅ Found optimal enhanced placement: OE1/OE5 on {best_oe1_oe5_date}, OE2 on {best_oe2_date}")
+            st.write(f"✅ Found optimal placement: OE1/OE5 on {best_oe1_oe5_date}, OE2 on {best_oe2_date}")
             
-            # Update all OE1/OE5 exams in semester dictionary with enhanced tracking
+            # Update all OE1/OE5 exams in semester dictionary
             for idx in oe1_oe5_data.index:
                 sem = all_data.at[idx, 'Semester']
                 branch = all_data.at[idx, 'Branch']
                 subject = all_data.at[idx, 'Subject']
-                effective_program = get_effective_program_name(all_data.iloc[idx])
                 
                 # Update in the semester dictionary
                 mask = (sem_dict[sem]['Subject'] == subject) & \
@@ -3449,13 +2629,12 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
                 sem_dict[sem].loc[mask, 'Exam Date'] = best_oe1_oe5_date
                 sem_dict[sem].loc[mask, 'Time Slot'] = "10:00 AM - 1:00 PM"
             
-            # Update all OE2 exams to the day immediately after OE1/OE5 with enhanced tracking
+            # Update all OE2 exams to the day immediately after OE1/OE5
             if not oe2_data.empty:
                 for idx in oe2_data.index:
                     sem = all_data.at[idx, 'Semester']
                     branch = all_data.at[idx, 'Branch']
                     subject = all_data.at[idx, 'Subject']
-                    effective_program = get_effective_program_name(all_data.iloc[idx])
                     
                     # Update in the semester dictionary
                     mask = (sem_dict[sem]['Subject'] == subject) & \
@@ -3465,31 +2644,29 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
             
             moves_made += 1
             optimization_log.append(
-                f"Enhanced: Moved OE1/OE5 from {current_oe1_oe5_date} to {best_oe1_oe5_date} "
-                f"(saved {days_saved} days, completely empty day with program independence)"
+                f"Moved OE1/OE5 from {current_oe1_oe5_date} to {best_oe1_oe5_date} (saved {days_saved} days, completely empty day)"
             )
             if not oe2_data.empty:
                 optimization_log.append(
-                    f"Enhanced: Moved OE2 to {best_oe2_date} "
-                    f"(completely empty day, immediately after OE1/OE5 with program independence)"
+                    f"Moved OE2 to {best_oe2_date} (completely empty day, immediately after OE1/OE5)"
                 )
         else:
-            st.info("ℹ️ No suitable consecutive completely empty days found for enhanced OE optimization")
+            st.info("ℹ️ No suitable consecutive completely empty days found for OE optimization")
     
     # Ensure all dates in sem_dict are properly formatted
     for sem in sem_dict:
         sem_dict[sem]['Exam Date'] = sem_dict[sem]['Exam Date'].apply(normalize_date_to_ddmmyyyy)
     
     if moves_made > 0:
-        st.success(f"✅ Enhanced OE Optimization: Moved {moves_made} OE groups to completely empty days with program independence!")
-        with st.expander("📋 Enhanced OE Optimization Details"):
+        st.success(f"✅ OE Optimization: Moved {moves_made} OE groups to completely empty days!")
+        with st.expander("📋 OE Optimization Details"):
             for log in optimization_log:
                 st.write(f"• {log}")
     else:
-        st.info("ℹ️ Enhanced OE subjects are already optimally placed or no suitable completely empty days available")
+        st.info("ℹ️ OE subjects are already optimally placed or no suitable completely empty days available")
     
     return sem_dict, moves_made, optimization_log
-
+    
 
 
 def main():
@@ -3525,8 +2702,6 @@ def main():
         st.session_state.overall_date_range = 0
     if 'unique_exam_days' not in st.session_state:
         st.session_state.unique_exam_days = 0
-    if 'original_data_df' not in st.session_state:
-        st.session_state.original_data_df = None
 
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
@@ -3635,7 +2810,6 @@ def main():
             <h4>🚀 Features</h4>
             <ul>
                 <li>📊 Excel file processing</li>
-                <li>🎯 Program/Stream/Year filtering</li>
                 <li>🎯 Common across semesters first</li>
                 <li>🔗 Common within semester scheduling</li>
                 <li>🔍 Gap-filling optimization</li>
@@ -3651,22 +2825,9 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-    # Show filter selectors if file is uploaded
-    filter_selection = None
     if uploaded_file is not None:
-        st.markdown("---")
-        
-        # First read the file to get data for filters
-        if st.session_state.original_data_df is None:
-            with st.spinner("Reading file to create filter options..."):
-                df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
-        
-        # Create filter selectors
-        filter_selection = create_filter_selectors()
-
-    if uploaded_file is not None and filter_selection and filter_selection['estimated_subjects'] > 0:
-        if st.button("🔄 Generate Filtered Timetable", type="primary", use_container_width=True):
-            with st.spinner("Processing your filtered timetable... Please wait..."):
+        if st.button("📄 Generate Timetable", type="primary", use_container_width=True):
+            with st.spinner("Processing your timetable... Please wait..."):
                 try:
                     # Use holidays from session state
                     holidays_set = st.session_state.get('holidays_set', set())
@@ -3677,25 +2838,19 @@ def main():
                     valid_exam_days = len(get_valid_dates_in_range(base_date, end_date, holidays_set))
                     st.info(f"📅 Examination Period: {base_date.strftime('%d-%m-%Y')} to {end_date.strftime('%d-%m-%Y')} ({date_range_days} total days, {valid_exam_days} valid exam days)")
                 
-                    st.write("Reading and filtering timetable...")
+                    st.write("Reading timetable...")
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None:
-                        # Apply filters to the data
-                        df_non_elec_filtered, df_ele_filtered = apply_filters_to_data(df_non_elec, df_ele, filter_selection)
+                        st.write("Processing subjects...")
                         
-                        if df_non_elec_filtered is None or df_non_elec_filtered.empty:
-                            st.error("❌ No subjects match the selected filters!")
-                            return
+                        # NEW THREE-PHASE IMPROVED SCHEDULING ORDER:
+                        # SUPER SCHEDULING: All subjects in one comprehensive function
+                        st.info("🚀 SUPER SCHEDULING: All subjects with frequency-based priority and daily branch coverage")
+                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date)
                         
-                        st.write("Processing filtered subjects...")
-                        
-                        # Use filtered data for scheduling
-                        st.info("🚀 FILTERED SUPER SCHEDULING: Processing selected programs, streams, and years only")
-                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec_filtered, holidays_set, base_date, end_date)
-                        
-                        # Step 5: Handle filtered electives if they exist
-                        if df_ele_filtered is not None and not df_ele_filtered.empty:
+                        # Step 5: Handle electives if they exist
+                        if df_ele is not None and not df_ele.empty:
                             # Find the maximum date from non-elective scheduling
                             non_elec_dates = pd.to_datetime(df_scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             if not non_elec_dates.empty:
@@ -3711,7 +2866,7 @@ def main():
                                 
                                 if elective_day2 <= end_date:
                                     # Schedule electives globally
-                                    df_ele_scheduled = schedule_electives_globally(df_ele_filtered, max_non_elec_date, holidays_set)
+                                    df_ele_scheduled = schedule_electives_globally(df_ele, max_non_elec_date, holidays_set)
                                     
                                     # Combine non-electives and electives
                                     all_scheduled_subjects = pd.concat([df_scheduled, df_ele_scheduled], ignore_index=True)
@@ -3722,9 +2877,6 @@ def main():
                                 all_scheduled_subjects = df_scheduled
                         else:
                             all_scheduled_subjects = df_scheduled
-                        
-                        # Continue with the rest of the processing logic...
-                        # (Same as original but with filtered data)
                         
                         # Step 6: Create semester dictionary - only include successfully scheduled subjects
                         successfully_scheduled = all_scheduled_subjects[
@@ -3738,10 +2890,10 @@ def main():
                         ]
                         
                         if not out_of_range_subjects.empty:
-                            st.warning(f"⚠️ {len(out_of_range_subjects)} filtered subjects could not be scheduled within the specified date range")
+                            st.warning(f"⚠️ {len(out_of_range_subjects)} subjects could not be scheduled within the specified date range")
                             
-                            # Show breakdown by semester and branch for filtered subjects
-                            with st.expander("📋 Filtered Subjects Not Scheduled (Out of Range)"):
+                            # Show breakdown by semester and branch
+                            with st.expander("📋 Subjects Not Scheduled (Out of Range)"):
                                 for semester in sorted(out_of_range_subjects['Semester'].unique()):
                                     sem_subjects = out_of_range_subjects[out_of_range_subjects['Semester'] == semester]
                                     st.write(f"**Semester {semester}:** {len(sem_subjects)} subjects")
@@ -3759,24 +2911,24 @@ def main():
                                 sem_data = successfully_scheduled[successfully_scheduled["Semester"] == s].copy()
                                 sem_dict[s] = sem_data
                             
-                            st.write("Optimizing filtered schedule by filling gaps...")
+                            st.write("Optimizing schedule by filling gaps...")
                             sem_dict, gap_moves_made, gap_optimization_log = optimize_schedule_by_filling_gaps(
-                                sem_dict, holidays_set, base_date, end_date
+                            sem_dict, holidays_set, base_date, end_date
                             )
 
-                            # Step 8: Optimize OE subjects AFTER gap optimization for filtered data
-                            if df_ele_filtered is not None and not df_ele_filtered.empty:
-                                st.write("Optimizing filtered OE subjects...")
+                            # Step 8: Optimize OE subjects AFTER gap optimization
+                            if df_ele is not None and not df_ele.empty:
+                                st.write("Optimizing OE subjects...")
                                 sem_dict, oe_moves_made, oe_optimization_log = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)        
                             else:
                                 oe_moves_made = 0
                                 oe_optimization_log = []
 
                             # Show combined optimization results
-                            total_optimizations = (oe_moves_made if df_ele_filtered is not None and not df_ele_filtered.empty else 0) + gap_moves_made
+                            total_optimizations = (oe_moves_made if df_ele is not None and not df_ele.empty else 0) + gap_moves_made
                             if total_optimizations > 0:
                                 st.success(f"🎯 Total Optimizations Made: {total_optimizations}")
-                            if df_ele_filtered is not None and not df_ele_filtered.empty and oe_moves_made > 0:
+                            if df_ele is not None and not df_ele.empty and oe_moves_made > 0:
                                 st.info(f"📈 OE Optimizations: {oe_moves_made}")
                             if gap_moves_made > 0:
                                 st.info(f"📉 Gap Fill Optimizations: {gap_moves_made}")
@@ -3785,7 +2937,7 @@ def main():
                             st.session_state.original_df = original_df
                             st.session_state.processing_complete = True
 
-                            # Compute statistics for filtered data
+                            # Compute statistics
                             final_all_data = pd.concat(sem_dict.values(), ignore_index=True)
                             total_exams = len(final_all_data)
                             total_semesters = len(sem_dict)
@@ -3801,22 +2953,14 @@ def main():
                             st.session_state.total_branches = total_branches
                             st.session_state.overall_date_range = overall_date_range
                             st.session_state.unique_exam_days = unique_exam_days
-                            
-                            # Store filter information for display
-                            st.session_state.filter_applied = True
-                            st.session_state.filter_info = {
-                                'programs': filter_selection['programs'],
-                                'streams': filter_selection['streams'],
-                                'semesters': filter_selection['semesters']
-                            }
 
                             # Generate and store downloadable files
-                            st.write("Generating Excel for filtered data...")
+                            st.write("Generating Excel...")
                             try:
                                 excel_data = save_to_excel(sem_dict)
                                 if excel_data:
                                     st.session_state.excel_data = excel_data.getvalue()
-                                    st.success("✅ Filtered Excel file generated successfully")
+                                    st.success("✅ Excel file generated successfully")
                                 else:
                                     st.warning("⚠️ Excel generation completed but no data returned")
                                     st.session_state.excel_data = None
@@ -3824,12 +2968,12 @@ def main():
                                 st.error(f"❌ Excel generation failed: {str(e)}")
                                 st.session_state.excel_data = None
 
-                            st.write("Generating verification file for filtered data...")
+                            st.write("Generating verification file...")
                             try:
                                 verification_data = save_verification_excel(original_df, sem_dict)
                                 if verification_data:
                                     st.session_state.verification_data = verification_data.getvalue()
-                                    st.success("✅ Filtered verification file generated successfully")
+                                    st.success("✅ Verification file generated successfully")
                                 else:
                                     st.warning("⚠️ Verification file generation completed but no data returned")
                                     st.session_state.verification_data = None
@@ -3837,11 +2981,11 @@ def main():
                                 st.error(f"❌ Verification file generation failed: {str(e)}")
                                 st.session_state.verification_data = None
 
-                            st.write("Generating PDF for filtered data...")
+                            st.write("Generating PDF...")
                             try:
                                 if sem_dict:
                                     pdf_output = io.BytesIO()
-                                    temp_pdf_path = "temp_filtered_timetable.pdf"
+                                    temp_pdf_path = "temp_timetable.pdf"
                                     generate_pdf_timetable(sem_dict, temp_pdf_path)
                                     
                                     # Check if PDF was created successfully
@@ -3851,71 +2995,56 @@ def main():
                                         pdf_output.seek(0)
                                         st.session_state.pdf_data = pdf_output.getvalue()
                                         os.remove(temp_pdf_path)
-                                        st.success("✅ Filtered PDF generated successfully")
+                                        st.success("✅ PDF generated successfully")
                                     else:
                                         st.warning("⚠️ PDF generation completed but file not found")
                                         st.session_state.pdf_data = None
                                 else:
-                                    st.warning("⚠️ No filtered data available for PDF generation")
+                                    st.warning("⚠️ No data available for PDF generation")
                                     st.session_state.pdf_data = None
                             except Exception as e:
                                 st.error(f"❌ PDF generation failed: {str(e)}")
                                 st.session_state.pdf_data = None
 
-                            st.markdown('<div class="status-success">🎉 Filtered Timetable generated successfully with program/stream/year filtering!</div>',
+                            st.markdown('<div class="status-success">🎉 Timetable generated successfully with THREE-PHASE SCHEDULING and NO DOUBLE BOOKINGS!</div>',
                                         unsafe_allow_html=True)
                             
-                            # Show filtering summary
-                            filter_summary = f"""
-                            ✅ **Filtered Three-Phase Scheduling Applied:**
-                            📚 **Programs:** {', '.join(filter_selection['programs'])}
-                            🌊 **Streams:** {', '.join(filter_selection['streams'])}
-                            📅 **Years/Semesters:** {', '.join(map(str, sorted(filter_selection['semesters'])))}
+                            # Show improved three-phase scheduling summary
+                            st.info("✅ **Three-Phase Scheduling Applied:**\n1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date\n2. 🔗 **Phase 2:** Common within semester subjects (COMP/ELEC appearing in multiple branches)\n3. 🔍 **Phase 3:** Truly uncommon subjects with gap-filling optimization within date range\n4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)\n5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester")
                             
-                            1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date
-                            2. 🔗 **Phase 2:** Common within semester subjects (filtered)
-                            3. 🔍 **Phase 3:** Individual subjects with gap-filling optimization
-                            4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)
-                            5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester
-                            """
-                            st.info(filter_summary)
-                            
-                            # Show efficiency improvement for filtered data
+                            # Show efficiency improvement
                             efficiency = (unique_exam_days / overall_date_range) * 100 if overall_date_range > 0 else 0
-                            st.success(f"📊 **Filtered Schedule Efficiency: {efficiency:.1f}%** (Higher is better - more days utilized)")
+                            st.success(f"📊 **Schedule Efficiency: {efficiency:.1f}%** (Higher is better - more days utilized)")
                             
-                            # Show date range utilization for filtered data
+                            # Show date range utilization
                             date_range_utilization = (unique_exam_days / valid_exam_days) * 100 if valid_exam_days > 0 else 0
                             st.info(f"📅 **Date Range Utilization: {date_range_utilization:.1f}%** ({unique_exam_days}/{valid_exam_days} valid days used)")
                             
-                            # Count subjects by type for filtered summary
+                            # Count subjects by type for summary
                             common_across_count = len(final_all_data[final_all_data['CommonAcrossSems'] == True])
                             
-                            # Count common within semester for filtered data
+                            # Count common within semester
                             common_within_sem = final_all_data[
                                 (final_all_data['CommonAcrossSems'] == False) & 
                                 (final_all_data['Category'].isin(['COMP', 'ELEC']))
                             ]
-                            if not common_within_sem.empty:
-                                common_within_sem_groups = common_within_sem.groupby(['Semester', 'ModuleCode'])['Branch'].nunique()
-                                common_within_count = len(common_within_sem[
-                                    common_within_sem.set_index(['Semester', 'ModuleCode']).index.map(
-                                        lambda x: common_within_sem_groups.get(x, 1) > 1
-                                    )
-                                ])
-                            else:
-                                common_within_count = 0
+                            common_within_sem_groups = common_within_sem.groupby(['Semester', 'ModuleCode'])['Branch'].nunique()
+                            common_within_count = len(common_within_sem[
+                                common_within_sem.set_index(['Semester', 'ModuleCode']).index.map(
+                                    lambda x: common_within_sem_groups.get(x, 1) > 1
+                                )
+                            ])
                             
                             elective_count = len(final_all_data[final_all_data['OE'].notna() & (final_all_data['OE'].str.strip() != "")])
                             uncommon_count = total_exams - common_across_count - common_within_count - elective_count
                             
-                            st.success(f"📈 **Filtered Scheduling Breakdown:**\n• Common Across Semesters: {common_across_count}\n• Common Within Semester: {common_within_count}\n• Truly Uncommon: {uncommon_count}\n• Electives: {elective_count}")
+                            st.success(f"📈 **Scheduling Breakdown:**\n• Common Across Semesters: {common_across_count}\n• Common Within Semester: {common_within_count}\n• Truly Uncommon: {uncommon_count}\n• Electives: {elective_count}")
                             
                             # Show double booking verification
-                            st.success("✅ **No Double Bookings**: Each filtered subbranch has max one exam per day")
+                            st.success("✅ **No Double Bookings**: Each subbranch has max one exam per day")
                             
                         else:
-                            st.warning("No filtered subjects could be scheduled within the specified date range.")
+                            st.warning("No subjects could be scheduled within the specified date range.")
 
                     else:
                         st.markdown(
@@ -3925,25 +3054,10 @@ def main():
                 except Exception as e:
                     st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
                                 unsafe_allow_html=True)
-    elif uploaded_file is not None:
-        st.info("📋 Please adjust your filter selections above and ensure at least some subjects are selected.")
 
     # Display timetable results if processing is complete
     if st.session_state.processing_complete:
         st.markdown("---")
-
-        # Show filter information if applied
-        if hasattr(st.session_state, 'filter_applied') and st.session_state.filter_applied:
-            filter_info = st.session_state.filter_info
-            st.markdown("### 🎯 Applied Filters")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.info(f"**Programs:** {', '.join(filter_info['programs'])}")
-            with col2:
-                st.info(f"**Streams:** {', '.join(filter_info['streams'])}")
-            with col3:
-                st.info(f"**Semesters:** {', '.join(map(str, sorted(filter_info['semesters'])))}")
 
         # Download options
         st.markdown("### 📥 Download Options")
@@ -3952,11 +3066,10 @@ def main():
 
         with col1:
             if st.session_state.excel_data:
-                filename_suffix = "filtered" if hasattr(st.session_state, 'filter_applied') and st.session_state.filter_applied else "complete"
                 st.download_button(
                     label="📊 Download Excel File",
                     data=st.session_state.excel_data,
-                    file_name=f"{filename_suffix}_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     key="download_excel"
@@ -3966,11 +3079,10 @@ def main():
 
         with col2:
             if st.session_state.pdf_data:
-                filename_suffix = "filtered" if hasattr(st.session_state, 'filter_applied') and st.session_state.filter_applied else "complete"
                 st.download_button(
                     label="📄 Download PDF File",
                     data=st.session_state.pdf_data,
-                    file_name=f"{filename_suffix}_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                     mime="application/pdf",
                     use_container_width=True,
                     key="download_pdf"
@@ -3980,11 +3092,10 @@ def main():
 
         with col3:
             if st.session_state.verification_data:
-                filename_suffix = "filtered" if hasattr(st.session_state, 'filter_applied') and st.session_state.filter_applied else "complete"
                 st.download_button(
                     label="📋 Download Verification File",
                     data=st.session_state.verification_data,
-                    file_name=f"{filename_suffix}_verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     key="download_verification"
@@ -3998,7 +3109,6 @@ def main():
                 st.session_state.processing_complete = False
                 st.session_state.timetable_data = {}
                 st.session_state.original_df = None
-                st.session_state.original_data_df = None
                 st.session_state.excel_data = None
                 st.session_state.pdf_data = None
                 st.session_state.verification_data = None
@@ -4007,16 +3117,13 @@ def main():
                 st.session_state.total_branches = 0
                 st.session_state.overall_date_range = 0
                 st.session_state.unique_exam_days = 0
-                if hasattr(st.session_state, 'filter_applied'):
-                    del st.session_state.filter_applied
-                if hasattr(st.session_state, 'filter_info'):
-                    del st.session_state.filter_info
                 st.rerun()
 
-        # Statistics Overview (same as original but with filter awareness)
+        # Statistics Overview
+        # Statistics Overview
         st.markdown("""
         <div class="stats-section">
-            <h2>📈 Timetable Statistics</h2>
+            <h2>📈 Complete Timetable Statistics</h2>
         </div>
         """, unsafe_allow_html=True)
 
@@ -4139,6 +3246,7 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>🎯 {efficiency_display}</h3><p>Schedule Efficiency</p></div>',
                         unsafe_allow_html=True)
 
+
         # Show gap-filling efficiency
         total_possible_slots = st.session_state.overall_date_range * 2  # 2 slots per day
         actual_exams = st.session_state.total_exams
@@ -4151,14 +3259,11 @@ def main():
         else:
             st.warning(f"🔍 **Slot Utilization:** {slot_utilization:.1f}% (Room for improvement)")
 
-        # Rest of the display logic remains the same...
-        # (Timetable Results section and subject display formatting)
-        
-        # Display timetable data
+        # Timetable Results
         st.markdown("---")
         st.markdown("""
         <div class="results-section">
-            <h2>📊 Timetable Results</h2>
+            <h2>📊 Complete Timetable Results</h2>
         </div>
         """, unsafe_allow_html=True)
 
@@ -4170,10 +3275,9 @@ def main():
             duration = row.get('Exam Duration', 3)
             is_common = row.get('CommonAcrossSems', False)
             semester = row['Semester']
-            program_type = row.get('Program', 'B TECH')
             
-            # Get preferred slot for this semester and program
-            preferred_slot = get_preferred_slot(semester, program_type)
+            # Get preferred slot for this semester
+            preferred_slot = get_preferred_slot(semester)
             
             time_range = ""
             
@@ -4207,7 +3311,7 @@ def main():
             
             return base_display + time_range
 
-        # Display timetable data for filtered results
+        # Display timetable data
         for sem, df_sem in st.session_state.timetable_data.items():
             st.markdown(f"### 📚 Semester {sem}")
 
@@ -4254,7 +3358,7 @@ def main():
                             st.error(f"Error displaying core subjects: {str(e)}")
                             # Fallback: show raw data
                             st.write("Showing raw data:")
-                            display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot', 'Program']
+                            display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot']
                             available_cols = [col for col in display_cols if col in df_non_elec.columns]
                             st.dataframe(df_non_elec[available_cols], use_container_width=True)
 
@@ -4289,7 +3393,7 @@ def main():
                             st.error(f"Error displaying elective subjects: {str(e)}")
                             # Fallback: show raw data
                             st.write("Showing raw data:")
-                            display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot', 'Program']
+                            display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot']
                             available_cols = [col for col in display_cols if col in df_elec.columns]
                             st.dataframe(df_elec[available_cols], use_container_width=True)
 
@@ -4297,18 +3401,12 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div class="footer">
-        <p><strong>Enhanced Timetable Generator with Program/Stream/Year Filtering</strong></p>
+        <p>🎓 <strong>Three-Phase Timetable Generator with Date Range Control & Gap-Filling</strong></p>
         <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
-        <p style="font-size: 0.9em;">Filtered scheduling • Program-aware time slots • Common across semesters first • Gap-filling optimization • One exam per day per branch • OE optimization • Date range enforcement • Maximum efficiency • Verification export</p>
+        <p style="font-size: 0.9em;">Common across semesters first • Common within semester • Gap-filling optimization • One exam per day per branch • OE optimization • Date range enforcement • Maximum efficiency • Verification export</p>
     </div>
     """, unsafe_allow_html=True)
     
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
 
