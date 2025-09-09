@@ -319,7 +319,7 @@ def find_next_valid_day_in_range(start_date, end_date, holidays_set):
         current_date += timedelta(days=1)
     return None
 
-def get_preferred_slot(semester, program_type="B TECH"):
+def get_preferred_slot(semester):
     if semester % 2 != 0:  # Odd semester
         odd_sem_position = (semester + 1) // 2
         return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -3406,6 +3406,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
