@@ -1180,7 +1180,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             sem_num = int(semester) if semester else 1
         
-        return get_preferred_slot(sem_num, program_type)
+        return get_preferred_slot(sem_num)
 
     sheets_processed = 0
     
@@ -3406,6 +3406,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
