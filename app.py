@@ -1561,7 +1561,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
     verification_df["Exam Time"] = ""  # Subject-specific timing
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
-    verification_df["Subject Type"] = ""  # New: Common/Uncommon/OE categorization
+    verification_df["Subject Type"] = ""  # Common/Uncommon/OE categorization
 
     # Track statistics
     matched_count = 0
@@ -1734,7 +1734,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 verification_df.at[idx, "Time Slot"] = "Not Scheduled"
                 verification_df.at[idx, "Exam Time"] = "Not Scheduled" 
                 verification_df.at[idx, "Is Common Status"] = "N/A"
-                verification_df.at[idx, "Scheduling Status"] = "Not Scheduled"
                 verification_df.at[idx, "Subject Type"] = "Unscheduled"
                 unmatched_count += 1
                 unique_subjects_unmatched.add(module_code)
@@ -1759,7 +1758,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
     st.write(f"   📈 **Instance Match Rate:** {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
     st.write(f"   🎯 **Unique Subject Match Rate:** {(unique_matched_count/total_unique_subjects*100):.1f}%")
 
-    # Create daily statistics
+    # Create daily statistics with campus-wise student counts
     scheduled_subjects = verification_df[verification_df["Scheduling Status"] == "Scheduled"].copy()
     
     daily_stats = []
@@ -1767,45 +1766,56 @@ def save_verification_excel(original_df, semester_wise_timetable):
         # Convert exam dates to datetime for proper sorting
         scheduled_subjects['Exam Date Parsed'] = pd.to_datetime(scheduled_subjects['Exam Date'], format='%d-%m-%Y', errors='coerce')
         
+        # Clean student count column
+        scheduled_subjects['Student Count Clean'] = pd.to_numeric(scheduled_subjects.get('Student count', pd.Series([0])), errors='coerce').fillna(0).astype(int)
+        
+        # Get unique campuses (from Program column)
+        campuses = scheduled_subjects['Program'].unique()
+        
         for exam_date, day_group in scheduled_subjects.groupby('Exam Date'):
             if pd.isna(exam_date) or str(exam_date).strip() == "":
                 continue
                 
-            # Count unique subjects and total students for this day
+            # Count unique subjects for this day
             unique_subjects_count = len(day_group['Module Abbreviation'].unique())
             
-            # Calculate total students (handle missing student count data)
-            day_group['Student Count Clean'] = pd.to_numeric(day_group.get('Student count', 0), errors='coerce').fillna(0)
+            # Calculate total students
             total_students = int(day_group['Student Count Clean'].sum())
             
-            # Categorize by subject type
-            common_subjects = len(day_group[day_group['Subject Type'] == 'Common'])
-            uncommon_subjects = len(day_group[day_group['Subject Type'] == 'Uncommon'])
-            oe_subjects = len(day_group[day_group['Subject Type'] == 'OE'])
-            
-            # Calculate students by category
-            common_students = int(day_group[day_group['Subject Type'] == 'Common']['Student Count Clean'].sum())
-            uncommon_students = int(day_group[day_group['Subject Type'] == 'Uncommon']['Student Count Clean'].sum())
-            oe_students = int(day_group[day_group['Subject Type'] == 'OE']['Student Count Clean'].sum())
-            
-            daily_stats.append({
+            # Initialize row data
+            row_data = {
                 'Exam Date': exam_date,
                 'Total Unique Subjects': unique_subjects_count,
-                'Total Students': total_students,
-                'Common Subjects': common_subjects,
-                'Common Students': common_students,
-                'Uncommon Subjects': uncommon_subjects,
-                'Uncommon Students': uncommon_students,
-                'OE Subjects': oe_subjects,
-                'OE Students': oe_students
-            })
+                'Total Students': total_students
+            }
+            
+            # Calculate student counts by campus and subject type
+            for campus in campuses:
+                campus_group = day_group[day_group['Program'] == campus]
+                for subject_type in ['Common', 'Uncommon', 'OE']:
+                    type_group = campus_group[campus_group['Subject Type'] == subject_type]
+                    student_count = int(type_group['Student Count Clean'].sum())
+                    row_data[f'Students_{subject_type}_{campus}'] = student_count
+            
+            daily_stats.append(row_data)
     
-    # Sort daily stats by date
+    # Create daily stats DataFrame
     if daily_stats:
         daily_stats_df = pd.DataFrame(daily_stats)
+        # Ensure all campus columns exist, even if zero
+        for campus in campuses:
+            for subject_type in ['Common', 'Uncommon', 'OE']:
+                col_name = f'Students_{subject_type}_{campus}'
+                if col_name not in daily_stats_df.columns:
+                    daily_stats_df[col_name] = 0
+        # Sort by date
         daily_stats_df = daily_stats_df.sort_values('Exam Date')
+        # Reorder columns
+        campus_columns = sorted([col for col in daily_stats_df.columns if col.startswith('Students_')])
+        ordered_columns = ['Exam Date', 'Total Unique Subjects', 'Total Students'] + campus_columns
+        daily_stats_df = daily_stats_df[ordered_columns]
     else:
-        daily_stats_df = pd.DataFrame()
+        daily_stats_df = pd.DataFrame(columns=['Exam Date', 'Total Unique Subjects', 'Total Students'])
 
     # Save to Excel with enhanced statistics
     output = io.BytesIO()
@@ -1813,10 +1823,10 @@ def save_verification_excel(original_df, semester_wise_timetable):
         # Main verification sheet
         verification_df.to_excel(writer, sheet_name="Verification", index=False)
         
-        # Daily statistics sheet
+        # Daily statistics sheet with campus-wise student counts
         if not daily_stats_df.empty:
             daily_stats_df.to_excel(writer, sheet_name="Daily_Statistics", index=False)
-            st.success(f"📅 Generated daily statistics for {len(daily_stats_df)} exam days")
+            st.success(f"📅 Generated daily statistics for {len(daily_stats_df)} exam days with campus-wise student counts")
         
         # Enhanced summary sheet
         summary_data = {
@@ -1871,7 +1881,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             unmatched_subjects.to_excel(writer, sheet_name="Unmatched_Subjects", index=False)
 
     output.seek(0)
-    st.success(f"📊 **Enhanced verification Excel generated with daily statistics and comprehensive analysis**")
+    st.success(f"📊 **Enhanced verification Excel generated with campus-wise student counts and comprehensive analysis**")
     return output
 
 def convert_semester_to_number(semester_value):
@@ -3519,6 +3529,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
