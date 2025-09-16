@@ -1731,6 +1731,58 @@ def save_verification_excel(original_df, semester_wise_timetable):
     st.write(f"   ⚠️ Unmatched: {unmatched_count} subjects")
     st.write(f"   📈 Match rate: {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
 
+    # NEW: Add category type for summary
+    def get_category(row):
+        if pd.notna(row.get('OE', '')) and str(row['OE']).strip() != '':
+            return "OE"
+        elif row["Is Common Status"] in ["Common Across Semesters", "Common Within Semester"]:
+            return "Common"
+        else:
+            return "Uncommon"
+
+    verification_df['CategoryType'] = verification_df.apply(get_category, axis=1)
+
+    # NEW: Create daily summary
+    scheduled = verification_df[verification_df["Scheduling Status"] == "Scheduled"].copy()
+    
+    if not scheduled.empty:
+        # Convert Exam Date to datetime for sorting
+        scheduled['Exam Date'] = pd.to_datetime(scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce')
+        
+        # Group by date and category
+        daily_group = scheduled.groupby(['Exam Date', 'CategoryType']).agg(
+            Subjects=('Module Abbreviation', 'nunique'),
+            Students=('Student count', 'sum')
+        ).reset_index()
+        
+        # Pivot for categories
+        daily_pivot = daily_group.pivot(
+            index='Exam Date',
+            columns='CategoryType',
+            values=['Subjects', 'Students']
+        ).fillna(0)
+        
+        # Flatten columns
+        daily_pivot.columns = ['_'.join(col).strip() for col in daily_pivot.columns.values]
+        
+        # Add totals
+        daily_pivot['Total_Subjects'] = daily_pivot.filter(like='Subjects_').sum(axis=1)
+        daily_pivot['Total_Students'] = daily_pivot.filter(like='Students_').sum(axis=1)
+        
+        # Sort by date
+        daily_pivot = daily_pivot.sort_index()
+        
+        # Format date back to string
+        daily_pivot.reset_index(inplace=True)
+        daily_pivot['Exam Date'] = daily_pivot['Exam Date'].dt.strftime('%d-%m-%Y')
+        
+        # Reorder columns
+        category_columns = sorted([col for col in daily_pivot.columns if col not in ['Exam Date', 'Total_Subjects', 'Total_Students']])
+        ordered_columns = ['Exam Date'] + category_columns + ['Total_Subjects', 'Total_Students']
+        daily_summary = daily_pivot[ordered_columns]
+    else:
+        daily_summary = pd.DataFrame(columns=['Exam Date', 'Total_Subjects', 'Total_Students'])
+
     # Save to Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -1752,6 +1804,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
         }
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        
+        # NEW: Add daily summary sheet
+        daily_summary.to_excel(writer, sheet_name="Daily Summary", index=False)
         
         # Add unmatched subjects sheet for debugging
         unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
@@ -3406,6 +3461,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
