@@ -404,21 +404,33 @@ def add_header_to_page(pdf, current_date, header_content, branches, time_slot=No
 
 def convert_semester_string_to_roman(semester_str):
     """Convert semester string to Roman numeral"""
-    # Extract number from semester string
     if pd.isna(semester_str):
         return "I"
     
     semester_str = str(semester_str).strip()
     
-    # Handle different semester formats
-    semester_mappings = {
-        "Sem I": "I", "Sem II": "II", "Sem III": "III", "Sem IV": "IV",
-        "Sem V": "V", "Sem VI": "VI", "Sem VII": "VII", "Sem VIII": "VIII",
-        "1": "I", "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI", 
-        "7": "VII", "8": "VIII"
+    # Handle already formatted "Sem X" format
+    if semester_str.startswith("Sem "):
+        # Extract the Roman numeral part
+        roman_part = semester_str.replace("Sem ", "").strip()
+        return roman_part
+    
+    # Handle direct Roman numerals
+    roman_numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
+    if semester_str in roman_numerals:
+        return semester_str
+    
+    # Handle numeric strings
+    number_to_roman = {
+        "1": "I", "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI",
+        "7": "VII", "8": "VIII", "9": "IX", "10": "X", "11": "XI", "12": "XII"
     }
     
-    return semester_mappings.get(semester_str, "I")
+    if semester_str in number_to_roman:
+        return number_to_roman[semester_str]
+    
+    # Default fallback
+    return "I"
 
 def int_to_roman(num):
     """Convert integer to Roman numeral"""
@@ -485,18 +497,108 @@ def read_verification_excel(uploaded_file):
             st.error(f"Missing required columns: {missing_columns}")
             return None
         
-        # Filter out rows with no exam date - handle non-string values safely
-        df['ExamDate'] = df['ExamDate'].astype(str)
-        df = df[df['ExamDate'].notna() & (df['ExamDate'].str.strip() != "") & (df['ExamDate'] != 'nan')]
+        # Clean and process the data
+        st.write("Processing and cleaning data...")
+        
+        # Clean Program column
+        df['Program'] = df['Program'].astype(str).str.strip().str.upper()
+        
+        # Clean Stream column
+        df['Stream'] = df['Stream'].astype(str).str.strip().str.upper()
+        
+        # Clean and process CurrentSession column - handle various formats
+        def clean_session(session_val):
+            if pd.isna(session_val):
+                return "Sem I"
+            
+            session_str = str(session_val).strip()
+            
+            # Handle different session formats
+            session_patterns = {
+                # Direct Roman numerals
+                "I": "Sem I", "II": "Sem II", "III": "Sem III", "IV": "Sem IV",
+                "V": "Sem V", "VI": "Sem VI", "VII": "Sem VII", "VIII": "Sem VIII",
+                "IX": "Sem IX", "X": "Sem X", "XI": "Sem XI", "XII": "Sem XII",
+                
+                # Numbers
+                "1": "Sem I", "2": "Sem II", "3": "Sem III", "4": "Sem IV",
+                "5": "Sem V", "6": "Sem VI", "7": "Sem VII", "8": "Sem VIII",
+                "9": "Sem IX", "10": "Sem X", "11": "Sem XI", "12": "Sem XII",
+                
+                # Already formatted
+                "Sem I": "Sem I", "Sem II": "Sem II", "Sem III": "Sem III", "Sem IV": "Sem IV",
+                "Sem V": "Sem V", "Sem VI": "Sem VI", "Sem VII": "Sem VII", "Sem VIII": "Sem VIII",
+                "Sem IX": "Sem IX", "Sem X": "Sem X", "Sem XI": "Sem XI", "Sem XII": "Sem XII",
+                
+                # Alternative formats
+                "SEMESTER I": "Sem I", "SEMESTER II": "Sem II", "SEMESTER III": "Sem III",
+                "SEMESTER IV": "Sem IV", "SEMESTER V": "Sem V", "SEMESTER VI": "Sem VI",
+                "SEMESTER VII": "Sem VII", "SEMESTER VIII": "Sem VIII"
+            }
+            
+            # Try direct mapping first
+            if session_str in session_patterns:
+                return session_patterns[session_str]
+            
+            # Try to extract Roman numerals or numbers
+            import re
+            # Look for Roman numerals
+            roman_match = re.search(r'\b([IVX]+)\b', session_str.upper())
+            if roman_match:
+                roman = roman_match.group(1)
+                if roman in session_patterns:
+                    return session_patterns[roman]
+            
+            # Look for numbers
+            num_match = re.search(r'\b(\d+)\b', session_str)
+            if num_match:
+                num = num_match.group(1)
+                if num in session_patterns:
+                    return session_patterns[num]
+            
+            # Default fallback
+            st.warning(f"Could not parse session format: '{session_str}', defaulting to 'Sem I'")
+            return "Sem I"
+        
+        df['CurrentSession'] = df['CurrentSession'].apply(clean_session)
+        
+        # Clean Module Description
+        df['ModuleDescription'] = df['ModuleDescription'].astype(str).str.strip()
+        
+        # Clean Module Abbreviation if exists
+        if 'ModuleAbbreviation' in df.columns:
+            df['ModuleAbbreviation'] = df['ModuleAbbreviation'].astype(str).str.strip()
+        
+        # Clean Exam Date and Time
+        df['ExamDate'] = df['ExamDate'].astype(str).str.strip()
+        df['ExamTime'] = df['ExamTime'].astype(str).str.strip()
+        
+        # Clean OE column if exists
+        if 'OE' in df.columns:
+            df['OE'] = df['OE'].astype(str).str.strip()
+            # Replace 'nan' string with actual NaN
+            df.loc[df['OE'] == 'nan', 'OE'] = pd.NA
+        
+        # Filter out rows with no exam date
+        df = df[df['ExamDate'].notna() & (df['ExamDate'] != "") & (df['ExamDate'] != 'nan')]
         
         if df.empty:
-            st.error("No valid exam data found in the file")
+            st.error("No valid exam data found in the file after cleaning")
             return None
         
+        # Show sample of cleaned data
+        st.write("Sample of cleaned data:")
+        sample_cols = ['Program', 'Stream', 'CurrentSession', 'ModuleDescription', 'ExamDate', 'ExamTime']
+        available_sample_cols = [col for col in sample_cols if col in df.columns]
+        st.dataframe(df[available_sample_cols].head(3))
+        
+        st.success(f"Successfully processed {len(df)} records")
         return df
         
     except Exception as e:
         st.error(f"Error reading Excel file: {str(e)}")
+        import traceback
+        st.error(f"Full error details: {traceback.format_exc()}")
         return None
 
 def create_excel_sheets_for_pdf(df):
