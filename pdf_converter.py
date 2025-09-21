@@ -159,6 +159,28 @@ def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
         return wrap_text_cache[cache_key]
+    
+    # Handle multiple subjects separated by newlines
+    if '\n' in text:
+        all_lines = []
+        for line in text.split('\n'):
+            if line.strip():  # Only process non-empty lines
+                line_words = line.split()
+                current_line = ""
+                for word in line_words:
+                    test_line = word if not current_line else current_line + " " + word
+                    if pdf.get_string_width(test_line) <= col_width:
+                        current_line = test_line
+                    else:
+                        if current_line:
+                            all_lines.append(current_line)
+                        current_line = word
+                if current_line:
+                    all_lines.append(current_line)
+        wrap_text_cache[cache_key] = all_lines
+        return all_lines
+    
+    # Original single-line logic
     words = text.split()
     lines = []
     current_line = ""
@@ -167,7 +189,8 @@ def wrap_text(pdf, text, col_width):
         if pdf.get_string_width(test_line) <= col_width:
             current_line = test_line
         else:
-            lines.append(current_line)
+            if current_line:
+                lines.append(current_line)
             current_line = word
     if current_line:
         lines.append(current_line)
@@ -300,8 +323,18 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     
     # Print data rows
     for idx in range(len(df)):
-        row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
-        if not any(cell.strip() for cell in row):
+        row = []
+        for c in columns:
+            cell_value = df.iloc[idx][c] if c in df.columns else ""
+            if pd.notna(cell_value):
+                # Handle newlines in cell content by converting to spaces for display
+                cell_str = str(cell_value).replace('\n', ' | ')  # Use separator for multiple subjects
+            else:
+                cell_str = "---"
+            row.append(cell_str)
+        
+        # Skip completely empty rows
+        if all(cell.strip() in ["", "---"] for cell in row):
             continue
             
         # Check if new page is needed
@@ -552,13 +585,14 @@ def create_excel_sheets_for_pdf(df):
                                 if oe_type and oe_type != 'nan':
                                     subject_display = f"{subject_display} [{oe_type}]"
                                 
-                                # Add exam time if present and different from default
+                                # Add exam time if present (always show exam time)
                                 if exam_time and exam_time != 'nan' and exam_time.strip():
                                     subject_display = f"{subject_display} [{exam_time}]"
                                 
                                 subjects.append(subject_display)
                             
-                            row_data[stream] = ", ".join(subjects)
+                            # Join multiple subjects with line breaks for better display
+                            row_data[stream] = "\n".join(subjects) if len(subjects) > 1 else subjects[0]
                         else:
                             # No subjects for this stream on this date
                             row_data[stream] = "---"
@@ -610,24 +644,21 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
                 
                 # Get column structure - filter out empty streams for display
                 fixed_cols = ["Exam Date"]
-                stream_cols = [c for c in sheet_df.columns if c not in fixed_cols and not c.startswith("Empty_Stream_")]
-                
-                # Always ensure exactly 4 columns total (including empty ones for spacing)
                 all_cols = [c for c in sheet_df.columns if c not in fixed_cols]
-                display_stream_cols = []
                 
-                for col in all_cols:
-                    if col.startswith("Empty_Stream_"):
-                        # Use empty string for padding columns in display
-                        display_stream_cols.append("")
-                    else:
-                        display_stream_cols.append(col)
+                # Separate real streams from empty padding
+                real_stream_cols = [c for c in all_cols if not c.startswith("Empty_Stream_")]
+                empty_padding_count = len([c for c in all_cols if c.startswith("Empty_Stream_")])
                 
-                # Ensure we have exactly 4 stream columns for consistent layout
+                # Create display headers: real stream names + empty strings for padding
+                display_stream_cols = real_stream_cols + [""] * empty_padding_count
+                
+                # Ensure we have exactly 4 columns for consistent layout
                 while len(display_stream_cols) < 4:
                     display_stream_cols.append("")
+                display_stream_cols = display_stream_cols[:4]  # Limit to exactly 4
                 
-                if not stream_cols and not any(display_stream_cols):  # No real streams at all
+                if not real_stream_cols:  # No real streams at all
                     continue
                 
                 cols_to_print = fixed_cols + all_cols  # Use actual column names for data
@@ -647,14 +678,12 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
                 except:
                     pass  # Keep original format if conversion fails
                 
-                # Add page and print table
+                # Add page and print table with real stream names in branches
                 pdf.add_page()
-                
-                # Use display column names for headers but actual data
                 print_table_custom(
                     pdf, sheet_df, cols_to_print, col_widths, 
                     line_height=10, header_content=header_content, 
-                    branches=display_stream_cols, header_names=cols_to_display
+                    branches=real_stream_cols, header_names=cols_to_display
                 )
                 
                 sheets_processed += 1
