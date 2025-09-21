@@ -450,8 +450,9 @@ def read_verification_excel(uploaded_file):
             st.error(f"Missing required columns: {missing_columns}")
             return None
         
-        # Filter out rows with no exam date
-        df = df[df['ExamDate'].notna() & (df['ExamDate'].str.strip() != "")]
+        # Filter out rows with no exam date - handle non-string values safely
+        df['ExamDate'] = df['ExamDate'].astype(str)
+        df = df[df['ExamDate'].notna() & (df['ExamDate'].str.strip() != "") & (df['ExamDate'] != 'nan')]
         
         if df.empty:
             st.error("No valid exam data found in the file")
