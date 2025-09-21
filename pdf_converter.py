@@ -239,7 +239,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None, header_names=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None):
     if df.empty:
         return
     setattr(pdf, '_row_counter', 0)
@@ -302,8 +302,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 71)
         # Filter out empty branches for display
-        display_branches = [b for b in branches if b and b.strip()]
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(display_branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(85)
     else:
         pdf.set_font("Arial", 'I', 10)
@@ -312,14 +311,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 65)
         # Filter out empty branches for display
-        display_branches = [b for b in branches if b and b.strip()]
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(display_branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(71)
     
-    # Print header row - use header_names if provided, otherwise use columns
+    # Print header row
     pdf.set_font("Arial", size=12)
-    header_row = header_names if header_names else columns
-    print_row_custom(pdf, header_row, col_widths, line_height=line_height, header=True)
+    print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     
     # Print data rows
     for idx in range(len(df)):
@@ -327,8 +324,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         for c in columns:
             cell_value = df.iloc[idx][c] if c in df.columns else ""
             if pd.notna(cell_value):
-                # Handle newlines in cell content by converting to spaces for display
-                cell_str = str(cell_value).replace('\n', ' | ')  # Use separator for multiple subjects
+                # Handle pipe separators in cell content properly
+                cell_str = str(cell_value)
             else:
                 cell_str = "---"
             row.append(cell_str)
@@ -353,7 +350,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             # Re-add header to new page
             add_header_to_page(pdf, current_date, header_content, branches, time_slot)
             pdf.set_font("Arial", size=12)
-            print_row_custom(pdf, header_row, col_widths, line_height=line_height, header=True)
+            print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
@@ -642,33 +639,22 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
                     'semester_roman': semester_roman
                 }
                 
-                # Get column structure - filter out empty streams for display
+                # Get column structure - work with actual streams only
                 fixed_cols = ["Exam Date"]
-                all_cols = [c for c in sheet_df.columns if c not in fixed_cols]
+                stream_cols = [c for c in sheet_df.columns if c not in fixed_cols]
                 
-                # Separate real streams from empty padding
-                real_stream_cols = [c for c in all_cols if not c.startswith("Empty_Stream_")]
-                empty_padding_count = len([c for c in all_cols if c.startswith("Empty_Stream_")])
-                
-                # Create display headers: real stream names + empty strings for padding
-                display_stream_cols = real_stream_cols + [""] * empty_padding_count
-                
-                # Ensure we have exactly 4 columns for consistent layout
-                while len(display_stream_cols) < 4:
-                    display_stream_cols.append("")
-                display_stream_cols = display_stream_cols[:4]  # Limit to exactly 4
-                
-                if not real_stream_cols:  # No real streams at all
+                if not stream_cols:
                     continue
                 
-                cols_to_print = fixed_cols + all_cols  # Use actual column names for data
-                cols_to_display = fixed_cols + display_stream_cols  # Use display names for headers
+                # Use actual number of streams, not forced 4
+                actual_stream_count = len(stream_cols)
+                cols_to_print = fixed_cols + stream_cols
                 
-                # Set column widths for exactly 4 stream columns
+                # Set column widths based on actual stream count
                 exam_date_width = 60
                 remaining_width = pdf.w - 2 * pdf.l_margin - exam_date_width
-                stream_width = remaining_width / 4  # Always divide by 4 for consistent layout
-                col_widths = [exam_date_width] + [stream_width] * 4
+                stream_width = remaining_width / actual_stream_count
+                col_widths = [exam_date_width] + [stream_width] * actual_stream_count
                 
                 # Convert exam dates to proper format for display
                 try:
@@ -678,12 +664,12 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
                 except:
                     pass  # Keep original format if conversion fails
                 
-                # Add page and print table with real stream names in branches
+                # Add page and print table with actual streams
                 pdf.add_page()
                 print_table_custom(
                     pdf, sheet_df, cols_to_print, col_widths, 
                     line_height=10, header_content=header_content, 
-                    branches=real_stream_cols, header_names=cols_to_display
+                    branches=stream_cols
                 )
                 
                 sheets_processed += 1
