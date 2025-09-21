@@ -467,25 +467,27 @@ def read_verification_excel(uploaded_file):
 def create_excel_sheets_for_pdf(df):
     """Convert the verification data into the Excel sheet format expected by PDF generator"""
     
-    # Group by Program, Stream, and Session
-    grouped = df.groupby(['Program', 'Stream', 'CurrentSession'])
+    # Group by Program and Session (not Stream) - all streams should be columns on same page
+    grouped = df.groupby(['Program', 'CurrentSession'])
     
     excel_data = {}
     
-    for (program, stream, session), group_df in grouped:
-        # Create sheet name
-        sheet_name = f"{program}_{stream}_Sem_{convert_semester_string_to_roman(session)}"
+    for (program, session), group_df in grouped:
+        # Create sheet name - Program and Session only
+        sheet_name = f"{program}_Sem_{convert_semester_string_to_roman(session)}"
+        
+        # Get all unique streams for this program-session combination
+        all_streams = sorted(group_df['Stream'].unique())
         
         # Process the data for this sheet
         processed_data = []
         
-        # Group by exam date
-        date_groups = group_df.groupby('ExamDate')
+        # Get all unique exam dates for this program-session
+        all_exam_dates = sorted(group_df['ExamDate'].unique())
         
-        for exam_date, date_group in date_groups:
+        for exam_date in all_exam_dates:
             # Format the exam date
             try:
-                # Try to parse the date and format it consistently
                 parsed_date = pd.to_datetime(exam_date, errors='coerce')
                 if pd.notna(parsed_date):
                     formatted_date = parsed_date.strftime("%d-%m-%Y")
@@ -494,42 +496,61 @@ def create_excel_sheets_for_pdf(df):
             except:
                 formatted_date = str(exam_date)
             
-            # Create subject display with exam time
-            subjects = []
-            for _, row in date_group.iterrows():
-                subject_name = str(row.get('ModuleDescription', ''))
-                module_code = str(row.get('ModuleAbbreviation', ''))
-                exam_time = str(row.get('ExamTime', ''))
-                oe_type = str(row.get('OE', '')) if pd.notna(row.get('OE', '')) else ""
-                
-                # Create subject display
-                if module_code and module_code != 'nan':
-                    subject_display = f"{subject_name} - ({module_code})"
-                else:
-                    subject_display = subject_name
-                
-                # Add OE type if present
-                if oe_type and oe_type != 'nan':
-                    subject_display = f"{subject_display} [{oe_type}]"
-                
-                # Add exam time if present and different from default
-                if exam_time and exam_time != 'nan' and exam_time.strip():
-                    subject_display = f"{subject_display} [{exam_time}]"
-                
-                subjects.append(subject_display)
+            # Create row data starting with the exam date
+            row_data = {'Exam Date': formatted_date}
             
-            # Create row data
-            row_data = {
-                'Exam Date': formatted_date,
-                stream: ", ".join(subjects)  # Use stream as column name
-            }
+            # For each stream, find subjects on this date
+            for stream in all_streams:
+                stream_subjects_on_date = group_df[
+                    (group_df['ExamDate'] == exam_date) & 
+                    (group_df['Stream'] == stream)
+                ]
+                
+                if not stream_subjects_on_date.empty:
+                    # Create subject display with exam time for this stream
+                    subjects = []
+                    for _, row in stream_subjects_on_date.iterrows():
+                        subject_name = str(row.get('ModuleDescription', ''))
+                        module_code = str(row.get('ModuleAbbreviation', ''))
+                        exam_time = str(row.get('ExamTime', ''))
+                        oe_type = str(row.get('OE', '')) if pd.notna(row.get('OE', '')) else ""
+                        
+                        # Create subject display
+                        if module_code and module_code != 'nan':
+                            subject_display = f"{subject_name} - ({module_code})"
+                        else:
+                            subject_display = subject_name
+                        
+                        # Add OE type if present
+                        if oe_type and oe_type != 'nan':
+                            subject_display = f"{subject_display} [{oe_type}]"
+                        
+                        # Add exam time if present and different from default
+                        if exam_time and exam_time != 'nan' and exam_time.strip():
+                            subject_display = f"{subject_display} [{exam_time}]"
+                        
+                        subjects.append(subject_display)
+                    
+                    row_data[stream] = ", ".join(subjects)
+                else:
+                    # No subjects for this stream on this date
+                    row_data[stream] = "---"
+            
             processed_data.append(row_data)
         
         # Convert to DataFrame
         if processed_data:
             sheet_df = pd.DataFrame(processed_data)
-            # Fill missing values with "---"
+            # Ensure all stream columns exist and fill missing values with "---"
+            for stream in all_streams:
+                if stream not in sheet_df.columns:
+                    sheet_df[stream] = "---"
             sheet_df = sheet_df.fillna("---")
+            
+            # Reorder columns to have Exam Date first, then streams in alphabetical order
+            column_order = ['Exam Date'] + sorted(all_streams)
+            sheet_df = sheet_df[column_order]
+            
             excel_data[sheet_name] = sheet_df
     
     return excel_data
@@ -546,12 +567,11 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
         if sheet_df.empty:
             continue
         
-        # Parse sheet name to get program, stream, and semester
+        # Parse sheet name to get program and semester (no stream in sheet name anymore)
         try:
             name_parts = sheet_name.split('_')
-            if len(name_parts) >= 4 and name_parts[-2] == "Sem":
-                program = name_parts[0]
-                stream = "_".join(name_parts[1:-2])  # Handle multi-word streams
+            if len(name_parts) >= 3 and name_parts[-2] == "Sem":
+                program = "_".join(name_parts[:-2])  # Everything before _Sem_
                 semester_roman = name_parts[-1]
                 
                 main_branch_full = BRANCH_FULL_FORM.get(program, program)
