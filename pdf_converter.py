@@ -4,6 +4,7 @@ from datetime import datetime
 from fpdf import FPDF
 import os
 import io
+import re
 
 # Set page configuration
 st.set_page_config(
@@ -139,7 +140,7 @@ st.markdown("""
 
 # Define the mapping of main branch abbreviations to full forms
 BRANCH_FULL_FORM = {
-    "B.TECH": "BACHELOR OF TECHNOLOGY",
+    "B TECH": "BACHELOR OF TECHNOLOGY",
     "B TECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
     "M TECH": "MASTER OF TECHNOLOGY",
     "MBA TECH": "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT",
@@ -149,118 +150,11 @@ BRANCH_FULL_FORM = {
 # Define logo path (adjust as needed for your environment)
 LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 
-class PDF(FPDF):
-    def header(self):
-        # Logo
-        if os.path.exists(LOGO_PATH):
-            self.image(LOGO_PATH, 10, 8, 33)
-        # Arial bold 15
-        self.set_font('Arial', 'B', 15)
-        # Move to the right
-        self.cell(80)
-        # Title
-        self.cell(30, 10, 'Exam Timetable', 0, 0, 'C')
-        # Line break
-        self.ln(20)
-
-    def footer(self):
-        # Position at 1.5 cm from bottom
-        self.set_y(-15)
-        # Arial italic 8
-        self.set_font('Arial', 'I', 8)
-        # Page number
-        self.cell(0, 10, 'Page ' + str(self.page_no()), 0, 0, 'C')
-
-def generate_pdf_timetable(sem_dict, pdf_path):
-    pdf = PDF()
-    
-    for sem, df_sem in sorted(sem_dict.items()):
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=f"Semester {sem}", ln=1, align='C')
-        
-        for main_branch in df_sem["MainBranch"].unique():
-            main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
-            df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-            
-            if not df_mb.empty:
-                # Separate non-electives and electives
-                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
-                
-                # Non-electives
-                if not df_non_elec.empty:
-                    pdf.set_font("Arial", 'B', 12)
-                    pdf.cell(200, 10, txt=f"{main_branch_full} - Core Subjects", ln=1)
-                    
-                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                    
-                    pivot_df = df_non_elec.pivot_table(
-                        index=["Exam Date", "Exam Time"],
-                        columns="Stream",
-                        values="Module Description",
-                        aggfunc=lambda x: ", ".join(x)
-                    ).fillna("---")
-                    
-                    # Draw table
-                    col_width = 190 / (len(pivot_df.columns) + 2)  # 2 for date and slot
-                    pdf.set_font("Arial", size=10)
-                    
-                    # Headers
-                    pdf.cell(col_width, 10, "Date", 1)
-                    pdf.cell(col_width, 10, "Exam Time", 1)
-                    for col in pivot_df.columns:
-                        pdf.cell(col_width, 10, col, 1)
-                    pdf.ln()
-                    
-                    for (date, slot), row in pivot_df.iterrows():
-                        pdf.cell(col_width, 10, date.strftime("%d-%m-%Y"), 1)
-                        pdf.cell(col_width, 10, slot, 1)
-                        for val in row:
-                            pdf.cell(col_width, 10, val, 1)
-                        pdf.ln()
-                
-                # Electives
-                if not df_elec.empty:
-                    pdf.set_font("Arial", 'B', 12)
-                    pdf.cell(200, 10, txt=f"{main_branch_full} - Open Electives", ln=1)
-                    
-                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
-                    df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
-                    
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Exam Time'])['Module Description'].apply(
-                        lambda x: ", ".join(x)
-                    ).reset_index()
-                    
-                    # Draw table
-                    col_width = 190 / 4  # OE, Date, Slot, Subjects
-                    pdf.set_font("Arial", size=10)
-                    
-                    # Headers
-                    pdf.cell(col_width, 10, "OE Type", 1)
-                    pdf.cell(col_width, 10, "Date", 1)
-                    pdf.cell(col_width, 10, "Exam Time", 1)
-                    pdf.cell(col_width, 10, "Subjects", 1)
-                    pdf.ln()
-                    
-                    for _, row in elec_pivot.iterrows():
-                        pdf.cell(col_width, 10, row['OE'], 1)
-                        pdf.cell(col_width, 10, row['Exam Date'].strftime("%d-%m-%Y"), 1)
-                        pdf.cell(col_width, 10, row['Exam Time'], 1)
-                        pdf.cell(col_width, 10, row['Module Description'], 1)
-                        pdf.ln()
-    
-    pdf.output(pdf_path)
-
 def read_timetable(uploaded_file):
     df = pd.read_excel(uploaded_file)
     
     # Standardize column names
     df.columns = df.columns.str.strip().str.replace(' ', ' ')
-    
-    # Convert Excel serial dates to proper dates
-    df['Exam Date'] = pd.to_datetime(df['Exam Date'], origin='1899-12-30', unit='d', errors='coerce')
     
     # Separate electives (INTD category or OE not empty)
     df_ele = df[df['Category'] == 'INTD'].copy() if 'Category' in df.columns else pd.DataFrame()
@@ -272,6 +166,21 @@ def read_timetable(uploaded_file):
             df_non_elec[col] = ""
         if col not in df_ele.columns:
             df_ele[col] = ""
+    
+    # Normalize Exam Time
+    def normalize_time(time_str):
+        if pd.isna(time_str):
+            return ""
+        time_str = str(time_str).strip().replace('.', ':').replace('pm', ' PM').replace('am', ' AM')
+        time_str = re.sub(r'noon', 'PM', time_str, flags=re.IGNORECASE)
+        return time_str
+    
+    df_non_elec['Exam Time'] = df_non_elec['Exam Time'].apply(normalize_time)
+    df_ele['Exam Time'] = df_ele['Exam Time'].apply(normalize_time)
+    
+    # Parse Exam Date
+    df_non_elec['Exam Date'] = pd.to_datetime(df_non_elec['Exam Date'], errors='coerce')
+    df_ele['Exam Date'] = pd.to_datetime(df_ele['Exam Date'], errors='coerce')
     
     # Add Branch as School Name + Program
     df_non_elec['Branch'] = df_non_elec['School Name'] + " " + df_non_elec['Program']
@@ -303,6 +212,117 @@ def read_timetable(uploaded_file):
         df_ele['Common across sems'] = False
     
     return pd.concat([df_non_elec, df_ele], ignore_index=True)
+
+class PDF(FPDF):
+    def header(self):
+        # Logo
+        if os.path.exists(LOGO_PATH):
+            self.image(LOGO_PATH, 10, 8, 33)
+        # Arial bold 15
+        self.set_font('Arial', 'B', 15)
+        # Move to the right
+        self.cell(80)
+        # Title
+        self.cell(30, 10, 'Exam Timetable', 0, 0, 'C')
+        # Line break
+        self.ln(20)
+
+    def footer(self):
+        # Position at 1.5 cm from bottom
+        self.set_y(-15)
+        # Arial italic 8
+        self.set_font('Arial', 'I', 8)
+        # Page number
+        self.cell(0, 10, 'Page ' + str(self.page_no()), 0, 0, 'C')
+
+def generate_pdf_timetable(sem_dict, pdf_path):
+    pdf = PDF()
+    
+    for sem in sorted(sem_dict.keys()):
+        df_sem = sem_dict[sem]
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt=f"Semester {sem}", ln=1, align='C')
+        
+        for main_branch in df_sem["MainBranch"].unique():
+            main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+            df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+            
+            if not df_mb.empty:
+                # Separate non-electives and electives
+                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+                
+                # Non-electives
+                if not df_non_elec.empty:
+                    pdf.set_font("Arial", 'B', 12)
+                    pdf.cell(200, 10, txt=f"{main_branch_full} - Core Subjects", ln=1)
+                    
+                    df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], errors='coerce')
+                    df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
+                    
+                    pivot_df = df_non_elec.pivot_table(
+                        index=["Exam Date", "Exam Time"],
+                        columns="Stream",
+                        values="Module Description",
+                        aggfunc=lambda x: ", ".join(x)
+                    ).fillna("---")
+                    
+                    # Draw table
+                    col_width = 190 / (len(pivot_df.columns) + 2)  # 2 for date and slot
+                    pdf.set_font("Arial", size=10)
+                    
+                    # Headers
+                    pdf.cell(col_width, 10, "Date", 1)
+                    pdf.cell(col_width, 10, "Exam Time", 1)
+                    for col in pivot_df.columns:
+                        pdf.cell(col_width, 10, col, 1)
+                    pdf.ln()
+                    
+                    for (date, slot), row in pivot_df.iterrows():
+                        if pd.notna(date):
+                            pdf.cell(col_width, 10, date.strftime("%d-%m-%Y"), 1)
+                        else:
+                            pdf.cell(col_width, 10, "Unknown Date", 1)
+                        pdf.cell(col_width, 10, slot, 1)
+                        for val in row:
+                            pdf.cell(col_width, 10, val, 1)
+                        pdf.ln()
+                
+                # Electives
+                if not df_elec.empty:
+                    pdf.set_font("Arial", 'B', 12)
+                    pdf.cell(200, 10, txt=f"{main_branch_full} - Open Electives", ln=1)
+                    
+                    df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], errors='coerce')
+                    df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
+                    
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Exam Time'])['Module Description'].apply(
+                        lambda x: ", ".join(x)
+                    ).reset_index()
+                    
+                    # Draw table
+                    col_width = 190 / 4  # OE, Date, Slot, Subjects
+                    pdf.set_font("Arial", size=10)
+                    
+                    # Headers
+                    pdf.cell(col_width, 10, "OE Type", 1)
+                    pdf.cell(col_width, 10, "Date", 1)
+                    pdf.cell(col_width, 10, "Exam Time", 1)
+                    pdf.cell(col_width, 10, "Subjects", 1)
+                    pdf.ln()
+                    
+                    for _, row in elec_pivot.iterrows():
+                        pdf.cell(col_width, 10, row['OE'], 1)
+                        if pd.notna(row['Exam Date']):
+                            pdf.cell(col_width, 10, row['Exam Date'].strftime("%d-%m-%Y"), 1)
+                        else:
+                            pdf.cell(col_width, 10, "Unknown Date", 1)
+                        pdf.cell(col_width, 10, row['Exam Time'], 1)
+                        pdf.cell(col_width, 10, row['Module Description'], 1)
+                        pdf.ln()
+    
+    pdf.output(pdf_path)
 
 def main():
     st.markdown("""
