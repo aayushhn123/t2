@@ -7,7 +7,7 @@ import io
 
 # Set page configuration
 st.set_page_config(
-    page_title="Excel to PDF Converter",
+    page_title="Excel to PDF Timetable Converter",
     page_icon="📅",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -39,79 +39,6 @@ st.markdown("""
         opacity: 0.9;
     }
 
-    .stats-section {
-        padding: 1.5rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-    }
-
-    /* Updated metric card with icons */
-    .metric-card {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 1.5rem;
-        border-radius: 8px;
-        color: white;
-        text-align: center;
-        margin: 0.5rem;
-        transition: transform 0.2s;
-    }
-
-    .metric-card:hover {
-        transform: scale(1.05);
-    }
-
-    .metric-card h3 {
-        margin: 0;
-        font-size: 1.8rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .metric-card p {
-        margin: 0.3rem 0 0 0;
-        font-size: 1rem;
-        opacity: 0.9;
-    }
-
-    /* Add gap between difficulty selector and holiday collapsible menu */
-    .stCheckbox + .stExpander {
-        margin-top: 2rem;
-    }
-
-    /* Button hover animations for regular buttons */
-    .stButton>button {
-        transition: all 0.3s ease;
-        border-radius: 5px;
-        border: 1px solid transparent;
-    }
-
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        border: 1px solid #951C1C;
-        background-color: #C73E1D;
-        color: white;
-    }
-
-    /* Download button hover effects (aligned with regular buttons) */
-    .stDownloadButton>button {
-        transition: all 0.3s ease;
-        border-radius: 5px;
-        border: 1px solid transparent;
-    }
-
-    .stDownloadButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        border: 1px solid #951C1C;
-        background-color: #C73E1D;
-        color: white;
-    }
-
     /* Light mode styles */
     @media (prefers-color-scheme: light) {
         .main-header {
@@ -134,11 +61,6 @@ st.markdown("""
             margin: 1rem 0;
         }
 
-        .stats-section {
-            background: #f8f9fa;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
         .status-success {
             background: #d4edda;
             color: #155724;
@@ -155,14 +77,6 @@ st.markdown("""
             border-left: 4px solid #dc3545;
         }
 
-        .status-info {
-            background: #d1ecf1;
-            color: #0c5460;
-            padding: 1rem;
-            border-radius: 5px;
-            border-left: 4px solid #17a2b8;
-        }
-
         .feature-card {
             background: white;
             padding: 1.5rem;
@@ -170,16 +84,6 @@ st.markdown("""
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin: 1rem 0;
             border-left: 4px solid #951C1C;
-        }
-
-        .metric-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        .footer {
-            text-align: center;
-            color: #666;
-            padding: 2rem;
         }
     }
 
@@ -205,11 +109,6 @@ st.markdown("""
             margin: 1rem 0;
         }
 
-        .stats-section {
-            background: #333;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-        }
-
         .status-success {
             background: #2d4b2d;
             color: #e6f4ea;
@@ -226,14 +125,6 @@ st.markdown("""
             border-left: 4px solid #f44336;
         }
 
-        .status-info {
-            background: #2d4b4b;
-            color: #d1ecf1;
-            padding: 1rem;
-            border-radius: 5px;
-            border-left: 4px solid #00bcd4;
-        }
-
         .feature-card {
             background: #333;
             padding: 1.5rem;
@@ -242,27 +133,18 @@ st.markdown("""
             margin: 1rem 0;
             border-left: 4px solid #A23217;
         }
-
-        .metric-card {
-            background: linear-gradient(135deg, #4a5db0 0%, #5a3e8a 100%);
-        }
-
-        .footer {
-            text-align: center;
-            color: #ccc;
-            padding: 2rem;
-        }
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Define the mapping of main branch abbreviations to full forms
 BRANCH_FULL_FORM = {
-    "B.TECH": "BACHELOR OF TECHNOLOGY",
+    "B TECH": "BACHELOR OF TECHNOLOGY",
     "B TECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
     "M TECH": "MASTER OF TECHNOLOGY",
     "MBA TECH": "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT",
-    "MCA": "MASTER OF COMPUTER APPLICATIONS"
+    "MCA": "MASTER OF COMPUTER APPLICATIONS",
+    "DIPLOMA": "DIPLOMA IN ENGINEERING"
 }
 
 # Define logo path (adjust as needed for your environment)
@@ -361,7 +243,7 @@ def generate_pdf_timetable(sem_dict, pdf_path):
                     df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
                     
                     pivot_df = df_non_elec.pivot_table(
-                        index=["Exam Date", "Time Slot"],
+                        index=["Exam Date", "Exam Time"],
                         columns="SubBranch",
                         values="SubjectDisplay",
                         aggfunc=lambda x: ", ".join(x)
@@ -373,7 +255,7 @@ def generate_pdf_timetable(sem_dict, pdf_path):
                     
                     # Headers
                     pdf.cell(col_width, 10, "Date", 1)
-                    pdf.cell(col_width, 10, "Time Slot", 1)
+                    pdf.cell(col_width, 10, "Exam Time", 1)
                     for col in pivot_df.columns:
                         pdf.cell(col_width, 10, col, 1)
                     pdf.ln()
@@ -394,7 +276,7 @@ def generate_pdf_timetable(sem_dict, pdf_path):
                     df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                     df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
                     
-                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
+                    elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Exam Time'])['SubjectDisplay'].apply(
                         lambda x: ", ".join(x)
                     ).reset_index()
                     
@@ -405,14 +287,14 @@ def generate_pdf_timetable(sem_dict, pdf_path):
                     # Headers
                     pdf.cell(col_width, 10, "OE Type", 1)
                     pdf.cell(col_width, 10, "Date", 1)
-                    pdf.cell(col_width, 10, "Time Slot", 1)
+                    pdf.cell(col_width, 10, "Exam Time", 1)
                     pdf.cell(col_width, 10, "Subjects", 1)
                     pdf.ln()
                     
                     for _, row in elec_pivot.iterrows():
                         pdf.cell(col_width, 10, row['OE'], 1)
                         pdf.cell(col_width, 10, row['Exam Date'].strftime("%d-%m-%Y"), 1)
-                        pdf.cell(col_width, 10, row['Time Slot'], 1)
+                        pdf.cell(col_width, 10, row['Exam Time'], 1)
                         pdf.cell(col_width, 10, row['SubjectDisplay'], 1)
                         pdf.ln()
     
@@ -421,8 +303,8 @@ def generate_pdf_timetable(sem_dict, pdf_path):
 def read_timetable(uploaded_file):
     df = pd.read_excel(uploaded_file)
     
-    # Standardize column names
-    df.columns = df.columns.str.strip().str.replace(' ', ' ')
+    # Standardize column names: strip whitespace and replace multiple spaces with single space
+    df.columns = df.columns.str.strip().str.replace(r'\s+', ' ', regex=True)
     
     # Separate electives (based on 'Category' == 'INTD' or 'OE' not empty)
     df_ele = df[df['Category'] == 'INTD'].copy() if 'Category' in df.columns else pd.DataFrame()
@@ -436,8 +318,15 @@ def read_timetable(uploaded_file):
             df_ele[col] = ""
     
     # Add Branch as School Name + Program
-    df_non_elec['Branch'] = df_non_elec['School Name'] + " " + df_non_elec['Program']
-    df_ele['Branch'] = df_ele['School Name'] + " " + df_ele['Program']
+    if 'School Name' in df_non_elec.columns and 'Program' in df_non_elec.columns:
+        df_non_elec['Branch'] = df_non_elec['School Name'] + " " + df_non_elec['Program']
+    else:
+        df_non_elec['Branch'] = ""
+    
+    if 'School Name' in df_ele.columns and 'Program' in df_ele.columns:
+        df_ele['Branch'] = df_ele['School Name'] + " " + df_ele['Program']
+    else:
+        df_ele['Branch'] = ""
     
     df_non_elec['MainBranch'] = df_non_elec['Program'].str.split(',', expand=True)[0].str.strip()
     df_ele['MainBranch'] = df_ele['Program'].str.split(',', expand=True)[0].str.strip()
@@ -469,69 +358,212 @@ def read_timetable(uploaded_file):
 def main():
     st.markdown("""
     <div class="main-header">
-        <h1>📅 Excel to PDF Converter</h1>
-        <p>Convert Excel Timetable to PDF Format</p>
+        <h1>📅 Excel to PDF Timetable Converter</h1>
+        <p>Convert Excel verification files to formatted PDF timetables</p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="upload-section">
-        <h3>📁 Upload Excel File</h3>
-        <p>Upload your timetable data file (.xlsx format)</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Initialize session state
+    if 'pdf_data' not in st.session_state:
+        st.session_state.pdf_data = None
+    if 'processing_complete' not in st.session_state:
+        st.session_state.processing_complete = False
 
-    uploaded_file = st.file_uploader(
-        "Choose an Excel file",
-        type=['xlsx', 'xls'],
-        help="Upload the Excel file containing your timetable data"
-    )
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown("""
+        <div class="upload-section">
+            <h3>📁 Upload Excel Verification File</h3>
+            <p>Upload your verification Excel file with Exam Date and Exam Time columns</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        uploaded_file = st.file_uploader(
+            "Choose an Excel file",
+            type=['xlsx', 'xls'],
+            help="Upload the Excel verification file containing exam dates and times"
+        )
+
+        if uploaded_file is not None:
+            st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
+
+            file_details = {
+                "Filename": uploaded_file.name,
+                "File size": f"{uploaded_file.size / 1024:.2f} KB",
+                "File type": uploaded_file.type
+            }
+
+            st.markdown("#### File Details:")
+            for key, value in file_details.items():
+                st.write(f"**{key}:** {value}")
+
+    with col2:
+        st.markdown("""
+        <div class="feature-card">
+            <h4>🚀 Features</h4>
+            <ul>
+                <li>📊 Direct Excel to PDF conversion</li>
+                <li>📅 Preserves exam dates and times</li>
+                <li>🎯 Program and stream grouping</li>
+                <li>📝 Professional PDF formatting</li>
+                <li>🏫 School header and branding</li>
+                <li>📋 Automatic page management</li>
+                <li>⚡ No scheduling logic applied</li>
+                <li>📱 Mobile-friendly interface</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
     if uploaded_file is not None:
-        st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
-
-        if st.button("🔄 Generate PDF", type="primary", use_container_width=True):
-            with st.spinner("Processing your file... Please wait..."):
+        if st.button("🔄 Convert to PDF", type="primary", use_container_width=True):
+            with st.spinner("Converting your Excel file to PDF... Please wait..."):
                 try:
                     # Read the Excel file
-                    all_data = read_timetable(uploaded_file)
-
-                    # Create semester dictionary
-                    sem_dict = {}
-                    for sem in sorted(all_data["Semester"].unique()):
-                        sem_data = all_data[all_data["Semester"] == sem].copy()
-                        sem_dict[sem] = sem_data
-
-                    # Generate PDF
-                    pdf_output = io.BytesIO()
-                    temp_pdf_path = "temp_timetable.pdf"
-                    generate_pdf_timetable(sem_dict, temp_pdf_path)
-                    with open(temp_pdf_path, "rb") as f:
-                        pdf_output.write(f.read())
-                    pdf_output.seek(0)
-                    if os.path.exists(temp_pdf_path):
-                        os.remove(temp_pdf_path)
-
-                    # Download PDF
-                    st.download_button(
-                        label="📄 Download PDF File",
-                        data=pdf_output,
-                        file_name=f"timetable_pdf_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-
-                    st.markdown('<div class="status-success">🎉 PDF generated successfully!</div>', unsafe_allow_html=True)
-
+                    df = read_timetable(uploaded_file)
+                    
+                    if df is not None:
+                        st.write(f"📊 Processing {len(df)} records from Excel file...")
+                        
+                        # Show preview of data
+                        with st.expander("📋 Data Preview (First 5 rows)"):
+                            st.dataframe(df.head())
+                        
+                        # Create Excel sheets format for PDF
+                        excel_data = create_excel_sheets_for_pdf(df)
+                        
+                        if excel_data:
+                            st.write(f"📋 Created {len(excel_data)} sheets for PDF generation")
+                            
+                            # Generate PDF
+                            temp_pdf_path = "temp_timetable_conversion.pdf"
+                            
+                            if generate_pdf_timetable(excel_data, temp_pdf_path):
+                                # Read the generated PDF
+                                if os.path.exists(temp_pdf_path):
+                                    with open(temp_pdf_path, "rb") as f:
+                                        st.session_state.pdf_data = f.read()
+                                    os.remove(temp_pdf_path)  # Clean up temp file
+                                    
+                                    st.session_state.processing_complete = True
+                                    
+                                    st.markdown('<div class="status-success">🎉 PDF conversion completed successfully!</div>',
+                                              unsafe_allow_html=True)
+                                    
+                                    # Show statistics
+                                    total_records = len(df)
+                                    unique_programs = df['Program'].nunique()
+                                    unique_streams = df['Stream'].nunique() 
+                                    unique_sessions = df['Current Session'].nunique()
+                                    unique_dates = df['Exam Date'].nunique()
+                                    
+                                    st.success(f"📊 Conversion Summary:")
+                                    st.info(f"• Total Records: {total_records}")
+                                    st.info(f"• Programs: {unique_programs}")
+                                    st.info(f"• Streams: {unique_streams}")
+                                    st.info(f"• Sessions: {unique_sessions}")
+                                    st.info(f"• Unique Exam Dates: {unique_dates}")
+                                    st.info(f"• PDF Sheets Generated: {len(excel_data)}")
+                                else:
+                                    st.error("PDF file was not created successfully")
+                            else:
+                                st.error("Failed to generate PDF")
+                        else:
+                            st.error("No valid data found for PDF generation")
+                    else:
+                        st.error("Failed to read Excel file. Please check the format and required columns.")
+                        
                 except Exception as e:
-                    st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>', unsafe_allow_html=True)
+                    st.error(f"An error occurred during conversion: {str(e)}")
 
-    # Display footer
+    # Display results and download option
+    if st.session_state.processing_complete and st.session_state.pdf_data:
+        st.markdown("---")
+        
+        st.markdown("### 📥 Download PDF")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.download_button(
+                label="📄 Download PDF Timetable",
+                data=st.session_state.pdf_data,
+                file_name=f"timetable_converted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        
+        with col2:
+            if st.button("🔄 Convert Another File", use_container_width=True):
+                # Clear session state and rerun
+                st.session_state.processing_complete = False
+                st.session_state.pdf_data = None
+                st.rerun()
+        
+        with col3:
+            # Show file size
+            if st.session_state.pdf_data:
+                pdf_size = len(st.session_state.pdf_data) / 1024  # Size in KB
+                st.metric("PDF Size", f"{pdf_size:.1f} KB")
+        
+        # Preview section
+        st.markdown("### 👁️ Conversion Details")
+        
+        if uploaded_file is not None:
+            try:
+                # Re-read the file for display purposes
+                preview_df = read_timetable(uploaded_file)
+                if preview_df is not None:
+                    # Show data grouping information
+                    st.markdown("#### 📊 Data Organization")
+                    
+                    grouping_info = preview_df.groupby(['Program', 'Stream', 'Current Session']).size().reset_index(name='Count')
+                    st.dataframe(grouping_info, use_container_width=True)
+                    
+                    # Show exam date distribution
+                    st.markdown("#### 📅 Exam Date Distribution")
+                    
+                    date_dist = preview_df['Exam Date'].value_counts().sort_index()
+                    st.bar_chart(date_dist)
+                    
+            except Exception as e:
+                st.warning(f"Could not generate preview: {str(e)}")
+    
+    # Instructions and help
+    st.markdown("---")
+    st.markdown("### 📋 Instructions")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        #### 📁 Required Excel Columns:
+        - **Program**: B TECH, M TECH, etc.
+        - **Stream**: IT, COMPUTER, etc. 
+        - **Current Session**: Sem I, Sem II, etc.
+        - **Module Description**: Subject name
+        - **Exam Date**: Date of examination
+        - **Exam Time**: Time of examination
+        """)
+    
+    with col2:
+        st.markdown("""
+        #### ✨ Optional Columns:
+        - **Module Abbreviation**: Subject code
+        - **OE**: Open elective type (OE1, OE2, etc.)
+        - **School Name**: School name
+        - **Campus Name**: Campus name
+        - **Category**: Subject category
+        - **Student count**: Number of students
+        """)
+
+    # Footer
     st.markdown("---")
     st.markdown("""
-    <div class="footer">
-        <p>🎓 <strong>Excel to PDF Converter</strong></p>
+    <div style="text-align: center; padding: 2rem; color: #666;">
+        <p><strong>📄 Excel to PDF Timetable Converter</strong></p>
         <p>Developed for Timetable Conversion</p>
+        <p style="font-size: 0.9em;">Direct conversion • Professional formatting • School branding • Automatic organization</p>
     </div>
     """, unsafe_allow_html=True)
 
