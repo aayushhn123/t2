@@ -160,40 +160,20 @@ def wrap_text(pdf, text, col_width):
     if cache_key in wrap_text_cache:
         return wrap_text_cache[cache_key]
     
-    # Handle multiple subjects separated by newlines
-    if '\n' in text:
-        all_lines = []
-        for line in text.split('\n'):
-            if line.strip():  # Only process non-empty lines
-                line_words = line.split()
-                current_line = ""
-                for word in line_words:
-                    test_line = word if not current_line else current_line + " " + word
-                    if pdf.get_string_width(test_line) <= col_width:
-                        current_line = test_line
-                    else:
-                        if current_line:
-                            all_lines.append(current_line)
-                        current_line = word
-                if current_line:
-                    all_lines.append(current_line)
-        wrap_text_cache[cache_key] = all_lines
-        return all_lines
-    
-    # Original single-line logic
-    words = text.split()
+    # Handle multiple subjects separated by commas, but wrap as lines
     lines = []
     current_line = ""
+    words = re.split(r'(\s+)', text)  # Split on spaces, keeping them
     for word in words:
-        test_line = word if not current_line else current_line + " " + word
+        test_line = current_line + word
         if pdf.get_string_width(test_line) <= col_width:
             current_line = test_line
         else:
             if current_line:
-                lines.append(current_line)
+                lines.append(current_line.strip())
             current_line = word
     if current_line:
-        lines.append(current_line)
+        lines.append(current_line.strip())
     wrap_text_cache[cache_key] = lines
     return lines
 
@@ -232,7 +212,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         pad_v = (row_h - len(lines) * line_height) / 2 if len(lines) < max_lines else 0
         for j, ln in enumerate(lines):
             pdf.set_xy(cx + cell_padding, y0 + j * line_height + pad_v)
-            pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln, border=0, align='C')
+            pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln, border=0, align='L' if i == 0 else 'C')
         pdf.rect(cx, y0, col_widths[i], row_h)
         pdf.set_xy(cx + col_widths[i], y0)
 
@@ -283,9 +263,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_font("Arial", 'B', 16)
     pdf.rect(10, 30, pdf.w - 20, 14, 'F')
     pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14,
+    pdf.multi_cell(pdf.w - 20, 14,
              "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
-             0, 1, 'C')
+             0, 'C', fill=True)
     pdf.set_font("Arial", 'B', 15)
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
@@ -302,7 +282,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 71)
         # Filter out empty branches for display
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join([b for b in branches if not b.startswith('Empty_Stream_')])}", 0, 1, 'C')
         pdf.set_y(85)
     else:
         pdf.set_font("Arial", 'I', 10)
@@ -311,7 +291,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 65)
         # Filter out empty branches for display
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join([b for b in branches if not b.startswith('Empty_Stream_')])}", 0, 1, 'C')
         pdf.set_y(71)
     
     # Print header row
@@ -324,7 +304,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         for c in columns:
             cell_value = df.iloc[idx][c] if c in df.columns else ""
             if pd.notna(cell_value):
-                # Handle pipe separators in cell content properly
                 cell_str = str(cell_value)
             else:
                 cell_str = "---"
@@ -339,7 +318,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         max_lines = 0
         for i, cell_text in enumerate(row):
             text = str(cell_text) if cell_text is not None else ""
-            avail_w = col_widths[i] - 2 * 2
+            avail_w = col_widths[i] - 4
             lines = wrap_text(pdf, text, avail_w)
             wrapped_cells.append(lines)
             max_lines = max(max_lines, len(lines))
@@ -373,9 +352,9 @@ def add_header_to_page(pdf, current_date, header_content, branches, time_slot=No
     pdf.set_font("Arial", 'B', 16)
     pdf.rect(10, 30, pdf.w - 20, 14, 'F')
     pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14,
+    pdf.multi_cell(pdf.w - 20, 14,
              "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
-             0, 1, 'C')
+             0, 'C', fill=True)
     pdf.set_font("Arial", 'B', 15)
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
@@ -391,7 +370,7 @@ def add_header_to_page(pdf, current_date, header_content, branches, time_slot=No
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join([b for b in branches if not b.startswith('Empty_Stream_')])}", 0, 1, 'C')
         pdf.set_y(85)
     else:
         pdf.set_font("Arial", 'I', 10)
@@ -399,7 +378,7 @@ def add_header_to_page(pdf, current_date, header_content, branches, time_slot=No
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join([b for b in branches if not b.startswith('Empty_Stream_')])}", 0, 1, 'C')
         pdf.set_y(71)
 
 def convert_semester_string_to_roman(semester_str):
@@ -613,29 +592,25 @@ def create_excel_sheets_for_pdf(df):
         # Get all unique streams for this program-session combination
         all_streams = sorted(group_df['Stream'].unique())
         
-        # Split streams into groups of exactly 4
+        # Split streams into groups of up to 4
         streams_per_page = 4
         stream_groups = []
         
         for i in range(0, len(all_streams), streams_per_page):
             stream_group = all_streams[i:i + streams_per_page]
-            
-            # If the last group has less than 4 streams, pad with empty streams
-            while len(stream_group) < streams_per_page:
-                stream_group.append(f"Empty_Stream_{len(stream_group)}")
-            
             stream_groups.append(stream_group)
         
-        # Create a separate sheet for each group of 4 streams
+        # Create a separate sheet for each group of streams
         for group_index, stream_group in enumerate(stream_groups):
             # Create sheet name with group suffix if multiple groups
+            roman_sem = convert_semester_string_to_roman(session)
             if len(stream_groups) > 1:
-                sheet_name = f"{program}_Sem_{convert_semester_string_to_roman(session)}_Part_{group_index + 1}"
+                sheet_name = f"{program}_Sem_{roman_sem}_Part_{group_index + 1}"
             else:
-                sheet_name = f"{program}_Sem_{convert_semester_string_to_roman(session)}"
+                sheet_name = f"{program}_Sem_{roman_sem}"
             
             # Get all unique exam dates for this program-session
-            all_exam_dates = sorted(group_df['ExamDate'].unique())
+            all_exam_dates = sorted(group_df['ExamDate'].unique(), key=lambda x: pd.to_datetime(x, errors='coerce'))
             
             processed_data = []
             
@@ -644,7 +619,7 @@ def create_excel_sheets_for_pdf(df):
                 try:
                     parsed_date = pd.to_datetime(exam_date, errors='coerce')
                     if pd.notna(parsed_date):
-                        formatted_date = parsed_date.strftime("%d-%m-%Y")
+                        formatted_date = parsed_date.strftime("%A, %d %B, %Y")
                     else:
                         formatted_date = str(exam_date)
                 except:
@@ -653,48 +628,44 @@ def create_excel_sheets_for_pdf(df):
                 # Create row data starting with the exam date
                 row_data = {'Exam Date': formatted_date}
                 
-                # For each stream in this group of 4
+                # For each stream in this group
                 for stream in stream_group:
-                    if stream.startswith("Empty_Stream_"):
-                        # This is a padding stream
-                        row_data[stream] = "---"
-                    else:
-                        # Find subjects for this real stream on this date
-                        stream_subjects_on_date = group_df[
-                            (group_df['ExamDate'] == exam_date) & 
-                            (group_df['Stream'] == stream)
-                        ]
-                        
-                        if not stream_subjects_on_date.empty:
-                            # Create subject display with exam time for this stream
-                            subjects = []
-                            for _, row in stream_subjects_on_date.iterrows():
-                                subject_name = str(row.get('ModuleDescription', ''))
-                                module_code = str(row.get('ModuleAbbreviation', ''))
-                                exam_time = str(row.get('ExamTime', ''))
-                                oe_type = str(row.get('OE', '')) if pd.notna(row.get('OE', '')) else ""
-                                
-                                # Create subject display
-                                if module_code and module_code != 'nan':
-                                    subject_display = f"{subject_name} - ({module_code})"
-                                else:
-                                    subject_display = subject_name
-                                
-                                # Add OE type if present
-                                if oe_type and oe_type != 'nan':
-                                    subject_display = f"{subject_display} [{oe_type}]"
-                                
-                                # Add exam time if present (always show exam time)
-                                if exam_time and exam_time != 'nan' and exam_time.strip():
-                                    subject_display = f"{subject_display} [{exam_time}]"
-                                
-                                subjects.append(subject_display)
+                    # Find subjects for this stream on this date
+                    stream_subjects_on_date = group_df[
+                        (group_df['ExamDate'] == exam_date) & 
+                        (group_df['Stream'] == stream)
+                    ]
+                    
+                    if not stream_subjects_on_date.empty:
+                        # Create subject display with exam time for this stream
+                        subjects = []
+                        for _, row in stream_subjects_on_date.iterrows():
+                            subject_name = str(row.get('ModuleDescription', ''))
+                            module_code = str(row.get('ModuleAbbreviation', ''))
+                            exam_time = str(row.get('ExamTime', ''))
+                            oe_type = str(row.get('OE', '')) if pd.notna(row.get('OE', '')) else ""
                             
-                            # Join multiple subjects with line breaks for better display
-                            row_data[stream] = "\n".join(subjects) if len(subjects) > 1 else subjects[0]
-                        else:
-                            # No subjects for this stream on this date
-                            row_data[stream] = "---"
+                            # Create subject display
+                            if module_code and module_code != 'nan':
+                                subject_display = f"{subject_name} - ({module_code})"
+                            else:
+                                subject_display = subject_name
+                            
+                            # Add OE type if present
+                            if oe_type and oe_type != 'nan':
+                                subject_display = f"{subject_display} [{oe_type}]"
+                            
+                            # Add exam time if present (always show exam time)
+                            if exam_time and exam_time != 'nan' and exam_time.strip():
+                                subject_display = f"{subject_display} [{exam_time}]"
+                            
+                            subjects.append(subject_display)
+                        
+                        # Join multiple subjects with commas
+                        row_data[stream] = ", ".join(subjects) if len(subjects) > 1 else subjects[0]
+                    else:
+                        # No subjects for this stream on this date
+                        row_data[stream] = "---"
                 
                 processed_data.append(row_data)
             
@@ -702,15 +673,12 @@ def create_excel_sheets_for_pdf(df):
             if processed_data:
                 sheet_df = pd.DataFrame(processed_data)
                 
-                # Ensure all stream columns exist and fill missing values with "---"
-                for stream in stream_group:
-                    if stream not in sheet_df.columns:
-                        sheet_df[stream] = "---"
-                sheet_df = sheet_df.fillna("---")
-                
-                # Reorder columns to have Exam Date first, then the 4 streams in order
+                # Reorder columns to have Exam Date first, then the streams in order
                 column_order = ['Exam Date'] + stream_group
                 sheet_df = sheet_df[column_order]
+                
+                # Fill any missing cells with "---"
+                sheet_df = sheet_df.fillna("---")
                 
                 excel_data[sheet_name] = sheet_df
     
@@ -718,7 +686,7 @@ def create_excel_sheets_for_pdf(df):
 
 def generate_pdf_from_excel_data(excel_data, output_pdf):
     """Generate PDF from Excel data dictionary"""
-    pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
+    pdf = FPDF()
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
     
@@ -728,54 +696,55 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
         if sheet_df.empty:
             continue
         
-        # Parse sheet name to get program and semester (no stream in sheet name anymore)
+        # Parse sheet name to get program and semester
         try:
             name_parts = sheet_name.split('_')
             if len(name_parts) >= 3 and name_parts[-2] == "Sem":
-                program = "_".join(name_parts[:-2])  # Everything before _Sem_
+                program = "_".join(name_parts[:-2])
                 semester_roman = name_parts[-1]
-                
-                main_branch_full = BRANCH_FULL_FORM.get(program, program)
-                header_content = {
-                    'main_branch_full': main_branch_full, 
-                    'semester_roman': semester_roman
-                }
-                
-                # Get column structure - work with actual streams only
-                fixed_cols = ["Exam Date"]
-                stream_cols = [c for c in sheet_df.columns if c not in fixed_cols]
-                
-                if not stream_cols:
-                    continue
-                
-                # Use actual number of streams, not forced 4
-                actual_stream_count = len(stream_cols)
-                cols_to_print = fixed_cols + stream_cols
-                
-                # Set column widths based on actual stream count
-                exam_date_width = 60
-                remaining_width = pdf.w - 2 * pdf.l_margin - exam_date_width
-                stream_width = remaining_width / actual_stream_count
-                col_widths = [exam_date_width] + [stream_width] * actual_stream_count
-                
-                # Convert exam dates to proper format for display
-                try:
-                    sheet_df["Exam Date"] = pd.to_datetime(
-                        sheet_df["Exam Date"], format="%d-%m-%Y", errors='coerce'
-                    ).dt.strftime("%A, %d %B, %Y")
-                except:
-                    pass  # Keep original format if conversion fails
-                
-                # Add page and print table with actual streams
-                pdf.add_page()
-                print_table_custom(
-                    pdf, sheet_df, cols_to_print, col_widths, 
-                    line_height=10, header_content=header_content, 
-                    branches=stream_cols
-                )
-                
-                sheets_processed += 1
-                
+            else:
+                # Fallback parsing
+                program_parts = []
+                for part in name_parts:
+                    if part == 'Sem':
+                        break
+                    program_parts.append(part)
+                program = '_'.join(program_parts)
+                semester_roman = name_parts[-1] if 'Part' not in name_parts[-1] else name_parts[-3]
+            
+            main_branch_full = BRANCH_FULL_FORM.get(program.replace('_', ' '), program.replace('_', ' '))
+            header_content = {
+                'main_branch_full': main_branch_full, 
+                'semester_roman': semester_roman
+            }
+            
+            # Get column structure
+            fixed_cols = ["Exam Date"]
+            stream_cols = [c for c in sheet_df.columns if c not in fixed_cols]
+            
+            if not stream_cols:
+                continue
+            
+            # Use actual number of streams
+            actual_stream_count = len(stream_cols)
+            cols_to_print = fixed_cols + stream_cols
+            
+            # Set column widths based on actual stream count
+            exam_date_width = 60
+            remaining_width = pdf.w - 20 - exam_date_width
+            stream_width = remaining_width / actual_stream_count if actual_stream_count > 0 else remaining_width
+            col_widths = [exam_date_width] + [stream_width] * actual_stream_count
+            
+            # Add page and print table with actual streams
+            pdf.add_page()
+            print_table_custom(
+                pdf, sheet_df, cols_to_print, col_widths, 
+                line_height=10, header_content=header_content, 
+                branches=stream_cols
+            )
+            
+            sheets_processed += 1
+            
         except Exception as e:
             st.warning(f"Error processing sheet {sheet_name}: {e}")
             continue
