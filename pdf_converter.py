@@ -686,7 +686,7 @@ def create_excel_sheets_for_pdf(df):
 
 def generate_pdf_from_excel_data(excel_data, output_pdf):
     """Generate PDF from Excel data dictionary"""
-    pdf = FPDF()
+    pdf = FPDF(orientation='L', unit='mm', format='A3')
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
     
@@ -729,9 +729,9 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
             actual_stream_count = len(stream_cols)
             cols_to_print = fixed_cols + stream_cols
             
-            # Set column widths based on actual stream count
+            # Set column widths based on A3 size
             exam_date_width = 60
-            remaining_width = pdf.w - 20 - exam_date_width
+            remaining_width = pdf.w - 20 - exam_date_width  # 20 for left and right margins
             stream_width = remaining_width / actual_stream_count if actual_stream_count > 0 else remaining_width
             col_widths = [exam_date_width] + [stream_width] * actual_stream_count
             
