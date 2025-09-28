@@ -625,50 +625,49 @@ def create_excel_sheets_for_pdf(df):
                 except:
                     formatted_date = str(exam_date)
                 
-                # dict of stream to list of subject_display, sorted
-                stream_subjects = {}
+                # Create row data starting with the exam date
+                row_data = {'Exam Date': formatted_date}
+                
+                # For each stream in this group
                 for stream in stream_group:
-                    stream_df = group_df[(group_df['ExamDate'] == exam_date) & (group_df['Stream'] == stream)]
-                    subjects = []
-                    sort_key = 'ModuleAbbreviation' if 'ModuleAbbreviation' in stream_df.columns else 'ModuleDescription'
-                    for _, r in stream_df.sort_values(sort_key).iterrows():
-                        subject_name = str(r.get('ModuleDescription', ''))
-                        module_code = str(r.get('ModuleAbbreviation', ''))
-                        exam_time = str(r.get('ExamTime', ''))
-                        oe_type = str(r.get('OE', '')) if pd.notna(r.get('OE', '')) else ""
-                        
-                        # Create subject display
-                        if module_code and module_code != 'nan':
-                            subject_display = f"{subject_name} - ({module_code})"
-                        else:
-                            subject_display = subject_name
-                        
-                        # Add OE type if present
-                        if oe_type and oe_type != 'nan':
-                            subject_display = f"{subject_display} [{oe_type}]"
-                        
-                        # Add exam time if present (always show exam time)
-                        if exam_time and exam_time != 'nan' and exam_time.strip():
-                            subject_display = f"{subject_display} [{exam_time}]"
-                        
-                        subjects.append(subject_display)
-                    if subjects:
-                        stream_subjects[stream] = subjects
-                
-                if not stream_subjects:
-                    continue
-                
-                # find max subjects
-                max_sub = max(len(subs) for subs in stream_subjects.values()) if stream_subjects else 0
-                
-                for i in range(max_sub):
-                    row_data = {'Exam Date': formatted_date}
+                    # Find subjects for this stream on this date
+                    stream_subjects_on_date = group_df[
+                        (group_df['ExamDate'] == exam_date) & 
+                        (group_df['Stream'] == stream)
+                    ]
                     
-                    for stream in stream_group:
-                        subs = stream_subjects.get(stream, [])
-                        row_data[stream] = subs[i] if i < len(subs) else "---"
-                    
-                    processed_data.append(row_data)
+                    if not stream_subjects_on_date.empty:
+                        # Create subject display with exam time for this stream
+                        subjects = []
+                        for _, row in stream_subjects_on_date.iterrows():
+                            subject_name = str(row.get('ModuleDescription', ''))
+                            module_code = str(row.get('ModuleAbbreviation', ''))
+                            exam_time = str(row.get('ExamTime', ''))
+                            oe_type = str(row.get('OE', '')) if pd.notna(row.get('OE', '')) else ""
+                            
+                            # Create subject display
+                            if module_code and module_code != 'nan':
+                                subject_display = f"{subject_name} - ({module_code})"
+                            else:
+                                subject_display = subject_name
+                            
+                            # Add OE type if present
+                            if oe_type and oe_type != 'nan':
+                                subject_display = f"{subject_display} [{oe_type}]"
+                            
+                            # Add exam time if present (always show exam time)
+                            if exam_time and exam_time != 'nan' and exam_time.strip():
+                                subject_display = f"{subject_display} [{exam_time}]"
+                            
+                            subjects.append(subject_display)
+                        
+                        # Join multiple subjects with commas
+                        row_data[stream] = ", ".join(subjects) if len(subjects) > 1 else subjects[0]
+                    else:
+                        # No subjects for this stream on this date
+                        row_data[stream] = "---"
+                
+                processed_data.append(row_data)
             
             # Convert to DataFrame
             if processed_data:
