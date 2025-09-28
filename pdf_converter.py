@@ -699,20 +699,13 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
         # Parse sheet name to get program and semester
         try:
             name_parts = sheet_name.split('_')
-            if len(name_parts) >= 3 and name_parts[-2] == "Sem":
-                program = "_".join(name_parts[:-2])
-                semester_roman = name_parts[-1]
-            else:
-                # Fallback parsing
-                program_parts = []
-                for part in name_parts:
-                    if part == 'Sem':
-                        break
-                    program_parts.append(part)
-                program = '_'.join(program_parts)
-                semester_roman = name_parts[-1] if 'Part' not in name_parts[-1] else name_parts[-3]
+            sem_index = name_parts.index('Sem')
+            program_parts = name_parts[:sem_index]
+            program = '_'.join(program_parts) if program_parts else ''
+            semester_roman = name_parts[sem_index + 1]
             
-            main_branch_full = BRANCH_FULL_FORM.get(program.replace('_', ' '), program.replace('_', ' '))
+            program_norm = re.sub(r'[.\s]+', ' ', program).strip().upper()
+            main_branch_full = BRANCH_FULL_FORM.get(program_norm, program_norm)
             header_content = {
                 'main_branch_full': main_branch_full, 
                 'semester_roman': semester_roman
