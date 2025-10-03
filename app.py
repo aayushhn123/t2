@@ -319,7 +319,8 @@ def find_next_valid_day_in_range(start_date, end_date, holidays_set):
         current_date += timedelta(days=1)
     return None
 
-def get_preferred_slot(semester):
+def get_preferred_slot(semester, program_type="B TECH"):
+    """Get preferred time slot based on semester and program type"""
     if semester % 2 != 0:  # Odd semester
         odd_sem_position = (semester + 1) // 2
         return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -327,27 +328,42 @@ def get_preferred_slot(semester):
         even_sem_position = semester // 2
         return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
 
-def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
-    """
-    FIXED ZERO-UNSCHEDULED SUPER SCHEDULING FUNCTION: 
-    1. Groups common subjects as atomic units (all instances together)
-    2. Schedules common subjects completely before moving to next day
-    3. Ensures NO common subject is ever split across different dates
-    4. Maintains daily branch coverage and zero-unscheduled guarantee
+def get_preferred_slot_with_capacity(semester, date_str, session_capacity, student_count, max_capacity=1200):
+    """Get preferred slot considering capacity constraints"""
+    base_slot = get_preferred_slot(semester)
     
-    Args:
-        df: DataFrame with ALL subjects (will filter internally)
-        holidays: Set of holiday dates
-        base_date: Start date for scheduling
-        end_date: Maximum allowed end date
+    if date_str not in session_capacity:
+        return base_slot
     
-    Returns:
-        DataFrame with ALL subjects scheduled (ZERO unscheduled guarantee)
+    # Check if preferred slot has capacity
+    session_type = 'morning' if '10:00 AM' in base_slot else 'afternoon'
+    current_capacity = session_capacity[date_str].get(session_type, 0)
+    
+    if current_capacity + student_count <= max_capacity:
+        return base_slot
+    
+    # Try alternate slot
+    alternate_slot = "2:00 PM - 5:00 PM" if base_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
+    alternate_type = 'afternoon' if session_type == 'morning' else 'morning'
+    alternate_capacity = session_capacity[date_str].get(alternate_type, 0)
+    
+    if alternate_capacity + student_count <= max_capacity:
+        return alternate_slot
+    
+    # If neither fits, return None to indicate no slot available
+    return None
+
+
+
+def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1200):
     """
-    st.info("🚀 FIXED ZERO-UNSCHEDULED SUPER SCHEDULING: Atomic common subject grouping → Priority scheduling → Daily completion")
+    FIXED ZERO-UNSCHEDULED SUPER SCHEDULING WITH CAPACITY CONSTRAINTS
+    Now enforces maximum student capacity per time slot (morning/afternoon)
+    """
+    st.info(f"🚀 SCHEDULING with {MAX_STUDENTS_PER_SESSION} students max per session...")
     
     # STEP 1: COMPREHENSIVE SUBJECT ANALYSIS
-    st.write("🔍 **Step 1:** Comprehensive analysis of ALL subjects...")
+    st.write("📋 **Step 1:** Comprehensive analysis of ALL subjects...")
     
     total_subjects_count = len(df)
     
@@ -365,10 +381,33 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     def find_next_valid_day(start_date, holidays_set):
         return find_next_valid_day_in_range(start_date, end_date, holidays_set)
     
-    # STEP 2: CREATE ATOMIC SUBJECT UNITS (CRITICAL FIX)
+    # NEW: Track student counts per date and time slot
+    session_capacity = {}  # Format: {date_str: {'morning': count, 'afternoon': count}}
+    
+    def get_session_capacity(date_str, time_slot):
+        """Get current student count for a session"""
+        if date_str not in session_capacity:
+            session_capacity[date_str] = {'morning': 0, 'afternoon': 0}
+        
+        session_type = 'morning' if '10:00 AM' in time_slot else 'afternoon'
+        return session_capacity[date_str][session_type]
+    
+    def add_to_session_capacity(date_str, time_slot, student_count):
+        """Add students to a session's capacity"""
+        if date_str not in session_capacity:
+            session_capacity[date_str] = {'morning': 0, 'afternoon': 0}
+        
+        session_type = 'morning' if '10:00 AM' in time_slot else 'afternoon'
+        session_capacity[date_str][session_type] += student_count
+    
+    def can_fit_in_session(date_str, time_slot, student_count):
+        """Check if adding these students would exceed capacity"""
+        current_capacity = get_session_capacity(date_str, time_slot)
+        return (current_capacity + student_count) <= MAX_STUDENTS_PER_SESSION
+    
+    # STEP 2: CREATE ATOMIC SUBJECT UNITS (from original code)
     st.write("🔗 **Step 2:** Creating atomic subject units (common subjects as single units)...")
     
-    # Identify ALL unique branch-semester combinations
     all_branch_sem_combinations = set()
     branch_sem_details = {}
     
@@ -383,11 +422,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     
     st.write(f"🎯 **Coverage target:** {len(all_branch_sem_combinations)} branch-semester combinations")
     
-    # Create ATOMIC SUBJECT UNITS - each unit must be scheduled as a whole
+    # Create ATOMIC SUBJECT UNITS
     atomic_subject_units = {}
     
     for module_code, group in eligible_subjects.groupby('ModuleCode'):
-        # Calculate metrics
         branch_sem_combinations = []
         unique_branches = set()
         unique_semesters = set()
@@ -400,12 +438,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         
         frequency = len(set(branch_sem_combinations))
         
-        # Determine if this is a common subject
         is_common_across = group['CommonAcrossSems'].iloc[0] if 'CommonAcrossSems' in group.columns else False
         is_common_within = group['IsCommon'].iloc[0] == 'YES' if 'IsCommon' in group.columns else False
         is_common = is_common_across or is_common_within or frequency > 1
         
-        # Create atomic unit
         atomic_unit = {
             'module_code': module_code,
             'subject_name': group['Subject'].iloc[0],
@@ -414,7 +450,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             'is_common_across': is_common_across,
             'is_common_within': is_common_within,
             'branch_sem_combinations': list(set(branch_sem_combinations)),
-            'all_rows': list(group.index),  # All dataframe indices for this subject
+            'all_rows': list(group.index),
             'group_data': group,
             'scheduled': False,
             'scheduled_date': None,
@@ -426,15 +462,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             'unique_branches': list(unique_branches)
         }
         
-        # Calculate priority score
-        priority_score = frequency * 10  # Base frequency weight
+        priority_score = frequency * 10
         
         if is_common_across:
-            priority_score += 50  # Highest priority
+            priority_score += 50
         elif is_common_within:
-            priority_score += 25  # High priority
+            priority_score += 25
         elif frequency > 1:
-            priority_score += 15  # Medium priority for multi-branch
+            priority_score += 15
         
         if atomic_unit['cross_semester_span']:
             priority_score += 15
@@ -444,23 +479,21 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         atomic_unit['priority_score'] = priority_score
         atomic_subject_units[module_code] = atomic_unit
     
-    # Sort atomic units by priority
     sorted_atomic_units = sorted(atomic_subject_units.values(), key=lambda x: x['priority_score'], reverse=True)
     
-    # Categorize units
     very_high_priority = [unit for unit in sorted_atomic_units if unit['is_common_across'] or unit['frequency'] >= 8]
     high_priority = [unit for unit in sorted_atomic_units if unit['is_common_within'] and unit not in very_high_priority]
     medium_priority = [unit for unit in sorted_atomic_units if unit['frequency'] >= 2 and unit not in very_high_priority and unit not in high_priority]
     low_priority = [unit for unit in sorted_atomic_units if unit not in very_high_priority and unit not in high_priority and unit not in medium_priority]
     
     st.write(f"🎯 **Atomic unit classification:**")
-    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units (common across sems + freq≥8)")
-    st.write(f"   📊 High Priority: {len(high_priority)} units (common within sem)")
-    st.write(f"   📋 Medium Priority: {len(medium_priority)} units (multi-branch)")
-    st.write(f"   📄 Low Priority: {len(low_priority)} units (individual)")
+    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units")
+    st.write(f"   📊 High Priority: {len(high_priority)} units")
+    st.write(f"   📋 Medium Priority: {len(medium_priority)} units")
+    st.write(f"   📄 Low Priority: {len(low_priority)} units")
     
-    # STEP 3: ATOMIC SCHEDULING ENGINE
-    st.write("🚀 **Step 3:** Atomic scheduling engine (no subject splitting allowed)...")
+    # STEP 3: ATOMIC SCHEDULING ENGINE WITH CAPACITY CONSTRAINTS
+    st.write("🚀 **Step 3:** Atomic scheduling with capacity constraints...")
     
     daily_scheduled_branch_sem = {}
     scheduled_count = 0
@@ -468,12 +501,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     scheduling_day = 0
     target_days = 15
     
-    # Create master queue maintaining priority order
     master_queue = very_high_priority + high_priority + medium_priority + low_priority
     unscheduled_units = master_queue.copy()
     
     while scheduling_day < target_days and unscheduled_units:
-        # Find next valid exam day
         exam_date = find_next_valid_day(current_date, holidays)
         if exam_date is None:
             st.warning("⚠️ No more valid exam days available in main scheduling")
@@ -484,17 +515,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         
         st.write(f"📅 **Day {scheduling_day} ({date_str})**")
         
-        # Initialize tracking for this date
         if date_str not in daily_scheduled_branch_sem:
             daily_scheduled_branch_sem[date_str] = set()
         
         day_scheduled_units = []
-        
-        # PHASE A: Schedule atomic units that can fit completely on this day
         units_to_remove = []
         
+        # PHASE A: Schedule atomic units with capacity constraints
         for atomic_unit in unscheduled_units:
-            # Check if this unit can be scheduled on this day (no conflicts)
             conflicts = False
             available_branch_sems = []
             
@@ -505,15 +533,32 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                 else:
                     available_branch_sems.append(branch_sem)
             
-            # If no conflicts, schedule the ENTIRE atomic unit
             if not conflicts and available_branch_sems:
-                # Determine time slot based on semester preference
+                # Determine time slot
                 semester_counts = {}
                 for sem in atomic_unit['unique_semesters']:
                     semester_counts[sem] = semester_counts.get(sem, 0) + 1
                 
                 preferred_semester = max(semester_counts.keys()) if semester_counts else atomic_unit['unique_semesters'][0]
                 time_slot = get_preferred_slot(preferred_semester)
+                
+                # NEW: Calculate total student count for this unit
+                total_students = 0
+                for row_idx in atomic_unit['all_rows']:
+                    student_count = df.loc[row_idx, 'StudentCount']
+                    total_students += int(student_count) if pd.notna(student_count) else 0
+                
+                # NEW: Check if this unit fits in the session capacity
+                if not can_fit_in_session(date_str, time_slot, total_students):
+                    # Try alternate time slot
+                    alternate_slot = "2:00 PM - 5:00 PM" if time_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
+                    
+                    if can_fit_in_session(date_str, alternate_slot, total_students):
+                        time_slot = alternate_slot
+                        st.write(f"  🔄 Moved to alternate slot due to capacity: {atomic_unit['subject_name']}")
+                    else:
+                        # Cannot fit today, skip to next unit
+                        continue
                 
                 # Schedule ALL instances of this subject
                 unit_scheduled_count = 0
@@ -526,6 +571,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                 for branch_sem in atomic_unit['branch_sem_combinations']:
                     daily_scheduled_branch_sem[date_str].add(branch_sem)
                 
+                # NEW: Update capacity tracking
+                add_to_session_capacity(date_str, time_slot, total_students)
+                
                 atomic_unit['scheduled'] = True
                 atomic_unit['scheduled_date'] = date_str
                 atomic_unit['scheduled_slot'] = time_slot
@@ -536,10 +584,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                 
                 unit_type = "COMMON" if atomic_unit['is_common'] else "INDIVIDUAL"
                 st.write(f"  ✅ **{unit_type} ATOMIC:** {atomic_unit['subject_name']} → "
-                        f"{len(atomic_unit['branch_sem_combinations'])} branches "
-                        f"(priority: {atomic_unit['priority_score']}) at {time_slot}")
+                        f"{len(atomic_unit['branch_sem_combinations'])} branches, "
+                        f"{total_students} students at {time_slot}")
                 
-                # CRITICAL: If this is a common subject, verify no splitting occurred
+                # Verify no splitting for common subjects
                 if atomic_unit['is_common']:
                     dates_used = set()
                     for row_idx in atomic_unit['all_rows']:
@@ -552,11 +600,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     else:
                         st.write(f"    ✅ Common subject integrity verified for {atomic_unit['subject_name']}")
         
-        # Remove scheduled units from unscheduled list
         for unit in units_to_remove:
             unscheduled_units.remove(unit)
         
-        # PHASE B: Fill any remaining branch-semester combinations with individual subjects
+        # PHASE B: Fill gaps with capacity awareness
         remaining_branch_sems = list(all_branch_sem_combinations - daily_scheduled_branch_sem[date_str])
         
         if remaining_branch_sems:
@@ -564,23 +611,33 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             
             additional_fills = []
             for atomic_unit in unscheduled_units.copy():
-                if atomic_unit['frequency'] == 1:  # Only individual subjects for gap filling
-                    # Check if this individual subject can fill a remaining slot
-                    unit_branch_sem = atomic_unit['branch_sem_combinations'][0]  # Individual has only one
+                if atomic_unit['frequency'] == 1:
+                    unit_branch_sem = atomic_unit['branch_sem_combinations'][0]
                     
                     if unit_branch_sem in remaining_branch_sems:
-                        # Determine time slot
                         preferred_semester = atomic_unit['unique_semesters'][0]
                         time_slot = get_preferred_slot(preferred_semester)
                         
-                        # Schedule this individual subject
+                        # Check capacity for gap filling
+                        total_students = 0
+                        for row_idx in atomic_unit['all_rows']:
+                            student_count = df.loc[row_idx, 'StudentCount']
+                            total_students += int(student_count) if pd.notna(student_count) else 0
+                        
+                        if not can_fit_in_session(date_str, time_slot, total_students):
+                            alternate_slot = "2:00 PM - 5:00 PM" if time_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
+                            if can_fit_in_session(date_str, alternate_slot, total_students):
+                                time_slot = alternate_slot
+                            else:
+                                continue
+                        
                         for row_idx in atomic_unit['all_rows']:
                             df.loc[row_idx, 'Exam Date'] = date_str
                             df.loc[row_idx, 'Time Slot'] = time_slot
                         
-                        # Update tracking
                         daily_scheduled_branch_sem[date_str].add(unit_branch_sem)
                         remaining_branch_sems.remove(unit_branch_sem)
+                        add_to_session_capacity(date_str, time_slot, total_students)
                         
                         atomic_unit['scheduled'] = True
                         atomic_unit['scheduled_date'] = date_str
@@ -588,21 +645,26 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                         scheduled_count += len(atomic_unit['all_rows'])
                         
                         additional_fills.append(atomic_unit)
-                        
-                        st.write(f"    📄 **GAP FILL:** {atomic_unit['subject_name']} at {time_slot}")
+                        st.write(f"    📄 **GAP FILL:** {atomic_unit['subject_name']} ({total_students} students) at {time_slot}")
             
-            # Remove gap-filled units
             for unit in additional_fills:
                 unscheduled_units.remove(unit)
+        
+        # Display capacity usage
+        morning_capacity = get_session_capacity(date_str, "10:00 AM - 1:00 PM")
+        afternoon_capacity = get_session_capacity(date_str, "2:00 PM - 5:00 PM")
+        
+        st.write(f"  📊 **Session Capacity Usage:**")
+        st.write(f"    Morning: {morning_capacity}/{MAX_STUDENTS_PER_SESSION} students ({morning_capacity/MAX_STUDENTS_PER_SESSION*100:.1f}%)")
+        st.write(f"    Afternoon: {afternoon_capacity}/{MAX_STUDENTS_PER_SESSION} students ({afternoon_capacity/MAX_STUDENTS_PER_SESSION*100:.1f}%)")
         
         # Daily verification
         final_coverage = len(daily_scheduled_branch_sem[date_str])
         coverage_percent = (final_coverage / len(all_branch_sem_combinations)) * 100
         
-        st.write(f"  📊 **Daily Summary:** {len(day_scheduled_units) + len(additional_fills)} units scheduled, "
+        st.write(f"  📊 **Daily Summary:** {len(day_scheduled_units) + len(additional_fills if 'additional_fills' in locals() else [])} units scheduled, "
                 f"{final_coverage}/{len(all_branch_sem_combinations)} branches covered ({coverage_percent:.1f}%)")
         
-        # Progress check
         progress_percent = (scheduled_count / len(eligible_subjects)) * 100
         st.write(f"  📈 **Overall progress:** {scheduled_count}/{len(eligible_subjects)} subjects ({progress_percent:.1f}%)")
         
@@ -610,10 +672,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             st.success(f"🎉 **ALL UNITS SCHEDULED IN TARGET PERIOD!** Completed in {scheduling_day} days")
             break
         
-        # Move to next day
         current_date = exam_date + timedelta(days=1)
     
-    # STEP 4: EXTENDED SCHEDULING FOR REMAINING UNITS
+    # STEP 4: EXTENDED SCHEDULING FOR REMAINING UNITS (from original code)
     if unscheduled_units:
         st.warning(f"⚠️ {len(unscheduled_units)} units still need scheduling - entering extended mode")
         
@@ -633,10 +694,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
             if date_str not in daily_scheduled_branch_sem:
                 daily_scheduled_branch_sem[date_str] = set()
             
-            # Schedule remaining units
             units_scheduled_today = []
             for atomic_unit in unscheduled_units.copy():
-                # Check if unit can be scheduled (no conflicts)
                 conflicts = False
                 for branch_sem in atomic_unit['branch_sem_combinations']:
                     if branch_sem in daily_scheduled_branch_sem[date_str]:
@@ -644,9 +703,21 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                         break
                 
                 if not conflicts:
-                    # Schedule the unit
                     preferred_semester = atomic_unit['unique_semesters'][0]
                     time_slot = get_preferred_slot(preferred_semester)
+                    
+                    # Check capacity
+                    total_students = 0
+                    for row_idx in atomic_unit['all_rows']:
+                        student_count = df.loc[row_idx, 'StudentCount']
+                        total_students += int(student_count) if pd.notna(student_count) else 0
+                    
+                    if not can_fit_in_session(date_str, time_slot, total_students):
+                        alternate_slot = "2:00 PM - 5:00 PM" if time_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
+                        if can_fit_in_session(date_str, alternate_slot, total_students):
+                            time_slot = alternate_slot
+                        else:
+                            continue
                     
                     for row_idx in atomic_unit['all_rows']:
                         df.loc[row_idx, 'Exam Date'] = date_str
@@ -655,18 +726,18 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
                     for branch_sem in atomic_unit['branch_sem_combinations']:
                         daily_scheduled_branch_sem[date_str].add(branch_sem)
                     
+                    add_to_session_capacity(date_str, time_slot, total_students)
                     atomic_unit['scheduled'] = True
                     scheduled_count += len(atomic_unit['all_rows'])
                     units_scheduled_today.append(atomic_unit)
             
-            # Remove scheduled units
             for unit in units_scheduled_today:
                 unscheduled_units.remove(unit)
             
             st.write(f"    📄 Extended day scheduled: {len(units_scheduled_today)} units")
             current_date = exam_date + timedelta(days=1)
     
-    # STEP 5: FINAL VERIFICATION AND STATISTICS
+    # STEP 5: FINAL VERIFICATION AND STATISTICS (from original code)
     st.write("📊 **Step 5:** Final verification and statistics...")
     
     successfully_scheduled = df[
@@ -676,13 +747,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ]
     
-    # CRITICAL: Verify NO common subjects are split
     split_subjects = 0
     properly_grouped_common = 0
     
     for atomic_unit in atomic_subject_units.values():
         if atomic_unit['is_common'] and atomic_unit['scheduled']:
-            # Check if all instances are on the same date
             dates_used = set()
             for row_idx in atomic_unit['all_rows']:
                 exam_date_value = df.loc[row_idx, 'Exam Date']
@@ -698,11 +767,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
     total_days_used = len(daily_scheduled_branch_sem)
     success_rate = (len(successfully_scheduled) / len(eligible_subjects)) * 100
     
-    st.success(f"🏆 **FIXED ATOMIC SCHEDULING COMPLETE:**")
+    st.success(f"🏆 **ATOMIC SCHEDULING WITH CAPACITY CONSTRAINTS COMPLETE:**")
     st.write(f"   📚 **Total subjects scheduled:** {len(successfully_scheduled)}/{len(eligible_subjects)} ({success_rate:.1f}%)")
     st.write(f"   📅 **Days used:** {total_days_used}")
     st.write(f"   ✅ **Properly grouped common subjects:** {properly_grouped_common}")
     st.write(f"   ❌ **Split common subjects:** {split_subjects}")
+    st.write(f"   👥 **Maximum capacity per session:** {MAX_STUDENTS_PER_SESSION} students")
     
     if split_subjects == 0:
         st.success("🎉 **PERFECT: NO COMMON SUBJECTS SPLIT!**")
@@ -711,6 +781,36 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date):
         st.error(f"❌ **CRITICAL: {split_subjects} common subjects were split across dates!**")
     
     return df
+
+def validate_capacity_constraints(df_dict, max_capacity=1200):
+    """
+    Validate that no session exceeds the maximum student capacity
+    Returns: (is_valid, violations_list)
+    """
+    violations = []
+    
+    all_data = pd.concat(df_dict.values(), ignore_index=True)
+    
+    # Group by date and time slot
+    for (date_str, time_slot), group in all_data.groupby(['Exam Date', 'Time Slot']):
+        if pd.isna(date_str) or date_str == "" or date_str == "Out of Range":
+            continue
+        
+        # Calculate total students
+        total_students = group['StudentCount'].fillna(0).sum()
+        
+        if total_students > max_capacity:
+            violations.append({
+                'date': date_str,
+                'time_slot': time_slot,
+                'student_count': int(total_students),
+                'excess': int(total_students - max_capacity),
+                'subjects_count': len(group)
+            })
+    
+    return len(violations) == 0, violations
+
+
     
 def read_timetable(uploaded_file):
     try:
@@ -3035,7 +3135,32 @@ def main():
                         # NEW THREE-PHASE IMPROVED SCHEDULING ORDER:
                         # SUPER SCHEDULING: All subjects in one comprehensive function
                         st.info("🚀 SUPER SCHEDULING: All subjects with frequency-based priority and daily branch coverage")
-                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date)
+                        # After super scheduling
+                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=1200)
+                        # Create semester dictionary for validation
+                        sem_dict_temp = {}
+                        for s in sorted(df_scheduled["Semester"].unique()):
+                            sem_data = df_scheduled[df_scheduled["Semester"] == s].copy()
+                            sem_dict_temp[s] = sem_data    
+
+                        # Validate capacity constraints
+                        is_valid, violations = validate_capacity_constraints(
+                            sem_dict_temp,
+                            max_capacity=1200
+                        )
+
+                        if is_valid:
+                            st.success("✅ All sessions meet the 1200-student capacity constraint!")
+                        else:
+                            st.error(f"⚠️ {len(violations)} session(s) exceed capacity:")
+
+                            for v in violations:
+                                st.warning(
+                                f"  • {v['date']} at {v['time_slot']}: "
+                                f"{v['student_count']} students ({v['excess']} over limit, "
+                                f"{v['subjects_count']} subjects)"
+                                )
+
                         
                         # Step 5: Handle electives if they exist
                         if df_ele is not None and not df_ele.empty:
@@ -3597,6 +3722,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
