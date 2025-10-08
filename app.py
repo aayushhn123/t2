@@ -772,7 +772,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     st.write(f"   📅 **Days used:** {total_days_used}")
     st.write(f"   ✅ **Properly grouped common subjects:** {properly_grouped_common}")
     st.write(f"   ❌ **Split common subjects:** {split_subjects}")
-    st.write(f"   👥 **Maximum capacity per session:** {max_students_per_session} students")  # Update this line
+    st.write(f"   👥 **Maximum capacity per session:** {MAX_STUDENTS_PER_SESSION} students")  # Update this line
     
     if split_subjects == 0:
         st.success("🎉 **PERFECT: NO COMMON SUBJECTS SPLIT!**")
@@ -3739,6 +3739,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
