@@ -3023,7 +3023,7 @@ def main():
                 max_value=2000,
                 value=st.session_state.max_students_per_session,  # Default value
                 step=50,
-                help="Set the maximum number of students allowed in a single session (morning or afternoon)"
+                help="Set the maximum number of students allowed in a single session (morning or afternoon)",
                 key="capacity_slider"
         )
     
@@ -3739,6 +3739,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
