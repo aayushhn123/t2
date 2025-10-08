@@ -772,7 +772,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     st.write(f"   📅 **Days used:** {total_days_used}")
     st.write(f"   ✅ **Properly grouped common subjects:** {properly_grouped_common}")
     st.write(f"   ❌ **Split common subjects:** {split_subjects}")
-    st.write(f"   👥 **Maximum capacity per session:** {MAX_STUDENTS_PER_SESSION} students")
+    st.write(f"   👥 **Maximum capacity per session:** {max_students_per_session} students")  # Update this line
     
     if split_subjects == 0:
         st.success("🎉 **PERFECT: NO COMMON SUBJECTS SPLIT!**")
@@ -3003,6 +3003,20 @@ def main():
         with col2:
             end_date = st.date_input("End date for exams", value=datetime(2025, 5, 30))
             end_date = datetime.combine(end_date, datetime.min.time())
+
+        # ADD THIS NEW SECTION FOR CAPACITY SLIDER
+        st.markdown("#### 👥 Capacity Configuration")
+        max_students_per_session = st.slider(
+                "Maximum Students Per Session",
+                min_value=0,
+                max_value=2000,
+                value=1200,  # Default value
+                step=50,
+                help="Set the maximum number of students allowed in a single session (morning or afternoon)"
+        )
+    
+        # Display capacity info
+        st.info(f"📊 Current capacity: **{max_students_per_session}** students per session")
         
         # Validate date range
         if end_date <= base_date:
@@ -3136,7 +3150,7 @@ def main():
                         # SUPER SCHEDULING: All subjects in one comprehensive function
                         st.info("🚀 SUPER SCHEDULING: All subjects with frequency-based priority and daily branch coverage")
                         # After super scheduling
-                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=2000)
+                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec,holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=max_students_per_session)
                         # Create semester dictionary for validation
                         sem_dict_temp = {}
                         for s in sorted(df_scheduled["Semester"].unique()):
@@ -3145,20 +3159,19 @@ def main():
 
                         # Validate capacity constraints
                         is_valid, violations = validate_capacity_constraints(
-                            sem_dict_temp,
-                            max_capacity=2000
+                            sem_dict_temp, 
+                            max_capacity=max_students_per_session  # Use slider value
                         )
 
                         if is_valid:
-                            st.success("✅ All sessions meet the 2000-student capacity constraint!")
+                            st.success(f"✅ All sessions meet the {max_students_per_session}-student capacity constraint!")
                         else:
                             st.error(f"⚠️ {len(violations)} session(s) exceed capacity:")
-
                             for v in violations:
                                 st.warning(
-                                f"  • {v['date']} at {v['time_slot']}: "
-                                f"{v['student_count']} students ({v['excess']} over limit, "
-                                f"{v['subjects_count']} subjects)"
+                                    f"  • {v['date']} at {v['time_slot']}: "
+                                    f"{v['student_count']} students ({v['excess']} over {max_students_per_session} limit, "
+                                    f"{v['subjects_count']} subjects)"
                                 )
 
                         
@@ -3722,6 +3735,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
