@@ -3005,6 +3005,15 @@ def main():
             end_date = datetime.combine(end_date, datetime.min.time())
 
         # ADD THIS NEW SECTION FOR CAPACITY SLIDER
+        
+        
+        # Validate date range
+        if end_date <= base_date:
+            st.error("❌ End date must be after start date!")
+            end_date = base_date + timedelta(days=30)  # Default to 30 days after start
+            st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
+
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
         st.markdown("#### 👥 Capacity Configuration")
         max_students_per_session = st.slider(
                 "Maximum Students Per Session",
@@ -3017,15 +3026,7 @@ def main():
     
         # Display capacity info
         st.info(f"📊 Current capacity: **{max_students_per_session}** students per session")
-        
-        # Validate date range
-        if end_date <= base_date:
-            st.error("❌ End date must be after start date!")
-            end_date = base_date + timedelta(days=30)  # Default to 30 days after start
-            st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
-
         st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
-
         with st.expander("Holiday Configuration", expanded=True):
             st.markdown("#### 📅 Select Predefined Holidays")
         
@@ -3735,6 +3736,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
