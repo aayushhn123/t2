@@ -328,7 +328,7 @@ def get_preferred_slot(semester, program_type="B TECH"):
         even_sem_position = semester // 2
         return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
 
-def get_preferred_slot_with_capacity(semester, date_str, session_capacity, student_count, max_capacity=1200):
+def get_preferred_slot_with_capacity(semester, date_str, session_capacity, student_count, max_capacity=2000):
     """Get preferred slot considering capacity constraints"""
     base_slot = get_preferred_slot(semester)
     
@@ -355,7 +355,7 @@ def get_preferred_slot_with_capacity(semester, date_str, session_capacity, stude
 
 
 
-def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1200):
+def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=2000):
     """
     FIXED ZERO-UNSCHEDULED SUPER SCHEDULING WITH CAPACITY CONSTRAINTS
     Now enforces maximum student capacity per time slot (morning/afternoon)
@@ -782,7 +782,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     
     return df
 
-def validate_capacity_constraints(df_dict, max_capacity=1200):
+def validate_capacity_constraints(df_dict, max_capacity=2000):
     """
     Validate that no session exceeds the maximum student capacity
     Returns: (is_valid, violations_list)
@@ -3136,7 +3136,7 @@ def main():
                         # SUPER SCHEDULING: All subjects in one comprehensive function
                         st.info("🚀 SUPER SCHEDULING: All subjects with frequency-based priority and daily branch coverage")
                         # After super scheduling
-                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=1200)
+                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=2000)
                         # Create semester dictionary for validation
                         sem_dict_temp = {}
                         for s in sorted(df_scheduled["Semester"].unique()):
@@ -3146,11 +3146,11 @@ def main():
                         # Validate capacity constraints
                         is_valid, violations = validate_capacity_constraints(
                             sem_dict_temp,
-                            max_capacity=1200
+                            max_capacity=2000
                         )
 
                         if is_valid:
-                            st.success("✅ All sessions meet the 1200-student capacity constraint!")
+                            st.success("✅ All sessions meet the 2000-student capacity constraint!")
                         else:
                             st.error(f"⚠️ {len(violations)} session(s) exceed capacity:")
 
@@ -3722,6 +3722,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
