@@ -2990,8 +2990,8 @@ def main():
         st.session_state.overall_date_range = 0
     if 'unique_exam_days' not in st.session_state:
         st.session_state.unique_exam_days = 0
-    if 'MAX_STUDENTS_PER_SESSION' not in st.session_state:
-        st.session_state.MAX_STUDENTS_PER_SESSION = 2000
+    if 'capacity_slider' not in st.session_state:
+        st.session_state.capacity_slider = 2000
 
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
@@ -3017,18 +3017,18 @@ def main():
 
         st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
         st.markdown("#### 👥 Capacity Configuration")
-        MAX_STUDENTS_PER_SESSION = st.slider(
-                "Maximum Students Per Session",
-                min_value=0,
-                max_value=2000,
-                value=st.session_state.MAX_STUDENTS_PER_SESSION,  # Default value
-                step=50,
-                help="Set the maximum number of students allowed in a single session (morning or afternoon)",
-                key="capacity_slider"
+        max_students_per_session = st.slider(
+            "Maximum Students Per Session",
+            min_value=0,
+            max_value=3000,
+            value=st.session_state.capacity_slider,  # Use the session state key for initial value
+            step=50,
+            help="Set the maximum number of students allowed in a single session (morning or afternoon)",
+            key="capacity_slider"  # Keep the key
         )
     
         # Display capacity info
-        st.info(f"📊 Current capacity: **{MAX_STUDENTS_PER_SESSION}** students per session")
+        st.info(f"📊 Current capacity: **{st.session_state.capacity_slider}** students per session")
         st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
         with st.expander("Holiday Configuration", expanded=True):
             st.markdown("#### 📅 Select Predefined Holidays")
@@ -3154,7 +3154,7 @@ def main():
                         # SUPER SCHEDULING: All subjects in one comprehensive function
                         st.info("🚀 SUPER SCHEDULING: All subjects with frequency-based priority and daily branch coverage")
                         # After super scheduling
-                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec,holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=st.session_state.MAX_STUDENTS_PER_SESSION)
+                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec,holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=st.session_state.capacity_slider)
                         # Create semester dictionary for validation
                         sem_dict_temp = {}
                         for s in sorted(df_scheduled["Semester"].unique()):
@@ -3164,17 +3164,17 @@ def main():
                         # Validate capacity constraints
                         is_valid, violations = validate_capacity_constraints(
                             sem_dict_temp, 
-                            max_capacity=st.session_state.MAX_STUDENTS_PER_SESSION # Use slider value
+                                max_capacity=st.session_state.capacity_slider
                         )
 
                         if is_valid:
-                            st.success(f"✅ All sessions meet the {st.session_state.MAX_STUDENTS_PER_SESSION}-student capacity constraint!")
+                            st.success(f"✅ All sessions meet the {st.session_state.capacity_slider}-student capacity constraint!")
                         else:
                             st.error(f"⚠️ {len(violations)} session(s) exceed capacity:")
                             for v in violations:
                                 st.warning(
                                     f"  • {v['date']} at {v['time_slot']}: "
-                                    f"{v['student_count']} students ({v['excess']} over {st.session_state.MAX_STUDENTS_PER_SESSION} limit, "
+                                    f"{v['student_count']} students ({v['excess']} over {st.session_state.capacity_slider} limit, "
                                     f"{v['subjects_count']} subjects)"
                                 )
 
@@ -3739,6 +3739,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
