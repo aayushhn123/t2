@@ -598,6 +598,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     if len(dates_used) > 1:
                         st.error(f"❌ CRITICAL ERROR: {atomic_unit['subject_name']} scheduled across {len(dates_used)} dates!")
                     else:
+                        pass
                         #st.write(f"    ✅ Common subject integrity verified for {atomic_unit['subject_name']}")
         
         for unit in units_to_remove:
@@ -1925,6 +1926,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 unique_subjects_unmatched.add(module_code)
                 
                 if unmatched_count <= 10:  # Show first 10 unmatched for debugging
+                    pass
                     #st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
                      
         except Exception as e:
@@ -2757,6 +2759,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         st.success(f"✅ Gap Optimization: Made {moves_made} moves to fill gaps!")
         with st.expander("📋 Gap Optimization Details"):
             for log in optimization_log:
+                pass
                 #st.write(f"• {log}")
     else:
         st.info("ℹ️ No beneficial moves found for gap optimization (only uncommon subjects considered)")
@@ -2949,6 +2952,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
         st.success(f"✅ OE Optimization: Moved {moves_made} OE groups to completely empty days!")
         with st.expander("📋 OE Optimization Details"):
             for log in optimization_log:
+                pass
                 #st.write(f"• {log}")
     else:
         st.info("ℹ️ OE subjects are already optimally placed or no suitable completely empty days available")
@@ -3079,6 +3083,7 @@ def main():
             if holidays_set:
                 st.markdown("#### Selected Holidays:")
                 for holiday in sorted(holidays_set):
+                    pass
                     #st.write(f"• {holiday.strftime('%B %d, %Y')}")
 
     col1, col2 = st.columns([2, 1])
@@ -3108,6 +3113,7 @@ def main():
 
             st.markdown("#### File Details:")
             for key, value in file_details.items():
+                pass
                 #st.write(f"**{key}:** {value}")
 
     with col2:
@@ -3682,6 +3688,7 @@ def main():
                                 display_df = display_df.set_index('Exam Date')
                                 st.dataframe(display_df, use_container_width=True)
                             else:
+                                pass
                                 #st.write("No core subjects to display")
                                
                         except Exception as e:
@@ -3717,6 +3724,7 @@ def main():
                                 elec_display_df = pd.DataFrame(elec_display_data)
                                 st.dataframe(elec_display_df, use_container_width=True)
                             else:
+                                pass
                                 #st.write("No elective subjects to display")
                                
                         except Exception as e:
@@ -3739,6 +3747,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
