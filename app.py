@@ -1137,7 +1137,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
     pdf.set_font("Arial", size=13)
     pdf.set_xy(10, pdf.h - footer_height + 7)
-    pdf.cell(0, 5, "Signature", 0, 1, 'L')
+    #pdf.cell(0, 5, "Signature", 0, 1, 'L')
     
     # Add page numbers in bottom right
     pdf.set_font("Arial", size=14)
@@ -1244,7 +1244,7 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
     pdf.set_font("Arial", size=13)
     pdf.set_xy(10, pdf.h - footer_height + 7)
-    pdf.cell(0, 5, "Signature", 0, 1, 'L')
+    #pdf.cell(0, 5, "Signature", 0, 1, 'L')
     
     # Add page numbers in bottom right
     pdf.set_font("Arial", size=14)
@@ -3739,6 +3739,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
