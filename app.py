@@ -3399,20 +3399,23 @@ def main():
         # Download options
         st.markdown("### 📥 Download Options")
 
-        col1, col2, col3, col4 = st.columns(4)
+        # Download options
+        st.markdown("### 📥 Download Options")
+
+        col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
             if st.session_state.excel_data:
                 st.download_button(
-                    label="📊 Download Excel File",
-                    data=st.session_state.excel_data,
-                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    key="download_excel"
-                )
-            else:
-                st.button("📊 Excel Not Available", disabled=True, use_container_width=True)
+                label="📊 Download Excel File",
+                data=st.session_state.excel_data,
+                file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="download_excel"
+            )
+        else:
+            st.button("📊 Excel Not Available", disabled=True, use_container_width=True)
 
         with col2:
             if st.session_state.pdf_data:
@@ -3441,6 +3444,10 @@ def main():
                 st.button("📋 Verification Not Available", disabled=True, use_container_width=True)
 
         with col4:
+            # New redirect button
+            st.link_button("🔄 ReUpload Verification File For Changes", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
+           
+        with col5:
             if st.button("🔄 Generate New Timetable", use_container_width=True):
                 # Clear session state and rerun
                 st.session_state.processing_complete = False
@@ -3748,6 +3755,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
