@@ -3414,8 +3414,8 @@ def main():
                 use_container_width=True,
                 key="download_excel"
             )
-        else:
-            st.button("📊 Excel Not Available", disabled=True, use_container_width=True)
+            else:
+                st.button("📊 Excel Not Available", disabled=True, use_container_width=True)
 
         with col2:
             if st.session_state.pdf_data:
@@ -3755,6 +3755,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
