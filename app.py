@@ -664,7 +664,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         coverage_percent = (final_coverage / len(all_branch_sem_combinations)) * 100
         
         #st.write(f"  📊 **Daily Summary:** {len(day_scheduled_units) + len(additional_fills if 'additional_fills' in locals() else [])} units scheduled, "
-                f"{final_coverage}/{len(all_branch_sem_combinations)} branches covered ({coverage_percent:.1f}%)")
+                #f"{final_coverage}/{len(all_branch_sem_combinations)} branches covered ({coverage_percent:.1f}%)")
         
         progress_percent = (scheduled_count / len(eligible_subjects)) * 100
         #st.write(f"  📈 **Overall progress:** {scheduled_count}/{len(eligible_subjects)} subjects ({progress_percent:.1f}%)")
@@ -3747,6 +3747,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
