@@ -3399,9 +3399,6 @@ def main():
         # Download options
         st.markdown("### 📥 Download Options")
 
-        # Download options
-        st.markdown("### 📥 Download Options")
-
         col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
@@ -3445,7 +3442,7 @@ def main():
 
         with col4:
             # New redirect button
-            st.link_button("Re-upload Verification File", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
+            st.link_button("♻️Re-upload Verification File", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
            
         with col5:
             if st.button("🔄 Generate New Timetable", use_container_width=True):
@@ -3755,6 +3752,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
