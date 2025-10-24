@@ -2642,6 +2642,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     if subject_type_counts:
         st.info("📋 Moveable subject breakdown:")
         for subject_type, count in subject_type_counts.items():
+            pass
             #st.write(f"  • {subject_type}: {count} subjects")
     
     # Show breakdown of excluded subjects - FIXED: Handle Series properly
@@ -3747,6 +3748,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
