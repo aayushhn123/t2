@@ -584,8 +584,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 
                 unit_type = "COMMON" if atomic_unit['is_common'] else "INDIVIDUAL"
                 #st.write(f"  ✅ **{unit_type} ATOMIC:** {atomic_unit['subject_name']} → "
-                        f"{len(atomic_unit['branch_sem_combinations'])} branches, "
-                        f"{total_students} students at {time_slot}")
+                       # f"{len(atomic_unit['branch_sem_combinations'])} branches, "
+                       # f"{total_students} students at {time_slot}")
                 
                 # Verify no splitting for common subjects
                 if atomic_unit['is_common']:
@@ -3747,6 +3747,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
