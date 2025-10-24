@@ -1150,12 +1150,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     # Add header
     header_height = 85  # Increased height to accommodate time slot
     pdf.set_y(0)
-    current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
-    pdf.set_font("Arial", size=14)
-    text_width = pdf.get_string_width(current_date)
-    x = pdf.w - 10 - text_width
-    pdf.set_xy(x, 5)
-    pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+    #current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
+    #pdf.set_font("Arial", size=14)
+    #text_width = pdf.get_string_width(current_date)
+    #x = pdf.w - 10 - text_width
+    #pdf.set_xy(x, 5)
+    #pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
     logo_width = 45
     logo_x = (pdf.w - logo_width) / 2
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
@@ -1257,11 +1257,11 @@ def add_footer_with_page_number(pdf, footer_height):
 def add_header_to_page(pdf, current_date, logo_x, logo_width, header_content, branches, time_slot=None):
     """Add header to a new page"""
     pdf.set_y(0)
-    pdf.set_font("Arial", size=14)
-    text_width = pdf.get_string_width(current_date)
-    x = pdf.w - 10 - text_width
-    pdf.set_xy(x, 5)
-    pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+    #pdf.set_font("Arial", size=14)
+    #text_width = pdf.get_string_width(current_date)
+    #x = pdf.w - 10 - text_width
+    #pdf.set_xy(x, 5)
+    #pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
@@ -3739,6 +3739,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
