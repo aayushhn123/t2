@@ -363,7 +363,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     st.info(f"🚀 SCHEDULING with {MAX_STUDENTS_PER_SESSION} students max per session...")
     
     # STEP 1: COMPREHENSIVE SUBJECT ANALYSIS
-    st.write("📋 **Step 1:** Comprehensive analysis of ALL subjects...")
+    ##st.write("📋 **Step 1:** Comprehensive analysis of ALL subjects...")
     
     total_subjects_count = len(df)
     
@@ -406,7 +406,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         return (current_capacity + student_count) <= MAX_STUDENTS_PER_SESSION
     
     # STEP 2: CREATE ATOMIC SUBJECT UNITS (from original code)
-    st.write("🔗 **Step 2:** Creating atomic subject units (common subjects as single units)...")
+    ##st.write("🔗 **Step 2:** Creating atomic subject units (common subjects as single units)...")
     
     all_branch_sem_combinations = set()
     branch_sem_details = {}
@@ -420,7 +420,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             'subbranch': row['SubBranch']
         }
     
-    st.write(f"🎯 **Coverage target:** {len(all_branch_sem_combinations)} branch-semester combinations")
+    ##st.write(f"🎯 **Coverage target:** {len(all_branch_sem_combinations)} branch-semester combinations")
     
     # Create ATOMIC SUBJECT UNITS
     atomic_subject_units = {}
@@ -486,14 +486,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     medium_priority = [unit for unit in sorted_atomic_units if unit['frequency'] >= 2 and unit not in very_high_priority and unit not in high_priority]
     low_priority = [unit for unit in sorted_atomic_units if unit not in very_high_priority and unit not in high_priority and unit not in medium_priority]
     
-    st.write(f"🎯 **Atomic unit classification:**")
-    st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units")
-    st.write(f"   📊 High Priority: {len(high_priority)} units")
-    st.write(f"   📋 Medium Priority: {len(medium_priority)} units")
-    st.write(f"   📄 Low Priority: {len(low_priority)} units")
+    #st.write(f"🎯 **Atomic unit classification:**")
+    #st.write(f"   🔥 Very High Priority: {len(very_high_priority)} units")
+    #st.write(f"   📊 High Priority: {len(high_priority)} units")
+    #st.write(f"   📋 Medium Priority: {len(medium_priority)} units")
+    #st.write(f"   📄 Low Priority: {len(low_priority)} units")
     
     # STEP 3: ATOMIC SCHEDULING ENGINE WITH CAPACITY CONSTRAINTS
-    st.write("🚀 **Step 3:** Atomic scheduling with capacity constraints...")
+    #st.write("🚀 **Step 3:** Atomic scheduling with capacity constraints...")
     
     daily_scheduled_branch_sem = {}
     scheduled_count = 0
@@ -513,7 +513,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         date_str = exam_date.strftime("%d-%m-%Y")
         scheduling_day += 1
         
-        st.write(f"📅 **Day {scheduling_day} ({date_str})**")
+        #st.write(f"📅 **Day {scheduling_day} ({date_str})**")
         
         if date_str not in daily_scheduled_branch_sem:
             daily_scheduled_branch_sem[date_str] = set()
@@ -555,7 +555,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     
                     if can_fit_in_session(date_str, alternate_slot, total_students):
                         time_slot = alternate_slot
-                        st.write(f"  🔄 Moved to alternate slot due to capacity: {atomic_unit['subject_name']}")
+                        #st.write(f"  🔄 Moved to alternate slot due to capacity: {atomic_unit['subject_name']}")
                     else:
                         # Cannot fit today, skip to next unit
                         continue
@@ -583,7 +583,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 units_to_remove.append(atomic_unit)
                 
                 unit_type = "COMMON" if atomic_unit['is_common'] else "INDIVIDUAL"
-                st.write(f"  ✅ **{unit_type} ATOMIC:** {atomic_unit['subject_name']} → "
+                #st.write(f"  ✅ **{unit_type} ATOMIC:** {atomic_unit['subject_name']} → "
                         f"{len(atomic_unit['branch_sem_combinations'])} branches, "
                         f"{total_students} students at {time_slot}")
                 
@@ -598,7 +598,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     if len(dates_used) > 1:
                         st.error(f"❌ CRITICAL ERROR: {atomic_unit['subject_name']} scheduled across {len(dates_used)} dates!")
                     else:
-                        st.write(f"    ✅ Common subject integrity verified for {atomic_unit['subject_name']}")
+                        #st.write(f"    ✅ Common subject integrity verified for {atomic_unit['subject_name']}")
         
         for unit in units_to_remove:
             unscheduled_units.remove(unit)
@@ -607,7 +607,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         remaining_branch_sems = list(all_branch_sem_combinations - daily_scheduled_branch_sem[date_str])
         
         if remaining_branch_sems:
-            st.write(f"  🎯 **FILLING GAPS:** {len(remaining_branch_sems)} remaining slots...")
+            #st.write(f"  🎯 **FILLING GAPS:** {len(remaining_branch_sems)} remaining slots...")
             
             additional_fills = []
             for atomic_unit in unscheduled_units.copy():
@@ -645,7 +645,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         scheduled_count += len(atomic_unit['all_rows'])
                         
                         additional_fills.append(atomic_unit)
-                        st.write(f"    📄 **GAP FILL:** {atomic_unit['subject_name']} ({total_students} students) at {time_slot}")
+                        #st.write(f"    📄 **GAP FILL:** {atomic_unit['subject_name']} ({total_students} students) at {time_slot}")
             
             for unit in additional_fills:
                 unscheduled_units.remove(unit)
@@ -654,19 +654,19 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         morning_capacity = get_session_capacity(date_str, "10:00 AM - 1:00 PM")
         afternoon_capacity = get_session_capacity(date_str, "2:00 PM - 5:00 PM")
         
-        st.write(f"  📊 **Session Capacity Usage:**")
-        st.write(f"    Morning: {morning_capacity}/{MAX_STUDENTS_PER_SESSION} students ({morning_capacity/MAX_STUDENTS_PER_SESSION*100:.1f}%)")
-        st.write(f"    Afternoon: {afternoon_capacity}/{MAX_STUDENTS_PER_SESSION} students ({afternoon_capacity/MAX_STUDENTS_PER_SESSION*100:.1f}%)")
+        #st.write(f"  📊 **Session Capacity Usage:**")
+        #st.write(f"    Morning: {morning_capacity}/{MAX_STUDENTS_PER_SESSION} students ({morning_capacity/MAX_STUDENTS_PER_SESSION*100:.1f}%)")
+        #st.write(f"    Afternoon: {afternoon_capacity}/{MAX_STUDENTS_PER_SESSION} students ({afternoon_capacity/MAX_STUDENTS_PER_SESSION*100:.1f}%)")
         
         # Daily verification
         final_coverage = len(daily_scheduled_branch_sem[date_str])
         coverage_percent = (final_coverage / len(all_branch_sem_combinations)) * 100
         
-        st.write(f"  📊 **Daily Summary:** {len(day_scheduled_units) + len(additional_fills if 'additional_fills' in locals() else [])} units scheduled, "
+        #st.write(f"  📊 **Daily Summary:** {len(day_scheduled_units) + len(additional_fills if 'additional_fills' in locals() else [])} units scheduled, "
                 f"{final_coverage}/{len(all_branch_sem_combinations)} branches covered ({coverage_percent:.1f}%)")
         
         progress_percent = (scheduled_count / len(eligible_subjects)) * 100
-        st.write(f"  📈 **Overall progress:** {scheduled_count}/{len(eligible_subjects)} subjects ({progress_percent:.1f}%)")
+        #st.write(f"  📈 **Overall progress:** {scheduled_count}/{len(eligible_subjects)} subjects ({progress_percent:.1f}%)")
         
         if not unscheduled_units:
             st.success(f"🎉 **ALL UNITS SCHEDULED IN TARGET PERIOD!** Completed in {scheduling_day} days")
@@ -689,7 +689,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             date_str = exam_date.strftime("%d-%m-%Y")
             extended_day += 1
             
-            st.write(f"  📅 **Extended Day {extended_day} ({date_str})**")
+            #st.write(f"  📅 **Extended Day {extended_day} ({date_str})**")
             
             if date_str not in daily_scheduled_branch_sem:
                 daily_scheduled_branch_sem[date_str] = set()
@@ -734,11 +734,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             for unit in units_scheduled_today:
                 unscheduled_units.remove(unit)
             
-            st.write(f"    📄 Extended day scheduled: {len(units_scheduled_today)} units")
+            #st.write(f"    📄 Extended day scheduled: {len(units_scheduled_today)} units")
             current_date = exam_date + timedelta(days=1)
     
     # STEP 5: FINAL VERIFICATION AND STATISTICS (from original code)
-    st.write("📊 **Step 5:** Final verification and statistics...")
+    #st.write("📊 **Step 5:** Final verification and statistics...")
     
     successfully_scheduled = df[
         (df['Exam Date'] != "") & 
@@ -768,11 +768,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     success_rate = (len(successfully_scheduled) / len(eligible_subjects)) * 100
     
     st.success(f"🏆 **ATOMIC SCHEDULING WITH CAPACITY CONSTRAINTS COMPLETE:**")
-    st.write(f"   📚 **Total subjects scheduled:** {len(successfully_scheduled)}/{len(eligible_subjects)} ({success_rate:.1f}%)")
-    st.write(f"   📅 **Days used:** {total_days_used}")
-    st.write(f"   ✅ **Properly grouped common subjects:** {properly_grouped_common}")
-    st.write(f"   ❌ **Split common subjects:** {split_subjects}")
-    st.write(f"   👥 **Maximum capacity per session:** {MAX_STUDENTS_PER_SESSION} students")  # Update this line
+    #st.write(f"   📚 **Total subjects scheduled:** {len(successfully_scheduled)}/{len(eligible_subjects)} ({success_rate:.1f}%)")
+    #st.write(f"   📅 **Days used:** {total_days_used}")
+    #st.write(f"   ✅ **Properly grouped common subjects:** {properly_grouped_common}")
+    #st.write(f"   ❌ **Split common subjects:** {split_subjects}")
+    #st.write(f"   👥 **Maximum capacity per session:** {MAX_STUDENTS_PER_SESSION} students")  # Update this line
     
     if split_subjects == 0:
         st.success("🎉 **PERFECT: NO COMMON SUBJECTS SPLIT!**")
@@ -817,8 +817,8 @@ def read_timetable(uploaded_file):
         df = pd.read_excel(uploaded_file, engine='openpyxl')
         
         # Debug: Show actual column names from the Excel file
-        st.write("📋 **Actual columns in uploaded file:**")
-        st.write(list(df.columns))
+        #st.write("📋 **Actual columns in uploaded file:**")
+        #st.write(list(df.columns))
         
         # Enhanced column mapping to handle more variations
         column_mapping = {
@@ -858,7 +858,7 @@ def read_timetable(uploaded_file):
         for variation in is_common_variations:
             if variation in df.columns:
                 column_mapping[variation] = "IsCommon"
-                st.write(f"✅ Found 'Is Common' column as: '{variation}'")
+                #st.write(f"✅ Found 'Is Common' column as: '{variation}'")
                 break
         else:
             st.warning("⚠️ 'Is Common' column not found in uploaded file. Will create default values.")
@@ -1314,7 +1314,7 @@ def calculate_end_time(start_time, duration_hours):
         end = start + duration
         return end.strftime("%I:%M %p").replace("AM", "AM").replace("PM", "PM")
     except Exception as e:
-        st.write(f"⚠️ Error calculating end time for {start_time}, duration {duration_hours}: {e}")
+        #st.write(f"⚠️ Error calculating end time for {start_time}, duration {duration_hours}: {e}")
         return f"{start_time} + {duration_hours}h"
         
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
@@ -1326,7 +1326,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
-        st.write(f"📊 Read Excel file with {len(df_dict)} sheets: {list(df_dict.keys())}")
+        #st.write(f"📊 Read Excel file with {len(df_dict)} sheets: {list(df_dict.keys())}")
     except Exception as e:
         st.error(f"Error reading Excel file for PDF generation: {e}")
         return
@@ -1407,7 +1407,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             # Check if 'Exam Date' column exists
             if 'Exam Date' not in sheet_df.columns:
                 st.warning(f"⚠️ Missing 'Exam Date' column in sheet {sheet_name}")
-                st.write(f"Available columns: {list(sheet_df.columns)}")
+                #st.write(f"Available columns: {list(sheet_df.columns)}")
                 
                 # Try to handle sheets with no exams
                 if len(sheet_df.columns) >= 2 and 'No exams scheduled' in str(sheet_df.iloc[0, 0]):
@@ -1428,7 +1428,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 st.warning(f"⚠️ No subject columns found in sheet {sheet_name}")
                 continue
             
-            st.write(f"📊 Found {len(sub_branch_cols)} subbranch columns: {sub_branch_cols}")
+            #st.write(f"📊 Found {len(sub_branch_cols)} subbranch columns: {sub_branch_cols}")
             
             exam_date_width = 60
             line_height = 10
@@ -1571,24 +1571,24 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
        st.error(f"Traceback: {traceback.format_exc()}")
    
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
-    st.write("🔄 Starting PDF generation process...")
+    #st.write("🔄 Starting PDF generation process...")
     
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
     
-    st.write("📊 Generating Excel file first...")
+    #st.write("📊 Generating Excel file first...")
     excel_data = save_to_excel(semester_wise_timetable)
     
     if excel_data:
-        st.write(f"💾 Saving temporary Excel file to: {temp_excel}")
+        #st.write(f"💾 Saving temporary Excel file to: {temp_excel}")
         try:
             with open(temp_excel, "wb") as f:
                 f.write(excel_data.getvalue())
-            st.write("✅ Temporary Excel file saved successfully")
+            #st.write("✅ Temporary Excel file saved successfully")
             
             # Verify the Excel file was created and has content
             if os.path.exists(temp_excel):
                 file_size = os.path.getsize(temp_excel)
-                st.write(f"📋 Excel file size: {file_size} bytes")
+                #st.write(f"📋 Excel file size: {file_size} bytes")
                 
                 # Read back and verify sheets
                 try:
@@ -1625,7 +1625,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
         try:
             if os.path.exists(temp_excel):
                 os.remove(temp_excel)
-                st.write("🗑️ Temporary Excel file cleaned up")
+                #st.write("🗑️ Temporary Excel file cleaned up")
         except Exception as e:
             st.warning(f"⚠️ Could not remove temporary file: {e}")
     else:
@@ -1633,7 +1633,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
         return
     
     # Post-process PDF to remove blank pages
-    st.write("🔧 Post-processing PDF to remove blank pages...")
+    #st.write("🔧 Post-processing PDF to remove blank pages...")
     try:
         if not os.path.exists(output_pdf):
             st.error(f"❌ PDF file was not created at {output_pdf}")
@@ -1644,7 +1644,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
         page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
         
         original_pages = len(reader.pages)
-        st.write(f"📄 Original PDF has {original_pages} pages")
+        #st.write(f"📄 Original PDF has {original_pages} pages")
         
         pages_kept = 0
         for page_num in range(len(reader.pages)):
@@ -1663,7 +1663,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
                 writer.add_page(page)
                 pages_kept += 1
                 
-        st.write(f"📄 Kept {pages_kept} pages out of {original_pages}")
+        #st.write(f"📄 Kept {pages_kept} pages out of {original_pages}")
         
         if len(writer.pages) > 0:
             with open(output_pdf, 'wb') as output_file:
@@ -1680,7 +1680,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     # Final verification
     if os.path.exists(output_pdf):
         final_size = os.path.getsize(output_pdf)
-        st.write(f"📄 Final PDF size: {final_size} bytes")
+        #st.write(f"📄 Final PDF size: {final_size} bytes")
         st.success("🎉 PDF generation process completed successfully!")
     else:
         st.error("❌ Final PDF file does not exist!")
@@ -1697,7 +1697,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
     scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False)
     
     # Debug: Check ModuleCode extraction
-    st.write("🔍 **ModuleCode extraction check:**")
+    #st.write("🔍 **ModuleCode extraction check:**")
     module_codes_sample = scheduled_data[['Subject', 'ExtractedModuleCode']].head(3)
     st.dataframe(module_codes_sample)
 
@@ -1726,7 +1726,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
         if standard_name not in actual_columns:
             st.warning(f"⚠️ Column '{standard_name}' not found in original data")
     
-    st.write(f"🔍 **Mapped columns:** {actual_columns}")
+    #st.write(f"🔍 **Mapped columns:** {actual_columns}")
 
     # Create verification dataframe with available columns
     columns_to_include = list(actual_columns.values())
@@ -1778,7 +1778,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                     scheduled_lookup[key] = []
                 scheduled_lookup[key].append(row)
     
-    st.write(f"📊 Created lookup with {len(scheduled_lookup)} unique keys")
+    #st.write(f"📊 Created lookup with {len(scheduled_lookup)} unique keys")
     
     # Process each row for matching
     for idx, row in verification_df.iterrows():
@@ -1800,7 +1800,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             branch = f"{program}-{stream}" if program and stream and program != "nan" and stream != "nan" else program
             
             if not branch:
-                st.write(f"⚠️ Empty branch for module {module_code}")
+                #st.write(f"⚠️ Empty branch for module {module_code}")
                 unmatched_count += 1
                 unique_subjects_unmatched.add(module_code)
                 continue
@@ -1884,7 +1884,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                         verification_df.at[idx, "Exam Time"] = exam_time
                         
                     except Exception as e:
-                        st.write(f"⚠️ Error calculating time for {module_code}: {e}")
+                        #st.write(f"⚠️ Error calculating time for {module_code}: {e}")
                         verification_df.at[idx, "Exam Time"] = str(assigned_time_slot)
                 else:
                     verification_df.at[idx, "Exam Time"] = "TBD"
@@ -1925,7 +1925,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 unique_subjects_unmatched.add(module_code)
                 
                 if unmatched_count <= 10:  # Show first 10 unmatched for debugging
-                    st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
+                    #st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
                      
         except Exception as e:
             st.error(f"Error processing row {idx}: {e}")
@@ -1939,10 +1939,10 @@ def save_verification_excel(original_df, semester_wise_timetable):
     unique_unmatched_count = len(unique_subjects_unmatched)
 
     st.success(f"✅ **Enhanced Verification Results:**")
-    st.write(f"   📊 **Total Instances:** Matched: {matched_count}, Unmatched: {unmatched_count}")
-    st.write(f"   🔗 **Unique Subjects:** Total: {total_unique_subjects}, Matched: {unique_matched_count}, Unmatched: {unique_unmatched_count}")
-    st.write(f"   📈 **Instance Match Rate:** {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
-    st.write(f"   🎯 **Unique Subject Match Rate:** {(unique_matched_count/total_unique_subjects*100):.1f}%")
+    #st.write(f"   📊 **Total Instances:** Matched: {matched_count}, Unmatched: {unmatched_count}")
+    #st.write(f"   🔗 **Unique Subjects:** Total: {total_unique_subjects}, Matched: {unique_matched_count}, Unmatched: {unique_unmatched_count}")
+    #st.write(f"   📈 **Instance Match Rate:** {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
+    #st.write(f"   🎯 **Unique Subject Match Rate:** {(unique_matched_count/total_unique_subjects*100):.1f}%")
 
     # Create daily statistics by campus
     scheduled_subjects = verification_df[verification_df["Scheduling Status"] == "Scheduled"].copy()
@@ -2118,7 +2118,7 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = sheet_name[:31]
                     
                     if not df_non_elec.empty:
-                        st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
+                        #st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
                         
                         # Get semester default time slot
                         semester_default_slot = get_preferred_slot(sem)
@@ -2207,11 +2207,11 @@ def save_to_excel(semester_wise_timetable):
                         # Save to Excel
                         pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         sheets_created += 1
-                        st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
+                        #st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
                         
                     else:
                         # Create empty sheet structure for branches with no subjects
-                        st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
+                        #st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
                         
                         # Get all possible subbranches for this main branch from the semester
                         all_subbranches = df_sem[df_sem["MainBranch"] == main_branch]["SubBranch"].unique()
@@ -2229,7 +2229,7 @@ def save_to_excel(semester_wise_timetable):
                             empty_df = pd.DataFrame(empty_data)
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
-                            st.write(f"✅ Created empty sheet {sheet_name} with structure for subbranches: {', '.join(all_subbranches)}")
+                            #st.write(f"✅ Created empty sheet {sheet_name} with structure for subbranches: {', '.join(all_subbranches)}")
                         else:
                             # If no subbranches, create minimal structure
                             empty_df = pd.DataFrame({
@@ -2238,11 +2238,11 @@ def save_to_excel(semester_wise_timetable):
                             })
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
-                            st.write(f"✅ Created minimal empty sheet {sheet_name}")
+                            #st.write(f"✅ Created minimal empty sheet {sheet_name}")
 
                     # Process electives in a separate sheet (only if electives exist)
                     if not df_elec.empty:
-                        st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
+                        #st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
                         
                         # Create a copy to avoid modifying the original
                         df_elec_processed = df_elec.copy().reset_index(drop=True)
@@ -2309,7 +2309,7 @@ def save_to_excel(semester_wise_timetable):
                             elective_sheet_name = elective_sheet_name[:31]
                         elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
                         sheets_created += 1
-                        st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
+                        #st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
 
             # Check if any sheets were created
             if sheets_created == 0:
@@ -2374,8 +2374,8 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
     df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2_str
     df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"
     
-    st.write(f"✅ OE1 and OE5 scheduled on {elective_day1_str} at 10:00 AM - 1:00 PM")
-    st.write(f"✅ OE2 scheduled on {elective_day2_str} at 2:00 PM - 5:00 PM")
+    #st.write(f"✅ OE1 and OE5 scheduled on {elective_day1_str} at 10:00 AM - 1:00 PM")
+    #st.write(f"✅ OE2 scheduled on {elective_day2_str} at 2:00 PM - 5:00 PM")
     
     return df_ele
 
@@ -2562,8 +2562,8 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         holidays_set
     )
     
-    st.write(f"📊 Analyzing {len(valid_dates_in_range)} valid dates for gap optimization")
-    st.write(f"📅 Current schedule spans from {all_scheduled_dates[0]} to {all_scheduled_dates[-1]}")
+    #st.write(f"📊 Analyzing {len(valid_dates_in_range)} valid dates for gap optimization")
+    #st.write(f"📅 Current schedule spans from {all_scheduled_dates[0]} to {all_scheduled_dates[-1]}")
     
     # Identify gaps in the schedule
     gaps = []
@@ -2587,7 +2587,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                     'available_subbranches': list(available_subbranches)
                 })
     
-    st.write(f"🔍 Found {len(gaps)} gaps to potentially fill")
+    #st.write(f"🔍 Found {len(gaps)} gaps to potentially fill")
     
     # Identify ONLY uncommon moveable subjects
     uncommon_moveable_subjects = []
@@ -2629,7 +2629,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     # Sort uncommon subjects by priority (highest first)
     uncommon_moveable_subjects.sort(key=lambda x: x['priority_score'], reverse=True)
     
-    st.write(f"🎯 Found {len(uncommon_moveable_subjects)} uncommon moveable subjects")
+    #st.write(f"🎯 Found {len(uncommon_moveable_subjects)} uncommon moveable subjects")
     
     # Show breakdown of subject types
     subject_type_counts = {}
@@ -2640,7 +2640,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     if subject_type_counts:
         st.info("📋 Moveable subject breakdown:")
         for subject_type, count in subject_type_counts.items():
-            st.write(f"  • {subject_type}: {count} subjects")
+            #st.write(f"  • {subject_type}: {count} subjects")
     
     # Show breakdown of excluded subjects - FIXED: Handle Series properly
     try:
@@ -2683,7 +2683,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     moves_made = 0
     optimization_log = []
     
-    st.write("🔄 Moving ONLY uncommon subjects...")
+    #st.write("🔄 Moving ONLY uncommon subjects...")
     for gap in gaps:
         gap_date = gap['date']
         available_subbranches = gap['available_subbranches'][:]  # Copy list
@@ -2757,7 +2757,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         st.success(f"✅ Gap Optimization: Made {moves_made} moves to fill gaps!")
         with st.expander("📋 Gap Optimization Details"):
             for log in optimization_log:
-                st.write(f"• {log}")
+                #st.write(f"• {log}")
     else:
         st.info("ℹ️ No beneficial moves found for gap optimization (only uncommon subjects considered)")
     
@@ -2835,7 +2835,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     if not all_dates:
         return sem_dict, 0, []
     
-    st.write(f"📊 Current schedule has exams on {len(all_dates)} different dates")
+    #st.write(f"📊 Current schedule has exams on {len(all_dates)} different dates")
     
     # Get the date range from first to last exam
     start_date = datetime.strptime(all_dates[0], "%d-%m-%Y")
@@ -2856,7 +2856,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     # Sort empty days chronologically
     completely_empty_days.sort(key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
     
-    st.write(f"🔍 Found {len(completely_empty_days)} completely empty days for potential OE optimization")
+    #st.write(f"🔍 Found {len(completely_empty_days)} completely empty days for potential OE optimization")
     
     if not completely_empty_days:
         st.info("ℹ️ No completely empty days available for OE optimization")
@@ -2875,7 +2875,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
         current_oe1_oe5_date = oe1_oe5_data['Exam Date'].iloc[0]
         current_oe1_oe5_date_obj = datetime.strptime(current_oe1_oe5_date, "%d-%m-%Y")
         
-        st.write(f"📅 Current OE1/OE5 date: {current_oe1_oe5_date}")
+        #st.write(f"📅 Current OE1/OE5 date: {current_oe1_oe5_date}")
         
         # Find the earliest completely empty day that comes before current OE1/OE5 date
         best_oe1_oe5_date = None
@@ -2903,7 +2903,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
         if best_oe1_oe5_date and best_oe2_date:
             days_saved = (current_oe1_oe5_date_obj - datetime.strptime(best_oe1_oe5_date, "%d-%m-%Y")).days
             
-            st.write(f"✅ Found optimal placement: OE1/OE5 on {best_oe1_oe5_date}, OE2 on {best_oe2_date}")
+            #st.write(f"✅ Found optimal placement: OE1/OE5 on {best_oe1_oe5_date}, OE2 on {best_oe2_date}")
             
             # Update all OE1/OE5 exams in semester dictionary
             for idx in oe1_oe5_data.index:
@@ -2949,7 +2949,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
         st.success(f"✅ OE Optimization: Moved {moves_made} OE groups to completely empty days!")
         with st.expander("📋 OE Optimization Details"):
             for log in optimization_log:
-                st.write(f"• {log}")
+                #st.write(f"• {log}")
     else:
         st.info("ℹ️ OE subjects are already optimally placed or no suitable completely empty days available")
     
@@ -3079,7 +3079,7 @@ def main():
             if holidays_set:
                 st.markdown("#### Selected Holidays:")
                 for holiday in sorted(holidays_set):
-                    st.write(f"• {holiday.strftime('%B %d, %Y')}")
+                    #st.write(f"• {holiday.strftime('%B %d, %Y')}")
 
     col1, col2 = st.columns([2, 1])
 
@@ -3108,7 +3108,7 @@ def main():
 
             st.markdown("#### File Details:")
             for key, value in file_details.items():
-                st.write(f"**{key}:** {value}")
+                #st.write(f"**{key}:** {value}")
 
     with col2:
         st.markdown("""
@@ -3137,18 +3137,18 @@ def main():
                 try:
                     # Use holidays from session state
                     holidays_set = st.session_state.get('holidays_set', set())
-                    st.write(f"🗓️ Using {len(holidays_set)} holidays: {[h.strftime('%d-%m-%Y') for h in sorted(holidays_set)]}")
+                    #st.write(f"🗓️ Using {len(holidays_set)} holidays: {[h.strftime('%d-%m-%Y') for h in sorted(holidays_set)]}")
                     
                     # Display date range being used
                     date_range_days = (end_date - base_date).days + 1
                     valid_exam_days = len(get_valid_dates_in_range(base_date, end_date, holidays_set))
                     st.info(f"📅 Examination Period: {base_date.strftime('%d-%m-%Y')} to {end_date.strftime('%d-%m-%Y')} ({date_range_days} total days, {valid_exam_days} valid exam days)")
                 
-                    st.write("Reading timetable...")
+                    #st.write("Reading timetable...")
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None:
-                        st.write("Processing subjects...")
+                        #st.write("Processing subjects...")
                         
                         # NEW THREE-PHASE IMPROVED SCHEDULING ORDER:
                         # SUPER SCHEDULING: All subjects in one comprehensive function
@@ -3185,7 +3185,7 @@ def main():
                             non_elec_dates = pd.to_datetime(df_scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             if not non_elec_dates.empty:
                                 max_non_elec_date = max(non_elec_dates).date()
-                                st.write(f"📅 Max non-elective date: {max_non_elec_date.strftime('%d-%m-%Y')}")
+                                #st.write(f"📅 Max non-elective date: {max_non_elec_date.strftime('%d-%m-%Y')}")
                                 
                                 # Check if electives can be scheduled within end date
                                 elective_day1 = find_next_valid_day_for_electives(
@@ -3226,10 +3226,10 @@ def main():
                             with st.expander("📋 Subjects Not Scheduled (Out of Range)"):
                                 for semester in sorted(out_of_range_subjects['Semester'].unique()):
                                     sem_subjects = out_of_range_subjects[out_of_range_subjects['Semester'] == semester]
-                                    st.write(f"**Semester {semester}:** {len(sem_subjects)} subjects")
+                                    #st.write(f"**Semester {semester}:** {len(sem_subjects)} subjects")
                                     for branch in sorted(sem_subjects['Branch'].unique()):
                                         branch_subjects = sem_subjects[sem_subjects['Branch'] == branch]
-                                        st.write(f"  • {branch}: {len(branch_subjects)} subjects")
+                                        #st.write(f"  • {branch}: {len(branch_subjects)} subjects")
                         
                         if not successfully_scheduled.empty:
                             # Sort by semester and date
@@ -3241,14 +3241,14 @@ def main():
                                 sem_data = successfully_scheduled[successfully_scheduled["Semester"] == s].copy()
                                 sem_dict[s] = sem_data
                             
-                            st.write("Optimizing schedule by filling gaps...")
+                            #st.write("Optimizing schedule by filling gaps...")
                             sem_dict, gap_moves_made, gap_optimization_log = optimize_schedule_by_filling_gaps(
                             sem_dict, holidays_set, base_date, end_date
                             )
 
                             # Step 8: Optimize OE subjects AFTER gap optimization
                             if df_ele is not None and not df_ele.empty:
-                                st.write("Optimizing OE subjects...")
+                                #st.write("Optimizing OE subjects...")
                                 sem_dict, oe_moves_made, oe_optimization_log = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)        
                             else:
                                 oe_moves_made = 0
@@ -3285,7 +3285,7 @@ def main():
                             st.session_state.unique_exam_days = unique_exam_days
 
                             # Generate and store downloadable files
-                            st.write("Generating Excel...")
+                            #st.write("Generating Excel...")
                             try:
                                 excel_data = save_to_excel(sem_dict)
                                 if excel_data:
@@ -3298,7 +3298,7 @@ def main():
                                 st.error(f"❌ Excel generation failed: {str(e)}")
                                 st.session_state.excel_data = None
 
-                            st.write("Generating verification file...")
+                            #st.write("Generating verification file...")
                             try:
                                 verification_data = save_verification_excel(original_df, sem_dict)
                                 if verification_data:
@@ -3311,7 +3311,7 @@ def main():
                                 st.error(f"❌ Verification file generation failed: {str(e)}")
                                 st.session_state.verification_data = None
 
-                            st.write("Generating PDF...")
+                            #st.write("Generating PDF...")
                             try:
                                 if sem_dict:
                                     pdf_output = io.BytesIO()
@@ -3682,12 +3682,12 @@ def main():
                                 display_df = display_df.set_index('Exam Date')
                                 st.dataframe(display_df, use_container_width=True)
                             else:
-                                st.write("No core subjects to display")
+                                #st.write("No core subjects to display")
                                
                         except Exception as e:
                             st.error(f"Error displaying core subjects: {str(e)}")
                             # Fallback: show raw data
-                            st.write("Showing raw data:")
+                            #st.write("Showing raw data:")
                             display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot']
                             available_cols = [col for col in display_cols if col in df_non_elec.columns]
                             st.dataframe(df_non_elec[available_cols], use_container_width=True)
@@ -3717,12 +3717,12 @@ def main():
                                 elec_display_df = pd.DataFrame(elec_display_data)
                                 st.dataframe(elec_display_df, use_container_width=True)
                             else:
-                                st.write("No elective subjects to display")
+                                #st.write("No elective subjects to display")
                                
                         except Exception as e:
                             st.error(f"Error displaying elective subjects: {str(e)}")
                             # Fallback: show raw data
-                            st.write("Showing raw data:")
+                            #st.write("Showing raw data:")
                             display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot']
                             available_cols = [col for col in display_cols if col in df_elec.columns]
                             st.dataframe(df_elec[available_cols], use_container_width=True)
@@ -3739,6 +3739,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
