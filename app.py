@@ -12,7 +12,7 @@ from collections import deque, defaultdict
 # Set page configuration
 st.set_page_config(
     page_title="Exam Timetable Generator - College Selector",
-    page_icon="📅",
+    page_icon="calendar",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -117,7 +117,8 @@ st.markdown("""
     /* Button styling */
     .stButton>button {
         width: 100%;
-        min-height: 180px;
+        min-height: 160px !important;
+        height: auto !important;
         padding: 1.5rem;
         font-size: 1.05rem;
         font-weight: 600;
@@ -156,6 +157,21 @@ st.markdown("""
         }
     }
 
+    /* --- NEW: Fix vertical spacing between rows --- */
+    div[data-testid="column"] {
+        padding: 0.25rem 0 !important;
+        margin: 0 !important;
+    }
+
+    div[data-testid="column"] .stButton {
+        margin: 0 !important;
+    }
+
+    div[data-testid="column"] .stButton > button {
+        min-height: 160px !important;
+        height: auto !important;
+    }
+
     .footer {
         text-align: center;
         color: #666;
@@ -173,66 +189,46 @@ st.markdown("""
 
 # List of colleges with icons
 COLLEGES = [
-    {"name": "Mukesh Patel School of Technology Management & Engineering", "icon": "🖥️"},
-    {"name": "School of Business Management", "icon": "💼"},
-    {"name": "Pravin Dalal School of Entrepreneurship & Family Business Management", "icon": "🚀"},
-    {"name": "Anil Surendra Modi School of Commerce", "icon": "📊"},
-    {"name": "School of Commerce", "icon": "💰"},
-    {"name": "Kirit P. Mehta School of Law", "icon": "⚖️"},
-    {"name": "School of Law", "icon": "📜"},
-    {"name": "Shobhaben Pratapbhai Patel School of Pharmacy & Technology Management", "icon": "💊"},
-    {"name": "School of Pharmacy & Technology Management", "icon": "🧪"},
-    {"name": "Sunandan Divatia School of Science", "icon": "🔬"},
-    {"name": "School of Science", "icon": "🧬"},
-    {"name": "Sarla Anil Modi School of Economics", "icon": "📈"},
-    {"name": "Balwant Sheth School of Architecture", "icon": "🏛️"},
-    {"name": "School of Design", "icon": "🎨"},
-    {"name": "Jyoti Dalal School of Liberal Arts", "icon": "📚"},
-    {"name": "School of Performing Arts", "icon": "🎭"},
-    {"name": "School of Hospitality Management", "icon": "🏨"},
-    {"name": "School of Mathematics, Applied Statistics & Analytics", "icon": "📐"},
-    {"name": "School of Branding and Advertising", "icon": "📢"},
-    {"name": "School of Agricultural Sciences & Technology", "icon": "🌾"},
-    {"name": "Centre of Distance and Online Education", "icon": "💻"},
-    {"name": "School of Aviation", "icon": "✈️"}
+    {"name": "Mukesh Patel School of Technology Management & Engineering", "icon": "computer"},
+    {"name": "School of Business Management", "icon": "briefcase"},
+    {"name": "Pravin Dalal School of Entrepreneurship & Family Business Management", "icon": "rocket"},
+    {"name": "Anil Surendra Modi School of Commerce", "icon": "chart-line"},
+    {"name": "School of Commerce", "icon": "money-bill"},
+    {"name": "Kirit P. Mehta School of Law", "icon": "balance-scale"},
+    {"name": "School of Law", "icon": "scroll"},
+    {"name": "Shobhaben Pratapbhai Patel School of Pharmacy & Technology Management", "icon": "pills"},
+    {"name": "School of Pharmacy & Technology Management", "icon": "flask"},
+    {"name": "Sunandan Divatia School of Science", "icon": "microscope"},
+    {"name": "School of Science", "icon": "dna"},
+    {"name": "Sarla Anil Modi School of Economics", "icon": "chart-bar"},
+    {"name": "Balwant Sheth School of Architecture", "icon": "building"},
+    {"name": "School of Design", "icon": "palette"},
+    {"name": "Jyoti Dalal School of Liberal Arts", "icon": "book"},
+    {"name": "School of Performing Arts", "icon": "mask"},
+    {"name": "School of Hospitality Management", "icon": "hotel"},
+    {"name": "School of Mathematics, Applied Statistics & Analytics", "icon": "calculator"},
+    {"name": "School of Branding and Advertising", "icon": "bullhorn"},
+    {"name": "School of Agricultural Sciences & Technology", "icon": "leaf"},
+    {"name": "Centre of Distance and Online Education", "icon": "laptop"},
+    {"name": "School of Aviation", "icon": "plane"}
 ]
 
 def show_college_selector():
     """Display the college selector landing page"""
     st.markdown("""
     <div class="main-header">
-        <h1>📅 Exam Timetable Generator</h1>
+        <h1>Exam Timetable Generator</h1>
         <p>SVKM's NMIMS University</p>
         <p style="font-size: 1rem; margin-top: 1rem;">Select Your School/College</p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("### 🏫 Choose Your School")
+    st.markdown("### Choose Your School")
     st.markdown("Select the school for which you want to generate the exam timetable:")
 
     # Create columns for better layout (3 colleges per row)
     cols_per_row = 3
     num_colleges = len(COLLEGES)
-    
-    # Add custom CSS to force uniform button heights
-    st.markdown("""
-    <style>
-    div[data-testid="column"] {
-        height: 100%;
-    }
-    div[data-testid="column"] > div {
-        height: 100%;
-    }
-    div[data-testid="column"] .stButton {
-        height: 200px;
-    }
-    div[data-testid="column"] .stButton > button {
-        height: 200px !important;
-        min-height: 200px !important;
-        max-height: 200px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
     
     for i in range(0, num_colleges, cols_per_row):
         cols = st.columns(cols_per_row)
@@ -241,8 +237,6 @@ def show_college_selector():
             if idx < num_colleges:
                 college = COLLEGES[idx]
                 with cols[j]:
-                    # Create container div for consistent height
-                    st.markdown(f'<div style="height: 200px;">', unsafe_allow_html=True)
                     if st.button(
                         f"{college['icon']}\n\n{college['name']}", 
                         key=f"college_{idx}",
@@ -250,13 +244,12 @@ def show_college_selector():
                     ):
                         st.session_state.selected_college = college['name']
                         st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
 
     # Footer
     st.markdown("---")
     st.markdown("""
     <div class="footer">
-        <p>🎓 <strong>Unified Exam Timetable Generation System</strong></p>
+        <p><strong>Unified Exam Timetable Generation System</strong></p>
         <p>SVKM's Narsee Monjee Institute of Management Studies (NMIMS)</p>
         <p style="font-size: 0.9em; margin-top: 1rem;">
             Intelligent Scheduling • Conflict Resolution • Multi-Campus Support
@@ -4027,6 +4020,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
