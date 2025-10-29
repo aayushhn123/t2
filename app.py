@@ -11,6 +11,223 @@ from collections import deque, defaultdict
 
 # Set page configuration
 st.set_page_config(
+    page_title="Exam Timetable Generator - College Selector",
+    page_icon="📅",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Initialize session state for college selection
+if 'selected_college' not in st.session_state:
+    st.session_state.selected_college = None
+
+# Custom CSS for college selector
+st.markdown("""
+<style>
+    /* Base styles */
+    .main-header {
+        padding: 2rem;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+        background: linear-gradient(90deg, #951C1C, #C73E1D);
+    }
+
+    .main-header h1 {
+        color: white;
+        text-align: center;
+        margin: 0;
+        font-size: 2.5rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .main-header p {
+        color: #FFF;
+        text-align: center;
+        margin: 0.5rem 0 0 0;
+        font-size: 1.2rem;
+        opacity: 0.9;
+    }
+
+    /* College selector grid */
+    .college-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1.5rem;
+        padding: 2rem;
+        margin: 2rem 0;
+    }
+
+    .college-card {
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border-left: 6px solid #951C1C;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        text-align: center;
+    }
+
+    .college-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 12px rgba(0, 0, 0, 0.2);
+        border-left-color: #C73E1D;
+    }
+
+    .college-card h3 {
+        color: #951C1C;
+        margin: 0;
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
+
+    .college-card .college-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Dark mode styles */
+    @media (prefers-color-scheme: dark) {
+        .main-header {
+            background: linear-gradient(90deg, #701515, #A23217);
+        }
+
+        .college-card {
+            background: #333;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border-left-color: #A23217;
+        }
+
+        .college-card h3 {
+            color: #FFF;
+        }
+
+        .college-card:hover {
+            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.4);
+            border-left-color: #C73E1D;
+        }
+    }
+
+    /* Button styling */
+    .stButton>button {
+        width: 100%;
+        padding: 1rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        border-radius: 8px;
+        border: 2px solid #951C1C;
+        background: white;
+        color: #951C1C;
+        transition: all 0.3s ease;
+    }
+
+    .stButton>button:hover {
+        background: #951C1C;
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    @media (prefers-color-scheme: dark) {
+        .stButton>button {
+            background: #333;
+            color: white;
+            border-color: #A23217;
+        }
+
+        .stButton>button:hover {
+            background: #A23217;
+            border-color: #C73E1D;
+        }
+    }
+
+    .footer {
+        text-align: center;
+        color: #666;
+        padding: 2rem;
+        margin-top: 3rem;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        .footer {
+            color: #ccc;
+        }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# List of colleges with icons
+COLLEGES = [
+    {"name": "Mukesh Patel School of Technology Management & Engineering", "icon": "🖥️"},
+    {"name": "School of Business Management", "icon": "💼"},
+    {"name": "Pravin Dalal School of Entrepreneurship & Family Business Management", "icon": "🚀"},
+    {"name": "Anil Surendra Modi School of Commerce", "icon": "📊"},
+    {"name": "School of Commerce", "icon": "💰"},
+    {"name": "Kirit P. Mehta School of Law", "icon": "⚖️"},
+    {"name": "School of Law", "icon": "📜"},
+    {"name": "Shobhaben Pratapbhai Patel School of Pharmacy & Technology Management", "icon": "💊"},
+    {"name": "School of Pharmacy & Technology Management", "icon": "🧪"},
+    {"name": "Sunandan Divatia School of Science", "icon": "🔬"},
+    {"name": "School of Science", "icon": "🧬"},
+    {"name": "Sarla Anil Modi School of Economics", "icon": "📈"},
+    {"name": "Balwant Sheth School of Architecture", "icon": "🏛️"},
+    {"name": "School of Design", "icon": "🎨"},
+    {"name": "Jyoti Dalal School of Liberal Arts", "icon": "📚"},
+    {"name": "School of Performing Arts", "icon": "🎭"},
+    {"name": "School of Hospitality Management", "icon": "🏨"},
+    {"name": "School of Mathematics, Applied Statistics & Analytics", "icon": "📐"},
+    {"name": "School of Branding and Advertising", "icon": "📢"},
+    {"name": "School of Agricultural Sciences & Technology", "icon": "🌾"},
+    {"name": "Centre of Distance and Online Education", "icon": "💻"},
+    {"name": "School of Aviation", "icon": "✈️"}
+]
+
+def show_college_selector():
+    """Display the college selector landing page"""
+    st.markdown("""
+    <div class="main-header">
+        <h1>📅 Exam Timetable Generator</h1>
+        <p>SVKM's NMIMS University</p>
+        <p style="font-size: 1rem; margin-top: 1rem;">Select Your School/College</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### 🏫 Choose Your School")
+    st.markdown("Select the school for which you want to generate the exam timetable:")
+
+    # Create columns for better layout (3 colleges per row)
+    cols_per_row = 3
+    num_colleges = len(COLLEGES)
+    
+    for i in range(0, num_colleges, cols_per_row):
+        cols = st.columns(cols_per_row)
+        for j in range(cols_per_row):
+            idx = i + j
+            if idx < num_colleges:
+                college = COLLEGES[idx]
+                with cols[j]:
+                    if st.button(
+                        f"{college['icon']}\n\n{college['name']}", 
+                        key=f"college_{idx}",
+                        use_container_width=True
+                    ):
+                        st.session_state.selected_college = college['name']
+                        st.rerun()
+
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div class="footer">
+        <p>🎓 <strong>Unified Exam Timetable Generation System</strong></p>
+        <p>SVKM's Narsee Monjee Institute of Management Studies (NMIMS)</p>
+        <p style="font-size: 0.9em; margin-top: 1rem;">
+            Intelligent Scheduling • Conflict Resolution • Multi-Campus Support
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Set page configuration
+st.set_page_config(
     page_title="Exam Timetable Generator",
     page_icon="📅",
     layout="wide",
@@ -2963,6 +3180,25 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
 
 
 def main():
+    # Check if college is selected
+    if st.session_state.selected_college is None:
+        show_college_selector()
+        return
+    
+    # Display selected college in sidebar
+    with st.sidebar:
+        st.markdown(f"### 🏫 Selected School")
+        st.info(st.session_state.selected_college)
+        
+        if st.button("🔙 Change School", use_container_width=True):
+            st.session_state.selected_college = None
+            # Clear all timetable data when changing school
+            for key in list(st.session_state.keys()):
+                if key != 'selected_college':
+                    del st.session_state[key]
+            st.rerun()
+        
+        st.markdown("---")
     st.markdown("""
     <div class="main-header">
         <h1>📅 Exam Timetable Generator</h1>
@@ -3752,6 +3988,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
