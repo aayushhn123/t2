@@ -162,7 +162,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # List of colleges with icons
 COLLEGES = [
     {"name": "Mukesh Patel School of Technology Management & Engineering", "icon": "🖥️"},
@@ -3995,6 +3994,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
