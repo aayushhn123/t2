@@ -66,6 +66,11 @@ st.markdown("""
         transition: all 0.3s ease;
         cursor: pointer;
         text-align: center;
+        min-height: 180px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
     }
 
     .college-card:hover {
@@ -79,6 +84,7 @@ st.markdown("""
         margin: 0;
         font-size: 1.2rem;
         font-weight: 600;
+        line-height: 1.4;
     }
 
     .college-card .college-icon {
@@ -155,6 +161,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
 
 # List of colleges with icons
 COLLEGES = [
@@ -3988,6 +3995,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
