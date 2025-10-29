@@ -3345,9 +3345,9 @@ def main():
 
         #Store in session state (for use in scheduling logic if needed)
         st.session_state.custom_timeslots_set = custom_timeslots_set
-                st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
-                with st.expander("Holiday Configuration", expanded=True):
-                    st.markdown("#### 📅 Select Predefined Holidays")
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+        with st.expander("Holiday Configuration", expanded=True):
+            st.markdown("#### 📅 Select Predefined Holidays")
         
             # Initialize holiday_dates list
             holiday_dates = []
@@ -4063,4 +4063,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
