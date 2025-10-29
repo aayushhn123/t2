@@ -210,12 +210,29 @@ def show_college_selector():
     st.markdown("### 🏫 Choose Your School")
     st.markdown("Select the school for which you want to generate the exam timetable:")
 
-    # Create a container with fixed-size cards using HTML
-    st.markdown('<div style="padding: 1rem 0;">', unsafe_allow_html=True)
-    
-    # Create rows of 3 colleges each
+    # Create columns for better layout (3 colleges per row)
     cols_per_row = 3
     num_colleges = len(COLLEGES)
+    
+    # Add custom CSS to force uniform button heights
+    st.markdown("""
+    <style>
+    div[data-testid="column"] {
+        height: 100%;
+    }
+    div[data-testid="column"] > div {
+        height: 100%;
+    }
+    div[data-testid="column"] .stButton {
+        height: 200px;
+    }
+    div[data-testid="column"] .stButton > button {
+        height: 200px !important;
+        min-height: 200px !important;
+        max-height: 200px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     for i in range(0, num_colleges, cols_per_row):
         cols = st.columns(cols_per_row)
@@ -224,29 +241,16 @@ def show_college_selector():
             if idx < num_colleges:
                 college = COLLEGES[idx]
                 with cols[j]:
-                    # Create a container with fixed height
-                    st.markdown(f"""
-                    <div style="
-                        height: 180px;
-                        display: flex;
-                        flex-direction: column;
-                        justify-content: center;
-                        align-items: center;
-                        margin-bottom: 1rem;
-                    ">
-                        <div style="font-size: 3rem; margin-bottom: 0.5rem;">{college['icon']}</div>
-                        <div style="font-size: 0.95rem; font-weight: 600; text-align: center; line-height: 1.3; padding: 0 0.5rem;">
-                            {college['name']}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Button below the content
-                    if st.button("Select", key=f"college_{idx}", use_container_width=True):
+                    # Create container div for consistent height
+                    st.markdown(f'<div style="height: 200px;">', unsafe_allow_html=True)
+                    if st.button(
+                        f"{college['icon']}\n\n{college['name']}", 
+                        key=f"college_{idx}",
+                        use_container_width=True
+                    ):
                         st.session_state.selected_college = college['name']
                         st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
     # Footer
     st.markdown("---")
@@ -259,6 +263,7 @@ def show_college_selector():
         </p>
     </div>
     """, unsafe_allow_html=True)
+
 
 # Set page configuration
 st.set_page_config(
@@ -4022,6 +4027,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
