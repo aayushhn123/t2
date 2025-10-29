@@ -187,46 +187,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---- Add this CSS once (anywhere after your big custom CSS) ----
-st.markdown("""
-<style>
-    /* Small "Change School" button */
-    .small-change-btn button {
-        min-height: 40px !important;
-        height: 40px !important;
-        padding: 0.4rem 1rem !important;
-        font-size: 0.95rem !important;
-        font-weight: 600;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # List of colleges with icons
 COLLEGES = [
-    {"name": "Mukesh Patel School of Technology Management & Engineering", "icon": "🖥️"},
-    {"name": "School of Business Management", "icon": "💼"},
-    {"name": "Pravin Dalal School of Entrepreneurship & Family Business Management", "icon": "🚀"},
-    {"name": "Anil Surendra Modi School of Commerce", "icon": "📊"},
-    {"name": "School of Commerce", "icon": "💰"},
-    {"name": "Kirit P. Mehta School of Law", "icon": "⚖️"},
-    {"name": "School of Law", "icon": "📜"},
-    {"name": "Shobhaben Pratapbhai Patel School of Pharmacy & Technology Management", "icon": "💊"},
-    {"name": "School of Pharmacy & Technology Management", "icon": "🧪"},
-    {"name": "Sunandan Divatia School of Science", "icon": "🔬"},
-    {"name": "School of Science", "icon": "🧬"},
-    {"name": "Sarla Anil Modi School of Economics", "icon": "📈"},
-    {"name": "Balwant Sheth School of Architecture", "icon": "🏛️"},
-    {"name": "School of Design", "icon": "🎨"},
-    {"name": "Jyoti Dalal School of Liberal Arts", "icon": "📚"},
-    {"name": "School of Performing Arts", "icon": "🎭"},
-    {"name": "School of Hospitality Management", "icon": "🏨"},
-    {"name": "School of Mathematics, Applied Statistics & Analytics", "icon": "📐"},
-    {"name": "School of Branding and Advertising", "icon": "📢"},
-    {"name": "School of Agricultural Sciences & Technology", "icon": "🌾"},
-    {"name": "Centre of Distance and Online Education", "icon": "💻"},
-    {"name": "School of Aviation", "icon": "✈️"}
+    {"name": "Mukesh Patel School of Technology Management & Engineering", "icon": "computer"},
+    {"name": "School of Business Management", "icon": "briefcase"},
+    {"name": "Pravin Dalal School of Entrepreneurship & Family Business Management", "icon": "rocket"},
+    {"name": "Anil Surendra Modi School of Commerce", "icon": "chart-line"},
+    {"name": "School of Commerce", "icon": "money-bill"},
+    {"name": "Kirit P. Mehta School of Law", "icon": "balance-scale"},
+    {"name": "School of Law", "icon": "scroll"},
+    {"name": "Shobhaben Pratapbhai Patel School of Pharmacy & Technology Management", "icon": "pills"},
+    {"name": "School of Pharmacy & Technology Management", "icon": "flask"},
+    {"name": "Sunandan Divatia School of Science", "icon": "microscope"},
+    {"name": "School of Science", "icon": "dna"},
+    {"name": "Sarla Anil Modi School of Economics", "icon": "chart-bar"},
+    {"name": "Balwant Sheth School of Architecture", "icon": "building"},
+    {"name": "School of Design", "icon": "palette"},
+    {"name": "Jyoti Dalal School of Liberal Arts", "icon": "book"},
+    {"name": "School of Performing Arts", "icon": "mask"},
+    {"name": "School of Hospitality Management", "icon": "hotel"},
+    {"name": "School of Mathematics, Applied Statistics & Analytics", "icon": "calculator"},
+    {"name": "School of Branding and Advertising", "icon": "bullhorn"},
+    {"name": "School of Agricultural Sciences & Technology", "icon": "leaf"},
+    {"name": "Centre of Distance and Online Education", "icon": "laptop"},
+    {"name": "School of Aviation", "icon": "plane"}
 ]
-
 
 def show_college_selector():
     """Display the college selector landing page"""
@@ -3237,16 +3222,13 @@ def main():
         st.markdown(f"### 🏫 Selected School")
         st.info(st.session_state.selected_college)
         
-        # ---- Back-to-selector button (small) ----
-        st.markdown('<div class="small-change-btn">', unsafe_allow_html=True)
-        if st.button("Back to School Selection", use_container_width=True):
+        if st.button("🔙 Change School", use_container_width=True):
             st.session_state.selected_college = None
             # Clear all timetable data when changing school
             for key in list(st.session_state.keys()):
                 if key != 'selected_college':
                     del st.session_state[key]
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown("---")
     st.markdown("""
@@ -4038,8 +4020,6 @@ def main():
     
 if __name__ == "__main__":
     main()
-
-
 
 
 
