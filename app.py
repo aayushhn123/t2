@@ -187,6 +187,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ---- Add this CSS once (anywhere after your big custom CSS) ----
+st.markdown("""
+<style>
+    /* Small "Change School" button */
+    .small-change-btn button {
+        min-height: 40px !important;
+        height: 40px !important;
+        padding: 0.4rem 1rem !important;
+        font-size: 0.95rem !important;
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # List of colleges with icons
 COLLEGES = [
     {"name": "Mukesh Patel School of Technology Management & Engineering", "icon": "🖥️"},
@@ -3223,13 +3237,16 @@ def main():
         st.markdown(f"### 🏫 Selected School")
         st.info(st.session_state.selected_college)
         
-        if st.button("🔙 Change School", use_container_width=True):
+        # ---- Back-to-selector button (small) ----
+        st.markdown('<div class="small-change-btn">', unsafe_allow_html=True)
+        if st.button("Back to School Selection", use_container_width=True):
             st.session_state.selected_college = None
             # Clear all timetable data when changing school
             for key in list(st.session_state.keys()):
                 if key != 'selected_college':
                     del st.session_state[key]
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown("---")
     st.markdown("""
@@ -4021,6 +4038,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
