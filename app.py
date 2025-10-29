@@ -3304,9 +3304,50 @@ def main():
     
         # Display capacity info
         st.info(f"📊 Current capacity: **{st.session_state.capacity_slider}** students per session")
+
+        # Add this after the capacity configuration in the sidebar
         st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
-        with st.expander("Holiday Configuration", expanded=True):
-            st.markdown("#### 📅 Select Predefined Holidays")
+        st.markdown("#### ⏰ Custom Time Slots")
+
+        # Initialize session state for custom time slots
+        if 'num_custom_timeslots' not in st.session_state:
+            st.session_state.num_custom_timeslots = 0
+        if 'custom_timeslots' not in st.session_state:
+            st.session_state.custom_timeslots = []
+
+        # Ensure list length matches
+        if len(st.session_state.custom_timeslots) < st.session_state.num_custom_timeslots:
+            st.session_state.custom_timeslots.extend(
+                [""] * (st.session_state.num_custom_timeslots - len(st.session_state.custom_timeslots))
+            )
+
+        # Display inputs for custom time slots
+        for i in range(st.session_state.num_custom_timeslots):
+            st.session_state.custom_timeslots[i] = st.text_input(
+                f"Custom Time Slot {i + 1}",
+                value=st.session_state.custom_timeslots[i],
+                key=f"custom_timeslot_{i}",
+                placeholder="e.g., 9:00 AM - 12:00 PM"
+            )
+
+        # Button to add another time slot
+        if st.button("➕ Add Time Slot"):
+            st.session_state.num_custom_timeslots += 1
+            st.session_state.custom_timeslots.append("")
+            st.rerun()
+
+        # Display selected custom time slots
+        custom_timeslots_set = [ts.strip() for ts in st.session_state.custom_timeslots if ts.strip()]
+        if custom_timeslots_set:
+            st.markdown("#### Selected Custom Time Slots:")
+            for ts in custom_timeslots_set:
+                pass  # st.write(f"• {ts}")
+
+        #Store in session state (for use in scheduling logic if needed)
+        st.session_state.custom_timeslots_set = custom_timeslots_set
+                st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+                with st.expander("Holiday Configuration", expanded=True):
+                    st.markdown("#### 📅 Select Predefined Holidays")
         
             # Initialize holiday_dates list
             holiday_dates = []
@@ -4022,3 +4063,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
