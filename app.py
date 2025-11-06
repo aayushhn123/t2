@@ -1102,7 +1102,22 @@ def read_timetable(uploaded_file):
             "Common across sems": "CommonAcrossSems",
             "Common Across Sems": "CommonAcrossSems",
             "Cross Semester": "CommonAcrossSems",
-            "Common Across Semesters": "CommonAcrossSems"
+            "Common Across Semesters": "CommonAcrossSems",
+            # NEW: CM Group column variations
+            "CM group": "CMGroup",
+            "CM Group": "CMGroup",
+            "cm group": "CMGroup",
+            "CMGroup": "CMGroup",
+            "CM_Group": "CMGroup",
+            "Common Module Group": "CMGroup",
+            # NEW: Exam Slot Number column variations
+            "Exam Slot Number": "ExamSlotNumber",
+            "exam slot number": "ExamSlotNumber",
+            "ExamSlotNumber": "ExamSlotNumber",
+            "Exam_Slot_Number": "ExamSlotNumber",
+            "Slot Number": "ExamSlotNumber",
+            "SlotNumber": "ExamSlotNumber",
+            "Exam Slot": "ExamSlotNumber"
         }
         
         # Handle the "Is Common" column with flexible naming
@@ -1136,6 +1151,25 @@ def read_timetable(uploaded_file):
             df["OE"] = df["OE"].astype(str).replace('nan', '')
         else:
             df["OE"] = ""
+        
+        # NEW: Handle CMGroup column - allow empty values
+        if "CMGroup" in df.columns:
+            # Convert NaN to empty string, keep as string
+            df["CMGroup"] = df["CMGroup"].fillna("")
+            df["CMGroup"] = df["CMGroup"].astype(str).replace('nan', '').str.strip()
+        else:
+            # Create empty column if not present
+            df["CMGroup"] = ""
+            st.info("ℹ️ 'CM Group' column not found - created empty column")
+        
+        # NEW: Handle ExamSlotNumber column
+        if "ExamSlotNumber" in df.columns:
+            # Convert to numeric, treating NaN as 0 or empty
+            df["ExamSlotNumber"] = pd.to_numeric(df["ExamSlotNumber"], errors='coerce').fillna(0).astype(int)
+        else:
+            # Create column with default value 0 if not present
+            df["ExamSlotNumber"] = 0
+            st.info("ℹ️ 'Exam Slot Number' column not found - created with default value 0")
         
         # 3. Fix numeric columns that might be float
         numeric_columns = ["Exam Duration", "StudentCount", "Difficulty"]
@@ -1279,8 +1313,10 @@ def read_timetable(uploaded_file):
                     d["MainBranch"] = d["Branch"]
                     d["SubBranch"] = ""
         
+        # UPDATED: Include new columns in the output
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "IsCommon", "Program"]
+                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "IsCommon", "Program",
+                "CMGroup", "ExamSlotNumber"]  # Added new columns
         
         # Ensure all required columns exist before selecting
         available_cols = [col for col in cols if col in df_non.columns]
@@ -1294,6 +1330,14 @@ def read_timetable(uploaded_file):
                     df_non[missing_col] = "B TECH"  # Default program
                     if not df_ele.empty:
                         df_ele[missing_col] = "B TECH"
+                elif missing_col == "CMGroup":
+                    df_non[missing_col] = ""  # Empty string for CM Group
+                    if not df_ele.empty:
+                        df_ele[missing_col] = ""
+                elif missing_col == "ExamSlotNumber":
+                    df_non[missing_col] = 0  # Default value 0
+                    if not df_ele.empty:
+                        df_ele[missing_col] = 0
                 else:
                     df_non[missing_col] = None
                     if not df_ele.empty:
@@ -1305,6 +1349,15 @@ def read_timetable(uploaded_file):
         # STORE ORIGINAL DATA FOR FILTER OPTIONS
         st.session_state.original_data_df = df.copy()
         
+        # Show summary of new columns
+        cm_group_count = len(df[df["CMGroup"].str.strip() != ""]) if "CMGroup" in df.columns else 0
+        if cm_group_count > 0:
+            st.info(f"✅ Found {cm_group_count} subjects with CM Group assignments")
+        
+        exam_slot_count = len(df[df["ExamSlotNumber"] > 0]) if "ExamSlotNumber" in df.columns else 0
+        if exam_slot_count > 0:
+            st.info(f"✅ Found {exam_slot_count} subjects with Exam Slot Number assignments")
+        
         return df_non[available_cols], df_ele[available_cols] if not df_ele.empty and available_cols else df_ele, df
         
     except Exception as e:
@@ -1313,7 +1366,6 @@ def read_timetable(uploaded_file):
         import traceback
         st.error(f"Full traceback: {traceback.format_exc()}")
         return None, None, None
-
    
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
@@ -4022,3 +4074,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
