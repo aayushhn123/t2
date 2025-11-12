@@ -2485,14 +2485,11 @@ def save_to_excel(semester_wise_timetable):
                         
                         pivot_df = pivot_df.sort_index(ascending=True)
                         
-                        # Format dates
-                        formatted_index = []
-                        for date in pivot_df.index:
-                            formatted_date = date.strftime("%d-%m-%Y") if pd.notna(date) else ""
-                            formatted_index.append(formatted_date)
-                        
-                        pivot_df.index = formatted_index
+                        # Format dates and reset index to make Exam Date a column
                         pivot_df = pivot_df.reset_index()
+                        pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(
+                            lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else ""
+                        )
                         
                         pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         sheets_created += 1
@@ -4040,6 +4037,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
