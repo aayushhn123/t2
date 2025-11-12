@@ -2451,40 +2451,33 @@ def save_to_excel(semester_wise_timetable):
                             else:
                                 difficulty_values.append("")
                         
-                        # NEW: Create subject display WITH CM Group
+                        # Create subject display WITH CM Group BUT WITHOUT exam time
                         subject_displays = []
-                        exam_times = []
                         
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
                             difficulty_suffix = difficulty_values[idx]
                             
-                            # NEW: Add CM Group if present
+                            # Add CM Group if present
                             cm_group = str(row.get('CMGroup', '')).strip()
                             cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
                             
-                            # Subject display with CM Group
+                            # Subject display with CM Group (NO exam time for PDF)
                             subject_display = cm_group_prefix + base_subject + difficulty_suffix
                             subject_displays.append(subject_display)
-                            
-                            # Get exam time for separate column
-                            exam_time = get_exam_time_display(row, semester_default_slot)
-                            exam_times.append(exam_time)
                         
                         df_processed["SubjectDisplay"] = subject_displays
-                        df_processed["ExamTime"] = exam_times
                         
                         df_processed["Exam Date"] = pd.to_datetime(df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
                         df_processed = df_processed.sort_values(by="Exam Date", ascending=True)
                         
                         grouped_by_date = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
-                            'SubjectDisplay': lambda x: ", ".join(str(i) for i in x),
-                            'ExamTime': 'first'
+                            'SubjectDisplay': lambda x: ", ".join(str(i) for i in x)
                         }).reset_index()
                         
                         pivot_df = grouped_by_date.pivot_table(
-                            index=["Exam Date", "ExamTime"],
+                            index="Exam Date",
                             columns="SubBranch",
                             values="SubjectDisplay",
                             aggfunc=lambda x: ", ".join(str(i) for i in x)
@@ -2492,12 +2485,13 @@ def save_to_excel(semester_wise_timetable):
                         
                         pivot_df = pivot_df.sort_index(ascending=True)
                         
+                        # Format dates
                         formatted_index = []
-                        for date, exam_time in pivot_df.index:
+                        for date in pivot_df.index:
                             formatted_date = date.strftime("%d-%m-%Y") if pd.notna(date) else ""
-                            formatted_index.append((formatted_date, exam_time))
+                            formatted_index.append(formatted_date)
                         
-                        pivot_df.index = pd.MultiIndex.from_tuples(formatted_index, names=['Exam Date', 'Exam Time'])
+                        pivot_df.index = formatted_index
                         pivot_df = pivot_df.reset_index()
                         
                         pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -2508,8 +2502,7 @@ def save_to_excel(semester_wise_timetable):
                         
                         if len(all_subbranches) > 0:
                             empty_data = {
-                                'Exam Date': ['No exams scheduled'],
-                                'Exam Time': ['---']
+                                'Exam Date': ['No exams scheduled']
                             }
                             
                             for subbranch in sorted(all_subbranches):
@@ -2521,13 +2514,12 @@ def save_to_excel(semester_wise_timetable):
                         else:
                             empty_df = pd.DataFrame({
                                 'Exam Date': ['No exams scheduled'],
-                                'Exam Time': ['---'],
                                 'Subjects': ['No subjects available']
                             })
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
 
-                    # Process electives with CM Group
+                    # Process electives with CM Group (NO exam time for PDF)
                     if not df_elec.empty:
                         df_elec_processed = df_elec.copy().reset_index(drop=True)
                         
@@ -2545,9 +2537,8 @@ def save_to_excel(semester_wise_timetable):
                             else:
                                 difficulty_values_elec.append("")
                         
-                        # NEW: Create subject display with CM Group for electives
+                        # Create subject display with CM Group for electives (NO exam time for PDF)
                         subject_displays_elec = []
-                        exam_times_elec = []
                         
                         for idx in range(len(df_elec_processed)):
                             row = df_elec_processed.iloc[idx]
@@ -2555,32 +2546,18 @@ def save_to_excel(semester_wise_timetable):
                             oe_type = str(row.get('OE', ''))
                             difficulty_suffix = difficulty_values_elec[idx]
                             
-                            # NEW: Add CM Group if present
+                            # Add CM Group if present
                             cm_group = str(row.get('CMGroup', '')).strip()
                             cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
                             
                             base_display = f"{cm_group_prefix}{base_subject} [{oe_type}]"
                             subject_display = base_display + difficulty_suffix
                             subject_displays_elec.append(subject_display)
-                            
-                            assigned_slot = row.get('Time Slot', '10:00 AM - 1:00 PM')
-                            duration = row.get('Exam Duration', 3)
-                            
-                            if duration != 3:
-                                start_time = str(assigned_slot).split(" - ")[0].strip()
-                                end_time = calculate_end_time(start_time, duration)
-                                exam_time = f"{start_time} - {end_time}"
-                            else:
-                                exam_time = assigned_slot
-                            
-                            exam_times_elec.append(exam_time)
                         
                         df_elec_processed["SubjectDisplay"] = subject_displays_elec
-                        df_elec_processed["ExamTime"] = exam_times_elec
                         
                         elec_pivot = df_elec_processed.groupby(['OE', 'Exam Date']).agg({
-                            'SubjectDisplay': lambda x: ", ".join(sorted(set(x))),
-                            'ExamTime': 'first'
+                            'SubjectDisplay': lambda x: ", ".join(sorted(set(x)))
                         }).reset_index()
                         
                         elec_pivot['Exam Date'] = pd.to_datetime(
@@ -2590,7 +2567,6 @@ def save_to_excel(semester_wise_timetable):
                         
                         elec_pivot = elec_pivot.rename(columns={
                             'OE': 'OE Type',
-                            'ExamTime': 'Exam Time',
                             'SubjectDisplay': 'Subjects'
                         })
                         
@@ -4064,5 +4040,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
