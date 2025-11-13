@@ -2244,34 +2244,10 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             st.error(f"Error saving temporary Excel file: {e}")
             return
 
-        # --------------------------------------------------------------
-        # NEW: PRE-PROCESS TEMP EXCEL SO *EVERY* SHEET IS CONVERTED
-        # --------------------------------------------------------------
-        try:
-            xl = pd.ExcelFile(temp_excel)
-            with pd.ExcelWriter(temp_excel, engine='openpyxl') as writer:
-                for sheet_name in xl.sheet_names:
-                    df = xl.parse(sheet_name)
-
-                    # 1. Guarantee a "Subject" column (required by many converters)
-                    if 'Subject' not in df.columns and not df.empty:
-                        # For pivot sheets (SubBranch columns) → add a dummy column
-                        df.insert(0, 'Subject', ' ')      # hidden in PDF
-                    elif df.empty:
-                        # Empty sheet – give it at least one column
-                        df = pd.DataFrame({'Subject': ['No data']})
-
-                    # 2. Keep original index-free output
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-            #st.write("All sheets now contain a 'Subject' column – ready for PDF")
-        except Exception as e:
-            st.warning(f"Could not pre-process temp Excel: {e}")
-        # --------------------------------------------------------------
-
         #st.write("Converting Excel to PDF...")
         try:
-            # *** FORCE ALL SHEETS (including MCA) ***
-            convert_excel_to_pdf(temp_excel, output_pdf, sheet_name=None)   # None = ALL sheets
+            # === ONLY CHANGE: FORCE ALL SHEETS (sheet_name=None) ===
+            convert_excel_to_pdf(temp_excel, output_pdf, sheet_name=None)
             #st.write("PDF conversion completed")
         except Exception as e:
             st.error(f"Error during Excel to PDF conversion: {e}")
@@ -2289,9 +2265,6 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
         st.error("No Excel data generated - cannot create PDF")
         return
    
-    # ------------------------------------------------------------------
-    # (unchanged blank-page removal – kept exactly as you wrote it)
-    # ------------------------------------------------------------------
     try:
         if not os.path.exists(output_pdf):
             st.error(f"PDF file was not created at {output_pdf}")
@@ -4518,6 +4491,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
