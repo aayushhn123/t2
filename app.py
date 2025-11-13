@@ -1916,10 +1916,13 @@ def calculate_end_time(start_time, duration_hours):
         return f"{start_time} + {duration_hours}h"
         
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
+    """
+    FIXED: Enhanced PDF generation with comprehensive error handling
+    """
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
     
-    # Enable automatic page numbering with alias
+    # Enable automatic page numbering
     pdf.alias_nb_pages()
     
     # Get time slots configuration
@@ -1948,11 +1951,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         return result
 
     def extract_time_slots_from_subjects(df, columns):
-        """Extract unique time slots from subject displays in the dataframe"""
+        """Extract unique time slots from subject displays"""
         time_slots = set()
         import re
         
-        # Pattern to match time ranges in subject strings
         time_pattern = r'\((\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM))\)'
         
         for col in columns:
@@ -1968,216 +1970,247 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         return time_slots
 
     sheets_processed = 0
+    sheets_skipped = 0
     
     for sheet_name, sheet_df in df_dict.items():
-        if sheet_df.empty:
-            st.warning(f"⚠️ Sheet {sheet_name} is empty, skipping")
-            continue
-            
-        # Reset index to make sure we're working with a clean DataFrame
-        if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
-            sheet_df = sheet_df.reset_index()
-        
-        # Enhanced sheet name parsing to extract program type
-        parts = sheet_name.split('_Sem_')
-        main_branch = parts[0]
-        
-        # Determine program type from sheet name
-        program_type = "B TECH"  # default
-        if sheet_name.startswith("DIPL_"):
-            program_type = "DIPLOMA"
-            main_branch = main_branch.replace("DIPL_", "")
-        elif sheet_name.startswith("MTECH_"):
-            program_type = "M TECH"
-            main_branch = main_branch.replace("MTECH_", "")
-        elif "M TECH" in main_branch:
-            program_type = "M TECH"
-        elif "DIPLOMA" in main_branch:
-            program_type = "DIPLOMA"
-        elif "MCA" in main_branch:
-            program_type = "MCA"
-        
-        main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
-        semester = parts[1] if len(parts) > 1 else ""
-        
-        # Remove '_Electives' suffix if present
-        if semester.endswith('_Electives'):
-            semester = semester.replace('_Electives', '')
-            
-        semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
-        header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
-
-        # Handle normal subjects (non-electives)
-        if not sheet_name.endswith('_Electives'):
-            # Check if 'Exam Date' column exists
-            if 'Exam Date' not in sheet_df.columns:
-                st.warning(f"⚠️ Missing 'Exam Date' column in sheet {sheet_name}")
-                
-                # Try to handle sheets with no exams
-                if len(sheet_df.columns) >= 2 and 'No exams scheduled' in str(sheet_df.iloc[0, 0]):
-                    st.info(f"ℹ️ Sheet {sheet_name} has no scheduled exams, skipping PDF generation for this sheet")
-                    continue
-                else:
-                    st.error(f"❌ Cannot process sheet {sheet_name} due to missing 'Exam Date' column")
-                    continue
-                
-            # Remove any completely empty rows
-            sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
-            
-            # Get column structure
-            fixed_cols = ["Exam Date"]
-            sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and not c.startswith('Unnamed')]
-            
-            if not sub_branch_cols:
-                st.warning(f"⚠️ No subject columns found in sheet {sheet_name}")
+        try:
+            if sheet_df.empty:
+                st.info(f"Sheet {sheet_name} is empty, skipping")
+                sheets_skipped += 1
                 continue
             
-            exam_date_width = 60
-            line_height = 10
+            # Check for "No data available" placeholder
+            if len(sheet_df) == 1 and 'Message' in sheet_df.columns:
+                if sheet_df['Message'].iloc[0] == 'No data available':
+                    st.info(f"Sheet {sheet_name} has no data, skipping")
+                    sheets_skipped += 1
+                    continue
+            
+            # Reset index
+            if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
+                sheet_df = sheet_df.reset_index()
+            
+            # Parse sheet name
+            parts = sheet_name.split('_Sem_')
+            if len(parts) < 2:
+                st.warning(f"Cannot parse sheet name: {sheet_name}, skipping")
+                sheets_skipped += 1
+                continue
+                
+            main_branch = parts[0]
+            
+            # Determine program type
+            program_type = "B TECH"
+            if sheet_name.startswith("DIPL_"):
+                program_type = "DIPLOMA"
+                main_branch = main_branch.replace("DIPL_", "")
+            elif sheet_name.startswith("MTECH_"):
+                program_type = "M TECH"
+                main_branch = main_branch.replace("MTECH_", "")
+            elif "M TECH" in main_branch:
+                program_type = "M TECH"
+            elif "DIPLOMA" in main_branch:
+                program_type = "DIPLOMA"
+            elif "MCA" in main_branch:
+                program_type = "MCA"
+            
+            main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+            semester = parts[1] if len(parts) > 1 else ""
+            
+            if semester.endswith('_Electives'):
+                semester = semester.replace('_Electives', '')
+                
+            semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
+            header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
 
-            # Process in chunks if needed
-            for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
-                chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
-                cols_to_print = fixed_cols + chunk
-                chunk_df = sheet_df[cols_to_print].copy()
+            # Handle normal subjects (non-electives)
+            if not sheet_name.endswith('_Electives'):
+                # Validate required columns
+                if 'Exam Date' not in sheet_df.columns:
+                    st.warning(f"Sheet {sheet_name} missing 'Exam Date' column, skipping")
+                    sheets_skipped += 1
+                    continue
                 
-                # Filter out empty rows and rows with "No exams scheduled"
-                mask = chunk_df[chunk].apply(lambda row: 
-                    (row.astype(str).str.strip() != "") & 
-                    (row.astype(str).str.strip() != "---") &
-                    (row.astype(str).str.strip() != "No subjects available")
-                ).any(axis=1)
+                # Check for "No exams scheduled" message
+                if len(sheet_df) > 0 and 'Exam Date' in sheet_df.columns:
+                    first_date = str(sheet_df['Exam Date'].iloc[0]).strip()
+                    if first_date in ['No exams scheduled', 'No data available', '']:
+                        st.info(f"Sheet {sheet_name} has no scheduled exams, skipping")
+                        sheets_skipped += 1
+                        continue
                 
-                # Also filter out "No exams scheduled" rows
-                exam_date_mask = ~chunk_df['Exam Date'].astype(str).str.contains('No exams scheduled', na=False)
+                # Remove empty rows
+                sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
                 
-                final_mask = mask & exam_date_mask
-                chunk_df = chunk_df[final_mask].reset_index(drop=True)
+                # Get columns
+                fixed_cols = ["Exam Date"]
+                sub_branch_cols = [c for c in sheet_df.columns 
+                                 if c not in fixed_cols 
+                                 and not c.startswith('Unnamed')
+                                 and c not in ['Note', 'Message']]
                 
-                if chunk_df.empty:
-                    st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
+                if not sub_branch_cols:
+                    st.warning(f"No subject columns in {sheet_name}, skipping")
+                    sheets_skipped += 1
+                    continue
+                
+                exam_date_width = 60
+                line_height = 10
+
+                # Process in chunks
+                for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
+                    chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
+                    cols_to_print = fixed_cols + chunk
+                    chunk_df = sheet_df[cols_to_print].copy()
+                    
+                    # Filter valid rows
+                    mask = chunk_df[chunk].apply(lambda row: 
+                        (row.astype(str).str.strip() != "") & 
+                        (row.astype(str).str.strip() != "---") &
+                        (row.astype(str).str.strip() != "No subjects available")
+                    ).any(axis=1)
+                    
+                    exam_date_mask = ~chunk_df['Exam Date'].astype(str).str.contains(
+                        'No exams scheduled', na=False
+                    )
+                    
+                    final_mask = mask & exam_date_mask
+                    chunk_df = chunk_df[final_mask].reset_index(drop=True)
+                    
+                    if chunk_df.empty:
+                        continue
+
+                    # Extract time slots
+                    actual_time_slots = extract_time_slots_from_subjects(chunk_df, cols_to_print)
+                    
+                    if not actual_time_slots:
+                        actual_time_slots = {f"{slot['start']} - {slot['end']}" 
+                                           for slot in time_slots_dict.values()}
+
+                    # Convert dates
+                    try:
+                        chunk_df["Exam Date"] = pd.to_datetime(
+                            chunk_df["Exam Date"], 
+                            format="%d-%m-%Y", 
+                            errors='coerce'
+                        ).dt.strftime("%A, %d %B, %Y")
+                    except:
+                        chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
+
+                    # Calculate column widths
+                    page_width = pdf.w - 2 * pdf.l_margin
+                    remaining = page_width - exam_date_width
+                    sub_width = remaining / max(len(chunk), 1)
+                    col_widths = [exam_date_width] + [sub_width] * len(chunk)
+                    total_w = sum(col_widths)
+                    if total_w > page_width:
+                        factor = page_width / total_w
+                        col_widths = [w * factor for w in col_widths]
+                    
+                    # Add page and print
+                    pdf.add_page()
+                    footer_height = 25
+                    add_footer_with_page_number(pdf, footer_height)
+                    
+                    print_table_custom(
+                        pdf, chunk_df, cols_to_print, col_widths, 
+                        line_height=line_height, 
+                        header_content=header_content, 
+                        branches=chunk, 
+                        time_slot=None, 
+                        actual_time_slots=actual_time_slots
+                    )
+                    
+                    sheets_processed += 1
+
+            # Handle electives
+            elif sheet_name.endswith('_Electives'):
+                required_cols = ['Exam Date', 'OE Type', 'Subjects']
+                available_cols = [col for col in required_cols if col in sheet_df.columns]
+                
+                # Try alternate column names
+                if 'OE Type' not in sheet_df.columns and 'OE' in sheet_df.columns:
+                    sheet_df = sheet_df.rename(columns={'OE': 'OE Type'})
+                    available_cols = [col for col in required_cols if col in sheet_df.columns]
+                
+                if len(available_cols) < 2:
+                    st.warning(f"Missing required columns in {sheet_name}, skipping")
+                    sheets_skipped += 1
+                    continue
+                
+                elective_data = sheet_df[available_cols].copy()
+                elective_data = elective_data.dropna(how='all').reset_index(drop=True)
+                
+                if elective_data.empty:
+                    sheets_skipped += 1
                     continue
 
-                # NEW: Extract actual time slots from the data
-                actual_time_slots = extract_time_slots_from_subjects(chunk_df, cols_to_print)
-                
-                # If no time slots found in subjects, use default from configuration
-                if not actual_time_slots:
-                    # Use all configured time slots as default
-                    actual_time_slots = {f"{slot['start']} - {slot['end']}" for slot in time_slots_dict.values()}
-
-                # Convert Exam Date to desired format
+                # Convert dates
                 try:
-                    chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                except Exception as e:
-                    st.warning(f"Date conversion error in {sheet_name}: {e}")
-                    chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
+                    elective_data["Exam Date"] = pd.to_datetime(
+                        elective_data["Exam Date"], 
+                        format="%d-%m-%Y", 
+                        errors='coerce'
+                    ).dt.strftime("%A, %d %B, %Y")
+                except:
+                    elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
 
-                # Calculate column widths
-                page_width = pdf.w - 2 * pdf.l_margin
-                remaining = page_width - exam_date_width
-                sub_width = remaining / max(len(chunk), 1)
-                col_widths = [exam_date_width] + [sub_width] * len(chunk)
-                total_w = sum(col_widths)
-                if total_w > page_width:
-                    factor = page_width / total_w
-                    col_widths = [w * factor for w in col_widths]
+                # Extract time slots
+                cols_for_extraction = [col for col in ['Subjects'] if col in elective_data.columns]
+                actual_time_slots_elec = extract_time_slots_from_subjects(
+                    elective_data, cols_for_extraction
+                )
                 
-                # Add page and print table
+                if not actual_time_slots_elec:
+                    actual_time_slots_elec = {f"{slot['start']} - {slot['end']}" 
+                                            for slot in time_slots_dict.values()}
+
+                # Set column widths
+                exam_date_width = 60
+                oe_width = 30
+                subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
+                
+                cols_to_print = [col for col in ['Exam Date', 'OE Type', 'Subjects'] 
+                               if col in elective_data.columns]
+                
+                if len(cols_to_print) == 2:
+                    col_widths = [exam_date_width, subject_width + oe_width]
+                else:
+                    col_widths = [exam_date_width, oe_width, subject_width]
+                
+                # Add page and print
                 pdf.add_page()
                 footer_height = 25
                 add_footer_with_page_number(pdf, footer_height)
                 
-                # Pass actual time slots to the table printing function
-                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, 
-                                 time_slot=None, actual_time_slots=actual_time_slots)
+                print_table_custom(
+                    pdf, elective_data, cols_to_print, col_widths, 
+                    line_height=10, 
+                    header_content=header_content, 
+                    branches=['All Streams'], 
+                    time_slot=None, 
+                    actual_time_slots=actual_time_slots_elec
+                )
                 
                 sheets_processed += 1
-
-        # Handle electives
-        elif sheet_name.endswith('_Electives'):
-            # Ensure we have the required columns
-            required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
-            available_cols = [col for col in required_cols if col in sheet_df.columns]
-            
-            if len(available_cols) < 2:
-                st.warning(f"⚠️ Missing required columns in electives sheet {sheet_name}")
-                continue
-            
-            # Use available columns
-            elective_data = sheet_df[available_cols].copy()
-            elective_data = elective_data.dropna(how='all').reset_index(drop=True)
-            
-            if elective_data.empty:
-                st.info(f"ℹ️ No elective data found for {sheet_name}")
-                continue
-
-            # Convert Exam Date to desired format
-            try:
-               elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-            except Exception as e:
-               st.warning(f"Date conversion error in electives {sheet_name}: {e}")
-               elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
-
-            # Clean subject display if SubjectDisplay column exists
-            if 'SubjectDisplay' in elective_data.columns and 'OE' in elective_data.columns:
-               elective_data['SubjectDisplay'] = elective_data.apply(
-                   lambda row: str(row['SubjectDisplay']).replace(f" [{row['OE']}]", f" [{row['OE']}]") if pd.notna(row['SubjectDisplay']) else "",
-                   axis=1
-               )
-
-            # Rename columns for clarity in the PDF
-            column_mapping = {
-               'OE': 'OE Type',
-               'SubjectDisplay': 'Subjects'
-            }
-           
-            for old_col, new_col in column_mapping.items():
-               if old_col in elective_data.columns:
-                   elective_data = elective_data.rename(columns={old_col: new_col})
-
-            # NEW: Extract actual time slots from elective data
-            cols_for_extraction = [col for col in ['Subjects', 'SubjectDisplay'] if col in elective_data.columns]
-            actual_time_slots_elec = extract_time_slots_from_subjects(elective_data, cols_for_extraction)
-            
-            if not actual_time_slots_elec:
-                actual_time_slots_elec = {f"{slot['start']} - {slot['end']}" for slot in time_slots_dict.values()}
-
-            # Set column widths
-            exam_date_width = 60
-            oe_width = 30
-            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
-            col_widths = [exam_date_width, oe_width, subject_width]
-            cols_to_print = [col for col in ['Exam Date', 'OE Type', 'Subjects'] if col in elective_data.columns]
-           
-            # Adjust column widths based on available columns
-            if len(cols_to_print) == 2:
-               col_widths = col_widths[:2]
-               col_widths[1] = subject_width + oe_width
-           
-            # Add page and print table
-            pdf.add_page()
-            footer_height = 25
-            add_footer_with_page_number(pdf, footer_height)
-           
-            print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                            header_content=header_content, branches=['All Streams'], 
-                            time_slot=None, actual_time_slots=actual_time_slots_elec)
-           
-            sheets_processed += 1
+                
+        except Exception as e:
+            st.warning(f"Error processing sheet {sheet_name}: {str(e)}")
+            sheets_skipped += 1
+            continue
 
     if sheets_processed == 0:
-       st.error("❌ No sheets were processed for PDF generation!")
-       return
-   
+        st.error("No sheets were successfully processed for PDF!")
+        return
+    
+    if sheets_skipped > 0:
+        st.info(f"Skipped {sheets_skipped} sheets (empty or invalid data)")
+    
     try:
-       pdf.output(pdf_path)
-       st.success(f"✅ PDF generated successfully with {sheets_processed} pages")
+        pdf.output(pdf_path)
+        st.success(f"✅ PDF generated with {sheets_processed} pages")
     except Exception as e:
-       st.error(f"❌ Error saving PDF: {e}")
-       import traceback
-       st.error(f"Traceback: {traceback.format_exc()}")
+        st.error(f"Error saving PDF: {e}")
    
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     #st.write("🔄 Starting PDF generation process...")
@@ -2700,7 +2733,11 @@ def convert_semester_to_number(semester_value):
 
 
 def save_to_excel(semester_wise_timetable):
+    """
+    FIXED: Enhanced Excel generation with better error handling and validation
+    """
     if not semester_wise_timetable:
+        st.warning("No timetable data to save")
         return None
 
     # Get time slots configuration from session state
@@ -2729,9 +2766,17 @@ def save_to_excel(semester_wise_timetable):
             sheets_created = 0
             
             for sem, df_sem in semester_wise_timetable.items():
+                if df_sem.empty:
+                    st.info(f"Semester {sem} has no data, skipping")
+                    continue
+                    
                 for main_branch in df_sem["MainBranch"].unique():
                     df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
                     
+                    if df_mb.empty:
+                        continue
+                    
+                    # Separate non-electives and electives
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
@@ -2740,36 +2785,21 @@ def save_to_excel(semester_wise_timetable):
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
                     
+                    # Process non-electives
                     if not df_non_elec.empty:
                         df_processed = df_non_elec.copy().reset_index(drop=True)
                         
-                        # Add difficulty info
-                        difficulty_values = []
-                        for idx in range(len(df_processed)):
-                            row = df_processed.iloc[idx]
-                            difficulty = row.get('Difficulty', None)
-                            if pd.notna(difficulty):
-                                if difficulty == 0:
-                                    difficulty_values.append(" (Easy)")
-                                elif difficulty == 1:
-                                    difficulty_values.append(" (Difficult)")
-                                else:
-                                    difficulty_values.append("")
-                            else:
-                                difficulty_values.append("")
-                        
-                        # Create subject display WITH CM Group AND Slot Number
+                        # Create subject display with CM Group and Slot Number
                         subject_displays = []
                         
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
                             
-                            # Add CM Group if present - Format as [CM:1] instead of [3.0]
+                            # Add CM Group if present
                             cm_group = str(row.get('CMGroup', '')).strip()
                             if cm_group and cm_group != "" and cm_group != "nan":
                                 try:
-                                    # Convert to integer if it's a float
                                     cm_group_num = int(float(cm_group))
                                     cm_group_prefix = f"[CM:{cm_group_num}] "
                                 except (ValueError, TypeError):
@@ -2777,7 +2807,7 @@ def save_to_excel(semester_wise_timetable):
                             else:
                                 cm_group_prefix = ""
                             
-                            # Add Exam Slot Number in format (Time:1)
+                            # Add Exam Slot Number
                             exam_slot_number = row.get('ExamSlotNumber', 1)
                             if pd.isna(exam_slot_number) or exam_slot_number == 0:
                                 exam_slot_number = 1
@@ -2786,91 +2816,93 @@ def save_to_excel(semester_wise_timetable):
                             
                             slot_suffix = f" (Time:{exam_slot_number})"
                             
-                            # Subject display: [CM:X] Subject - (Code) (Time:X) - NO DIFFICULTY
                             subject_display = cm_group_prefix + base_subject + slot_suffix
                             subject_displays.append(subject_display)
                         
                         df_processed["SubjectDisplay"] = subject_displays
                         
-                        df_processed["Exam Date"] = pd.to_datetime(df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
+                        # Convert dates
+                        df_processed["Exam Date"] = pd.to_datetime(
+                            df_processed["Exam Date"], 
+                            format="%d-%m-%Y", 
+                            dayfirst=True, 
+                            errors='coerce'
+                        )
                         df_processed = df_processed.sort_values(by="Exam Date", ascending=True)
                         
+                        # Group by date and subbranch
                         grouped_by_date = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
                             'SubjectDisplay': lambda x: ", ".join(str(i) for i in x)
                         }).reset_index()
                         
-                        pivot_df = grouped_by_date.pivot_table(
-                            index="Exam Date",
-                            columns="SubBranch",
-                            values="SubjectDisplay",
-                            aggfunc=lambda x: ", ".join(str(i) for i in x)
-                        ).fillna("---")
-                        
-                        pivot_df = pivot_df.sort_index(ascending=True)
-                        
-                        # Format dates and reset index
-                        pivot_df = pivot_df.reset_index()
-                        pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(
-                            lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else ""
-                        )
-                        
-                        pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                        sheets_created += 1
-                        
+                        # Create pivot table
+                        try:
+                            pivot_df = grouped_by_date.pivot_table(
+                                index="Exam Date",
+                                columns="SubBranch",
+                                values="SubjectDisplay",
+                                aggfunc=lambda x: ", ".join(str(i) for i in x)
+                            ).fillna("---")
+                            
+                            pivot_df = pivot_df.sort_index(ascending=True)
+                            
+                            # Check if pivot has any columns
+                            if pivot_df.empty or len(pivot_df.columns) == 0:
+                                st.warning(f"No valid data for {sheet_name}, creating placeholder")
+                                empty_df = pd.DataFrame({
+                                    'Exam Date': ['No exams scheduled'],
+                                    'Note': ['No valid subject data available']
+                                })
+                                empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                sheets_created += 1
+                                continue
+                            
+                            # Format dates and reset index
+                            pivot_df = pivot_df.reset_index()
+                            pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(
+                                lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else ""
+                            )
+                            
+                            pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            sheets_created += 1
+                            
+                        except Exception as e:
+                            st.warning(f"Could not create pivot for {sheet_name}: {str(e)}")
+                            # Fallback: Create simple table
+                            simple_df = df_processed[['Exam Date', 'SubBranch', 'SubjectDisplay']].copy()
+                            simple_df['Exam Date'] = simple_df['Exam Date'].apply(
+                                lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else ""
+                            )
+                            simple_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            sheets_created += 1
+                            
                     else:
-                        all_subbranches = df_sem[df_sem["MainBranch"] == main_branch]["SubBranch"].unique()
-                        
-                        if len(all_subbranches) > 0:
-                            empty_data = {
-                                'Exam Date': ['No exams scheduled']
-                            }
-                            
-                            for subbranch in sorted(all_subbranches):
-                                empty_data[subbranch] = ['---']
-                            
-                            empty_df = pd.DataFrame(empty_data)
-                            empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            sheets_created += 1
-                        else:
-                            empty_df = pd.DataFrame({
-                                'Exam Date': ['No exams scheduled'],
-                                'Subjects': ['No subjects available']
-                            })
-                            empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            sheets_created += 1
+                        # No non-elective subjects
+                        st.info(f"No core subjects for {sheet_name}")
+                        empty_df = pd.DataFrame({
+                            'Exam Date': ['No exams scheduled'],
+                            'Note': ['No core subjects available']
+                        })
+                        empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        sheets_created += 1
 
-                    # Process electives with CM Group AND Slot Number
+                    # Process electives with validation
                     if not df_elec.empty:
                         df_elec_processed = df_elec.copy().reset_index(drop=True)
                         
-                        difficulty_values_elec = []
-                        for idx in range(len(df_elec_processed)):
-                            row = df_elec_processed.iloc[idx]
-                            difficulty = row.get('Difficulty', None)
-                            if pd.notna(difficulty):
-                                if difficulty == 0:
-                                    difficulty_values_elec.append(" (Easy)")
-                                elif difficulty == 1:
-                                    difficulty_values_elec.append(" (Difficult)")
-                                else:
-                                    difficulty_values_elec.append("")
-                            else:
-                                difficulty_values_elec.append("")
-                        
-                        # Create subject display with CM Group AND Slot Number for electives
+                        # Create subject display for electives
                         subject_displays_elec = []
                         
                         for idx in range(len(df_elec_processed)):
                             row = df_elec_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
                             oe_type = str(row.get('OE', ''))
-                            difficulty_suffix = difficulty_values_elec[idx]
                             
                             # Add CM Group if present
                             cm_group = str(row.get('CMGroup', '')).strip()
                             cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
                             
-                            # NEW: Add Exam Slot Number for electives
+                            # Add Exam Slot Number
                             exam_slot_number = row.get('ExamSlotNumber', 1)
                             if pd.isna(exam_slot_number) or exam_slot_number == 0:
                                 exam_slot_number = 1
@@ -2879,35 +2911,52 @@ def save_to_excel(semester_wise_timetable):
                             
                             slot_suffix = f" (Time:{exam_slot_number})"
                             
-                            # Format: [CM Group] Subject - (Code) [OE Type] (Time:X) (Difficulty)
                             base_display = f"{cm_group_prefix}{base_subject} [{oe_type}]"
-                            subject_display = base_display + slot_suffix + difficulty_suffix
+                            subject_display = base_display + slot_suffix
                             subject_displays_elec.append(subject_display)
                         
                         df_elec_processed["SubjectDisplay"] = subject_displays_elec
                         
-                        elec_pivot = df_elec_processed.groupby(['OE', 'Exam Date']).agg({
-                            'SubjectDisplay': lambda x: ", ".join(sorted(set(x)))
-                        }).reset_index()
+                        # Validate required columns
+                        if 'OE' not in df_elec_processed.columns or 'Exam Date' not in df_elec_processed.columns:
+                            st.warning(f"Missing required columns for electives in {sheet_name}")
+                            continue
                         
-                        elec_pivot['Exam Date'] = pd.to_datetime(
-                            elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
-                        ).dt.strftime("%d-%m-%Y")
-                        elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
-                        
-                        elec_pivot = elec_pivot.rename(columns={
-                            'OE': 'OE Type',
-                            'SubjectDisplay': 'Subjects'
-                        })
-                        
-                        elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
-                        if len(elective_sheet_name) > 31:
-                            elective_sheet_name = elective_sheet_name[:31]
-                        elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
-                        sheets_created += 1
+                        try:
+                            # Group electives
+                            elec_pivot = df_elec_processed.groupby(['OE', 'Exam Date']).agg({
+                                'SubjectDisplay': lambda x: ", ".join(sorted(set(x)))
+                            }).reset_index()
+                            
+                            if elec_pivot.empty:
+                                st.info(f"No elective data for {sheet_name}")
+                                continue
+                            
+                            # Format dates
+                            elec_pivot['Exam Date'] = pd.to_datetime(
+                                elec_pivot['Exam Date'], 
+                                format="%d-%m-%Y", 
+                                errors='coerce'
+                            ).dt.strftime("%d-%m-%Y")
+                            elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
+                            
+                            elec_pivot = elec_pivot.rename(columns={
+                                'OE': 'OE Type',
+                                'SubjectDisplay': 'Subjects'
+                            })
+                            
+                            elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
+                            if len(elective_sheet_name) > 31:
+                                elective_sheet_name = elective_sheet_name[:31]
+                            
+                            elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
+                            sheets_created += 1
+                            
+                        except Exception as e:
+                            st.warning(f"Could not create elective sheet for {sheet_name}: {str(e)}")
 
             if sheets_created == 0:
-                st.error("❌ No sheets were created! Creating a dummy sheet to prevent Excel error.")
+                st.error("No sheets were created! Creating a dummy sheet.")
                 dummy_df = pd.DataFrame({'Message': ['No data available']})
                 dummy_df.to_excel(writer, sheet_name="No_Data", index=False)
                 
@@ -2925,6 +2974,7 @@ def save_to_excel(semester_wise_timetable):
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
         return None
+
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -4454,6 +4504,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
