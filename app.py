@@ -1990,34 +1990,37 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # Parse sheet name - IMPROVED FOR MCA
+            # Parse sheet name - FIXED FOR DIPLOMA/MCA/M TECH
             parts = sheet_name.split('_Sem_')
             if len(parts) < 2:
                 st.warning(f"Cannot parse sheet name: {sheet_name}, skipping")
                 sheets_skipped += 1
                 continue
                 
-            main_branch = parts[0]
+            main_branch_raw = parts[0]
             
-            # Determine program type - FIXED FOR MCA
-            program_type = "B TECH"  # Default
+            # FIXED: Split main_branch by "-" to separate program and stream
+            branch_parts = main_branch_raw.split("-", 1)
+            if len(branch_parts) > 1:
+                program_type = branch_parts[0].strip().upper()
+                main_branch = branch_parts[1].strip()
+            else:
+                program_type = main_branch_raw.upper()
+                main_branch = main_branch_raw
             
-            # Check for MCA first (most specific)
-            if "MCA" in main_branch.upper():
+            # Special handling for known programs - keep main_branch as is if no stream
+            if "MCA" in program_type:
                 program_type = "MCA"
-                # Don't strip MCA from branch name for MCA program
-            # Then check for other program types
-            elif sheet_name.startswith("DIPL_") or "DIPLOMA" in main_branch.upper():
+            elif "DIPLOMA" in program_type:
                 program_type = "DIPLOMA"
-                main_branch = main_branch.replace("DIPL_", "").replace("DIPLOMA", "").strip()
-            elif sheet_name.startswith("MTECH_") or "M TECH" in main_branch.upper():
+            elif "M TECH" in program_type or "MTECH" in program_type:
                 program_type = "M TECH"
-                main_branch = main_branch.replace("MTECH_", "").replace("M TECH", "").strip()
-            elif "MBA" in main_branch.upper():
-                program_type = "MBA TECH"
             
-            # Get full branch name from mapping, or use as-is
-            main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+            # Get full branch name: Use program_type if main_branch is empty/generic, else main_branch
+            if not main_branch or main_branch.upper() in ["DIPLOMA", "MCA", "M TECH", "MTECH"]:
+                main_branch_full = BRANCH_FULL_FORM.get(program_type, program_type)
+            else:
+                main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
             
             semester = parts[1] if len(parts) > 1 else ""
             
@@ -2137,7 +2140,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 
                 # Try alternate column names
                 if 'OE Type' not in sheet_df.columns and 'OE' in sheet_df.columns:
-                    sheet_df = sheet_df.rename(columns={'OE': 'OE Type'})
+                    sheet_df = sheet_df.rename(columns={'OE': 'OE type'})
                     available_cols = [col for col in required_cols if col in sheet_df.columns]
                 
                 if len(available_cols) < 2:
@@ -4512,6 +4515,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
