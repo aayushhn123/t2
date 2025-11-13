@@ -3488,6 +3488,31 @@ def main():
             st.rerun()
         
         st.markdown("---")
+
+    # Initialize ALL session state variables at the start
+    session_defaults = {
+        'num_custom_holidays': 1,
+        'custom_holidays': [None],
+        'timetable_data': {},
+        'processing_complete': False,
+        'excel_data': None,
+        'pdf_data': None,
+        'verification_data': None,
+        'total_exams': 0,
+        'total_semesters': 0,
+        'total_branches': 0,
+        'overall_date_range': 0,
+        'unique_exam_days': 0,
+        'capacity_slider': 2000,
+        'holidays_set': set(),
+        'original_df': None
+    }
+
+    # Initialize any missing session state variables
+    for key, default_value in session_defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
+        
     st.markdown("""
     <div class="main-header">
         <h1>📅 Exam Timetable Generator</h1>
@@ -3495,33 +3520,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # Initialize session state variables if not present
-    if 'num_custom_holidays' not in st.session_state:
-        st.session_state.num_custom_holidays = 1
-    if 'custom_holidays' not in st.session_state:
-        st.session_state.custom_holidays = [None]
-    if 'timetable_data' not in st.session_state:
-        st.session_state.timetable_data = {}
-    if 'processing_complete' not in st.session_state:
-        st.session_state.processing_complete = False
-    if 'excel_data' not in st.session_state:
-        st.session_state.excel_data = None
-    if 'pdf_data' not in st.session_state:
-        st.session_state.pdf_data = None
-    if 'verification_data' not in st.session_state:
-        st.session_state.verification_data = None
-    if 'total_exams' not in st.session_state:
-        st.session_state.total_exams = 0
-    if 'total_semesters' not in st.session_state:
-        st.session_state.total_semesters = 0
-    if 'total_branches' not in st.session_state:
-        st.session_state.total_branches = 0
-    if 'overall_date_range' not in st.session_state:
-        st.session_state.overall_date_range = 0
-    if 'unique_exam_days' not in st.session_state:
-        st.session_state.unique_exam_days = 0
-    if 'capacity_slider' not in st.session_state:
-        st.session_state.capacity_slider = 2000
+    
 
     #---
     with st.sidebar:
@@ -4296,6 +4295,7 @@ with col1:
     
 if __name__ == "__main__":
     main()
+
 
 
 
