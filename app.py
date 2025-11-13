@@ -22,14 +22,22 @@ if 'selected_college' not in st.session_state:
     st.session_state.selected_college = None
 
 # Custom CSS for college selector
+# Custom CSS for consistent dark and light mode styling
 st.markdown("""
 <style>
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
     /* Base styles */
+    * {
+        font-family: 'Inter', sans-serif;
+    }
+    
     .main-header {
-        padding: 2rem;
-        border-radius: 10px;
+        padding: 2.5rem;
+        border-radius: 16px;
         margin-bottom: 2rem;
-        background: linear-gradient(90deg, #951C1C, #C73E1D);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     }
 
     .main-header h1 {
@@ -37,152 +45,392 @@ st.markdown("""
         text-align: center;
         margin: 0;
         font-size: 2.5rem;
+        font-weight: 700;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        letter-spacing: -0.5px;
     }
 
     .main-header p {
         color: #FFF;
         text-align: center;
         margin: 0.5rem 0 0 0;
-        font-size: 1.2rem;
-        opacity: 0.9;
+        font-size: 1.1rem;
+        opacity: 0.95;
+        font-weight: 500;
     }
 
-    /* College selector grid */
-    .college-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 1.5rem;
+    .stats-section {
         padding: 2rem;
-        margin: 2rem 0;
+        border-radius: 16px;
+        margin: 1.5rem 0;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
     }
 
-    .college-card {
-        background: white;
-        padding: 2rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        border-left: 6px solid #951C1C;
-        transition: all 0.3s ease;
-        cursor: pointer;
-        text-align: center;
-        min-height: 180px;
+    /* Enhanced metric card with smooth animations */
+    .metric-card {
         display: flex;
         flex-direction: column;
-        justify-content: center;
         align-items: center;
+        justify-content: center;
+        padding: 2rem 1.5rem;
+        border-radius: 16px;
+        color: white;
+        text-align: center;
+        margin: 0.5rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%);
+        opacity: 0;
+        transition: opacity 0.3s ease;
     }
 
-    .college-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 12px rgba(0, 0, 0, 0.2);
-        border-left-color: #C73E1D;
+    .metric-card:hover {
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+    }
+    
+    .metric-card:hover::before {
+        opacity: 1;
     }
 
-    .college-card h3 {
-        color: #951C1C;
+    .metric-card h3 {
         margin: 0;
-        font-size: 1.2rem;
-        font-weight: 600;
-        line-height: 1.4;
+        font-size: 2.2rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 700;
+        letter-spacing: -1px;
     }
 
-    .college-card .college-icon {
-        font-size: 3rem;
-        margin-bottom: 1rem;
+    .metric-card p {
+        margin: 0.5rem 0 0 0;
+        font-size: 1rem;
+        opacity: 0.95;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    /* Smooth button animations */
+    .stButton>button {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: 12px;
+        border: 2px solid transparent;
+        font-weight: 600;
+        font-size: 0.95rem;
+        padding: 0.75rem 1.5rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(149, 28, 28, 0.3);
+        border: 2px solid #951C1C;
+    }
+    
+    .stButton>button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(149, 28, 28, 0.2);
+    }
+
+    /* Download button styling */
+    .stDownloadButton>button {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: 12px;
+        border: 2px solid transparent;
+        font-weight: 600;
+        font-size: 0.95rem;
+        padding: 0.75rem 1.5rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .stDownloadButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(149, 28, 28, 0.3);
+        border: 2px solid #951C1C;
+    }
+    
+    .stDownloadButton>button:active {
+        transform: translateY(0);
+    }
+
+    /* Light mode styles */
+    @media (prefers-color-scheme: light) {
+        .main-header {
+            background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%);
+        }
+
+        .upload-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            padding: 2.5rem;
+            border-radius: 16px;
+            border: 2px solid #e9ecef;
+            margin: 1rem 0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .results-section {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            padding: 2.5rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            margin: 1rem 0;
+        }
+
+        .stats-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        .status-success {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            color: #155724;
+            padding: 1.25rem;
+            border-radius: 12px;
+            border-left: 5px solid #28a745;
+            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);
+            font-weight: 500;
+        }
+
+        .status-error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            padding: 1.25rem;
+            border-radius: 12px;
+            border-left: 5px solid #dc3545;
+            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.2);
+            font-weight: 500;
+        }
+
+        .status-info {
+            background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+            color: #0c5460;
+            padding: 1.25rem;
+            border-radius: 12px;
+            border-left: 5px solid #17a2b8;
+            box-shadow: 0 2px 8px rgba(23, 162, 184, 0.2);
+            font-weight: 500;
+        }
+
+        .feature-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            padding: 2rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin: 1rem 0;
+            border-left: 5px solid #951C1C;
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .footer {
+            text-align: center;
+            color: #666;
+            padding: 2rem;
+            font-size: 0.95rem;
+        }
+        
+        .stButton>button {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            color: #951C1C;
+            border: 2px solid #e9ecef;
+        }
+        
+        .stButton>button:hover {
+            background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%);
+            color: white;
+        }
+        
+        .stDownloadButton>button {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            color: #951C1C;
+            border: 2px solid #e9ecef;
+        }
+        
+        .stDownloadButton>button:hover {
+            background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%);
+            color: white;
+        }
     }
 
     /* Dark mode styles */
     @media (prefers-color-scheme: dark) {
         .main-header {
-            background: linear-gradient(90deg, #701515, #A23217);
+            background: linear-gradient(135deg, #701515 0%, #A23217 100%);
         }
 
-        .college-card {
-            background: #333;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-            border-left-color: #A23217;
+        .upload-section {
+            background: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
+            padding: 2.5rem;
+            border-radius: 16px;
+            border: 2px solid #4a4a4a;
+            margin: 1rem 0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
-        .college-card h3 {
-            color: #FFF;
+        .results-section {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            padding: 2.5rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            margin: 1rem 0;
         }
 
-        .college-card:hover {
-            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.4);
-            border-left-color: #C73E1D;
-        }
-    }
-
-    /* Button styling */
-    .stButton>button {
-        width: 100%;
-        min-height: 160px !important;
-        height: auto !important;
-        padding: 1.5rem;
-        font-size: 1.05rem;
-        font-weight: 600;
-        border-radius: 12px;
-        border: 2px solid #951C1C;
-        background: white;
-        color: #951C1C;
-        transition: all 0.3s ease;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-        line-height: 1.4;
-        white-space: normal;
-        word-wrap: break-word;
-    }
-
-    .stButton>button:hover {
-        background: #951C1C;
-        color: white;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    }
-
-    @media (prefers-color-scheme: dark) {
-        .stButton>button {
-            background: #333;
-            color: white;
-            border-color: #A23217;
+        .stats-section {
+            background: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
-        .stButton>button:hover {
-            background: #A23217;
-            border-color: #C73E1D;
+        .status-success {
+            background: linear-gradient(135deg, #1e4620 0%, #2d6a2f 100%);
+            color: #e6f4ea;
+            padding: 1.25rem;
+            border-radius: 12px;
+            border-left: 5px solid #4caf50;
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+            font-weight: 500;
         }
-    }
 
-    /* --- NEW: Fix vertical spacing between rows --- */
-    div[data-testid="column"] {
-        padding: 0.25rem 0 !important;
-        margin: 0 !important;
-    }
+        .status-error {
+            background: linear-gradient(135deg, #5c1f1f 0%, #7d2a2a 100%);
+            color: #f8d7da;
+            padding: 1.25rem;
+            border-radius: 12px;
+            border-left: 5px solid #f44336;
+            box-shadow: 0 2px 8px rgba(244, 67, 54, 0.3);
+            font-weight: 500;
+        }
 
-    div[data-testid="column"] .stButton {
-        margin: 0 !important;
-    }
+        .status-info {
+            background: linear-gradient(135deg, #1a4d5c 0%, #266b7d 100%);
+            color: #d1ecf1;
+            padding: 1.25rem;
+            border-radius: 12px;
+            border-left: 5px solid #00bcd4;
+            box-shadow: 0 2px 8px rgba(0, 188, 212, 0.3);
+            font-weight: 500;
+        }
 
-    div[data-testid="column"] .stButton > button {
-        min-height: 160px !important;
-        height: auto !important;
-    }
+        .feature-card {
+            background: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
+            padding: 2rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            margin: 1rem 0;
+            border-left: 5px solid #A23217;
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
 
-    .footer {
-        text-align: center;
-        color: #666;
-        padding: 2rem;
-        margin-top: 3rem;
-    }
+        .metric-card {
+            background: linear-gradient(135deg, #4a5db0 0%, #5a3e8a 100%);
+        }
 
-    @media (prefers-color-scheme: dark) {
         .footer {
+            text-align: center;
             color: #ccc;
+            padding: 2rem;
+            font-size: 0.95rem;
         }
+        
+        .stButton>button {
+            background: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
+            color: white;
+            border: 2px solid #4a4a4a;
+        }
+        
+        .stButton>button:hover {
+            background: linear-gradient(135deg, #A23217 0%, #C73E1D 100%);
+            border: 2px solid #C73E1D;
+        }
+        
+        .stDownloadButton>button {
+            background: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
+            color: white;
+            border: 2px solid #4a4a4a;
+        }
+        
+        .stDownloadButton>button:hover {
+            background: linear-gradient(135deg, #A23217 0%, #C73E1D 100%);
+            border: 2px solid #C73E1D;
+        }
+    }
+    
+    /* File uploader styling */
+    .stFileUploader {
+        border-radius: 12px;
+        transition: all 0.3s ease;
+    }
+    
+    .stFileUploader:hover {
+        box-shadow: 0 4px 12px rgba(149, 28, 28, 0.2);
+    }
+    
+    /* Dataframe styling */
+    .dataframe {
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        border-radius: 12px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .streamlit-expanderHeader:hover {
+        background-color: rgba(149, 28, 28, 0.1);
+    }
+    
+    /* Slider styling */
+    .stSlider {
+        padding: 1rem 0;
+    }
+    
+    /* Checkbox styling */
+    .stCheckbox {
+        padding: 0.5rem 0;
+    }
+    
+    /* Date input styling */
+    .stDateInput {
+        border-radius: 12px;
+    }
+    
+    /* Success/Info/Warning message styling */
+    .element-container .stSuccess,
+    .element-container .stInfo,
+    .element-container .stWarning,
+    .element-container .stError {
+        border-radius: 12px;
+        padding: 1rem;
+        font-weight: 500;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -4037,6 +4285,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
