@@ -2244,30 +2244,35 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             st.error(f"Error saving temporary Excel file: {e}")
             return
 
-        # --------------------------------------------------------------
-        # NEW: PRE-PROCESS TO ADD "SUBJECT" COLUMN TO EVERY SHEET
-        # (Fixes MCA skipping without changing converter args)
-        # --------------------------------------------------------------
+        # FIXED PRE-PROCESS: Handle empty/no-visible-sheets + unnamed columns
         try:
             xl = pd.ExcelFile(temp_excel)
+            sheet_names = xl.sheet_names
+            if not sheet_names:  # No sheets → add dummy to make workbook visible
+                with pd.ExcelWriter(temp_excel, engine='openpyxl') as writer:
+                    pd.DataFrame({'Message': ['No data available']}).to_excel(writer, sheet_name="No_Data", index=False)
+                xl = pd.ExcelFile(temp_excel)  # Reload after adding
+                sheet_names = xl.sheet_names
+
             with pd.ExcelWriter(temp_excel, engine='openpyxl') as writer:
-                for sheet_name in xl.sheet_names:
-                    df = xl.parse(sheet_name)
-                    if 'Subject' not in df.columns and not df.empty:
-                        # Add dummy "Subject" column (spaces/N/A → invisible in PDF)
-                        df.insert(0, 'Subject', ' ')  # Or 'N/A' if preferred
-                    elif df.empty:
-                        # Empty sheet – add minimal structure
-                        df = pd.DataFrame({'Subject': ['No data']})
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-            #st.write("Added 'Subject' column to all sheets – MCA now included")
+                for sheet_name in sheet_names:
+                    try:
+                        df = xl.parse(sheet_name)
+                        if df.empty:
+                            df = pd.DataFrame({'Subject': ['No data']})  # Make visible with dummy
+                        elif 'Subject' not in df.columns:
+                            df.insert(0, 'Subject', ' ')  # Add for unnamed columns (invisible in PDF)
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    except Exception as e:
+                        st.warning(f"Skipped bad sheet {sheet_name}: {e}")
+                        # Add dummy for this sheet to keep workbook valid
+                        pd.DataFrame({'Message': ['Skipped bad sheet']}).to_excel(writer, sheet_name=sheet_name, index=False)
+            #st.write("Fixed temp Excel – all sheets visible + unnamed columns handled")
         except Exception as e:
-            st.warning(f"Could not add 'Subject' column to temp Excel: {e}")
-        # --------------------------------------------------------------
+            st.warning(f"Pre-process failed (using original Excel): {e}")
 
         #st.write("Converting Excel to PDF...")
         try:
-            # === FIXED: Removed invalid 'sheet_name' arg ===
             convert_excel_to_pdf(temp_excel, output_pdf)
             #st.write("PDF conversion completed")
         except Exception as e:
@@ -2335,7 +2340,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
         st.success("PDF generation process completed successfully!")
     else:
         st.error("Final PDF file does not exist!")
-
+        
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
         st.error("No timetable data provided for verification")
@@ -4512,6 +4517,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
