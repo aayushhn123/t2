@@ -2244,10 +2244,31 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             st.error(f"Error saving temporary Excel file: {e}")
             return
 
+        # --------------------------------------------------------------
+        # NEW: PRE-PROCESS TO ADD "SUBJECT" COLUMN TO EVERY SHEET
+        # (Fixes MCA skipping without changing converter args)
+        # --------------------------------------------------------------
+        try:
+            xl = pd.ExcelFile(temp_excel)
+            with pd.ExcelWriter(temp_excel, engine='openpyxl') as writer:
+                for sheet_name in xl.sheet_names:
+                    df = xl.parse(sheet_name)
+                    if 'Subject' not in df.columns and not df.empty:
+                        # Add dummy "Subject" column (spaces/N/A → invisible in PDF)
+                        df.insert(0, 'Subject', ' ')  # Or 'N/A' if preferred
+                    elif df.empty:
+                        # Empty sheet – add minimal structure
+                        df = pd.DataFrame({'Subject': ['No data']})
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+            #st.write("Added 'Subject' column to all sheets – MCA now included")
+        except Exception as e:
+            st.warning(f"Could not add 'Subject' column to temp Excel: {e}")
+        # --------------------------------------------------------------
+
         #st.write("Converting Excel to PDF...")
         try:
-            # === ONLY CHANGE: FORCE ALL SHEETS (sheet_name=None) ===
-            convert_excel_to_pdf(temp_excel, output_pdf, sheet_name=None)
+            # === FIXED: Removed invalid 'sheet_name' arg ===
+            convert_excel_to_pdf(temp_excel, output_pdf)
             #st.write("PDF conversion completed")
         except Exception as e:
             st.error(f"Error during Excel to PDF conversion: {e}")
@@ -4491,6 +4512,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
