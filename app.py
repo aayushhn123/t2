@@ -2740,6 +2740,7 @@ def convert_semester_to_number(semester_value):
     return semester_map.get(semester_str, 0)
 
 
+
 def save_to_excel(semester_wise_timetable):
     """
     FIXED: Enhanced Excel generation with better error handling and validation
@@ -2785,9 +2786,7 @@ def save_to_excel(semester_wise_timetable):
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
                     roman_sem = int_to_roman(sem)
-                    # FIXED: Use full branch name for sheet
-                    full_branch = BRANCH_FULL_FORM.get(main_branch, main_branch)
-                    sheet_name = f"{full_branch}_Sem_{roman_sem}"
+                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
                    
@@ -2952,8 +2951,7 @@ def save_to_excel(semester_wise_timetable):
                                 'SubjectDisplay': 'Subjects'
                             })
 
-                            # FIXED: Use full branch name for elective sheet too
-                            elective_sheet_name = f"{full_branch}_Sem_{roman_sem}_Electives"
+                            elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
                             if len(elective_sheet_name) > 31:
                                 elective_sheet_name = elective_sheet_name[:31]
 
@@ -2985,7 +2983,6 @@ def save_to_excel(semester_wise_timetable):
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
         return None
-
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -4515,7 +4512,6 @@ def main():
     
 if __name__ == "__main__":
     main()
-
 
 
 
