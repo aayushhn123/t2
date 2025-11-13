@@ -1694,7 +1694,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None, actual_time_slots=None):
     if df.empty:
         return
     setattr(pdf, '_row_counter', 0)
@@ -1707,25 +1707,19 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
     pdf.set_font("Arial", size=13)
     pdf.set_xy(10, pdf.h - footer_height + 7)
-    #pdf.cell(0, 5, "Signature", 0, 1, 'L')
     
     # Add page numbers in bottom right
     pdf.set_font("Arial", size=14)
     pdf.set_text_color(0, 0, 0)
     page_text = f"{pdf.page_no()} of {{nb}}"
-    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))  # Estimate width
+    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
     
     # Add header
-    header_height = 85  # Increased height to accommodate time slot
+    header_height = 95  # Increased to accommodate multiple time slots
     pdf.set_y(0)
-    #current_date = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p IST")
-    #pdf.set_font("Arial", size=14)
-    #text_width = pdf.get_string_width(current_date)
-    #x = pdf.w - 10 - text_width
-    #pdf.set_xy(x, 5)
-    #pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+    
     logo_width = 45
     logo_x = (pdf.w - logo_width) / 2
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
@@ -1742,8 +1736,28 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot if provided
-    if time_slot:
+    # NEW: Display actual time slots used in this timetable
+    if actual_time_slots and len(actual_time_slots) > 0:
+        pdf.set_font("Arial", 'B', 13)
+        pdf.set_xy(10, 59)
+        
+        if len(actual_time_slots) == 1:
+            slot_text = f"Exam Time: {list(actual_time_slots)[0]}"
+        else:
+            # Sort slots for consistent display
+            sorted_slots = sorted(actual_time_slots)
+            slot_text = f"Exam Times: {' | '.join(sorted_slots)}"
+        
+        pdf.cell(pdf.w - 20, 6, slot_text, 0, 1, 'C')
+        pdf.set_font("Arial", 'I', 10)
+        pdf.set_xy(10, 65)
+        pdf.cell(pdf.w - 20, 6, "(Check individual subject for specific exam time if multiple slots shown)", 0, 1, 'C')
+        pdf.set_font("Arial", '', 12)
+        pdf.set_xy(10, 71)
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.set_y(85)
+    elif time_slot:
+        # Fallback to old behavior if actual_time_slots not provided
         pdf.set_font("Arial", 'B', 14)
         pdf.set_xy(10, 59)
         pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
@@ -1798,7 +1812,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             add_footer_with_page_number(pdf, footer_height)
             
             # Add header to new page
-            add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_slot)
+            add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_slot, actual_time_slots)
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
@@ -1824,14 +1838,10 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_slot=None):
+def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_slot=None, actual_time_slots=None):
     """Add header to a new page"""
     pdf.set_y(0)
-    #pdf.set_font("Arial", size=14)
-    #text_width = pdf.get_string_width(current_date)
-    #x = pdf.w - 10 - text_width
-    #pdf.set_xy(x, 5)
-    #pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
+    
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
@@ -1846,8 +1856,26 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_s
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Add time slot if provided
-    if time_slot:
+    # NEW: Display actual time slots used
+    if actual_time_slots and len(actual_time_slots) > 0:
+        pdf.set_font("Arial", 'B', 13)
+        pdf.set_xy(10, 59)
+        
+        if len(actual_time_slots) == 1:
+            slot_text = f"Exam Time: {list(actual_time_slots)[0]}"
+        else:
+            sorted_slots = sorted(actual_time_slots)
+            slot_text = f"Exam Times: {' | '.join(sorted_slots)}"
+        
+        pdf.cell(pdf.w - 20, 6, slot_text, 0, 1, 'C')
+        pdf.set_font("Arial", 'I', 10)
+        pdf.set_xy(10, 65)
+        pdf.cell(pdf.w - 20, 6, "(Check individual subject for specific exam time if multiple slots shown)", 0, 1, 'C')
+        pdf.set_font("Arial", '', 12)
+        pdf.set_xy(10, 71)
+        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.set_y(85)
+    elif time_slot:
         pdf.set_font("Arial", 'B', 14)
         pdf.set_xy(10, 59)
         pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
@@ -1919,10 +1947,25 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 num -= value
         return result
 
-    def get_semester_program_time_slot(semester, program_type):
-        """Get correct time slot - uses default slot 1 since actual slot comes from data"""
-        # UPDATED: Return default slot, actual slots are in the data already
-        return get_time_slot_from_number(1, time_slots_dict)
+    def extract_time_slots_from_subjects(df, columns):
+        """Extract unique time slots from subject displays in the dataframe"""
+        time_slots = set()
+        import re
+        
+        # Pattern to match time ranges in subject strings
+        time_pattern = r'\((\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM))\)'
+        
+        for col in columns:
+            if col == 'Exam Date':
+                continue
+            if col in df.columns:
+                for value in df[col].dropna():
+                    if isinstance(value, str):
+                        matches = re.findall(time_pattern, value)
+                        for match in matches:
+                            time_slots.add(match)
+        
+        return time_slots
 
     sheets_processed = 0
     
@@ -2015,15 +2058,19 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
 
-                # UPDATED: Use default time slot display (actual times are in the subject display from Excel)
-                correct_time_slot = get_semester_program_time_slot(semester, program_type)
+                # NEW: Extract actual time slots from the data
+                actual_time_slots = extract_time_slots_from_subjects(chunk_df, cols_to_print)
+                
+                # If no time slots found in subjects, use default from configuration
+                if not actual_time_slots:
+                    # Use all configured time slots as default
+                    actual_time_slots = {f"{slot['start']} - {slot['end']}" for slot in time_slots_dict.values()}
 
                 # Convert Exam Date to desired format
                 try:
                     chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
                 except Exception as e:
                     st.warning(f"Date conversion error in {sheet_name}: {e}")
-                    # Try alternative date parsing
                     chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
 
                 # Calculate column widths
@@ -2041,13 +2088,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 footer_height = 25
                 add_footer_with_page_number(pdf, footer_height)
                 
-                # Note: Time slot shown is just for reference, actual times are in subject names
+                # Pass actual time slots to the table printing function
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, time_slot=correct_time_slot)
+                                 header_content=header_content, branches=chunk, 
+                                 time_slot=None, actual_time_slots=actual_time_slots)
                 
                 sheets_processed += 1
 
-        # Handle electives (similar logic)
+        # Handle electives
         elif sheet_name.endswith('_Electives'):
             # Ensure we have the required columns
             required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
@@ -2055,8 +2103,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             
             if len(available_cols) < 2:
                 st.warning(f"⚠️ Missing required columns in electives sheet {sheet_name}")
-                st.write(f"Available columns: {list(sheet_df.columns)}")
-                st.write(f"Required columns: {required_cols}")
                 continue
             
             # Use available columns
@@ -2076,7 +2122,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
 
             # Clean subject display if SubjectDisplay column exists
             if 'SubjectDisplay' in elective_data.columns and 'OE' in elective_data.columns:
-               # Remove OE tags that might be duplicated since they're already in the subject display
                elective_data['SubjectDisplay'] = elective_data.apply(
                    lambda row: str(row['SubjectDisplay']).replace(f" [{row['OE']}]", f" [{row['OE']}]") if pd.notna(row['SubjectDisplay']) else "",
                    axis=1
@@ -2091,6 +2136,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             for old_col, new_col in column_mapping.items():
                if old_col in elective_data.columns:
                    elective_data = elective_data.rename(columns={old_col: new_col})
+
+            # NEW: Extract actual time slots from elective data
+            cols_for_extraction = [col for col in ['Subjects', 'SubjectDisplay'] if col in elective_data.columns]
+            actual_time_slots_elec = extract_time_slots_from_subjects(elective_data, cols_for_extraction)
+            
+            if not actual_time_slots_elec:
+                actual_time_slots_elec = {f"{slot['start']} - {slot['end']}" for slot in time_slots_dict.values()}
 
             # Set column widths
             exam_date_width = 60
@@ -2109,11 +2161,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
            
-            # UPDATED: Use default time slot for electives
-            elective_time_slot = get_semester_program_time_slot(semester, program_type)
-           
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                            header_content=header_content, branches=['All Streams'], time_slot=elective_time_slot)
+                            header_content=header_content, branches=['All Streams'], 
+                            time_slot=None, actual_time_slots=actual_time_slots_elec)
            
             sheets_processed += 1
 
@@ -2249,17 +2299,18 @@ def save_verification_excel(original_df, semester_wise_timetable):
         st.error("No timetable data provided for verification")
         return None
 
+    # Get time slots configuration
+    time_slots_dict = st.session_state.get('time_slots', {
+        1: {"start": "10:00 AM", "end": "1:00 PM"},
+        2: {"start": "2:00 PM", "end": "5:00 PM"}
+    })
+
     # Combine all scheduled data first
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
 
     # Extract ModuleCode from scheduled data more robustly
     scheduled_data["ExtractedModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False)
     
-    # Debug: Check ModuleCode extraction
-    #st.write("🔍 **ModuleCode extraction check:**")
-    module_codes_sample = scheduled_data[['Subject', 'ExtractedModuleCode']].head(3)
-    st.dataframe(module_codes_sample)
-
     # Handle different possible column names in original data
     column_mapping = {
         "Module Abbreviation": ["Module Abbreviation", "ModuleCode", "Module Code", "Code"],
@@ -2272,7 +2323,8 @@ def save_verification_excel(original_df, semester_wise_timetable):
         "Common across sems": ["Common across sems", "CommonAcrossSems", "Common_across_sems"],
         "Is Common": ["Is Common", "IsCommon", "is common", "Is_Common", "is_common"],
         "Circuit": ["Circuit", "Is_Circuit", "CircuitBranch"],
-        "Campus": ["Campus", "School Name", "Location", "School_Name"]
+        "Campus": ["Campus", "School Name", "Location", "School_Name"],
+        "Exam Slot Number": ["Exam Slot Number", "ExamSlotNumber", "exam slot number", "Exam_Slot_Number", "Slot Number"]
     }
     
     # Find actual column names
@@ -2283,10 +2335,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 actual_columns[standard_name] = possible_name
                 break
         if standard_name not in actual_columns:
-            st.warning(f"⚠️ Column '{standard_name}' not found in original data")
+            if standard_name != "Exam Slot Number":  # Don't warn for optional columns
+                st.warning(f"⚠️ Column '{standard_name}' not found in original data")
     
-    #st.write(f"🔍 **Mapped columns:** {actual_columns}")
-
     # Create verification dataframe with available columns
     columns_to_include = list(actual_columns.values())
     verification_df = original_df[columns_to_include].copy()
@@ -2297,11 +2348,13 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     # Add new columns for scheduled information
     verification_df["Exam Date"] = ""
-    verification_df["Time Slot"] = ""  # Semester default timing
+    verification_df["Exam Slot Number"] = ""  # NEW: Add this column
+    verification_df["Time Slot"] = ""  # Actual scheduled time slot
+    verification_df["Configured Slot"] = ""  # NEW: Show what slot number maps to
     verification_df["Exam Time"] = ""  # Subject-specific timing
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
-    verification_df["Subject Type"] = ""  # New: Common/Uncommon/OE categorization
+    verification_df["Subject Type"] = ""
 
     # Handle missing Campus column
     if "Campus" not in verification_df.columns:
@@ -2324,7 +2377,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
             
             # Create multiple possible keys for matching
             keys_to_try = [
-                f"{module_code}_{semester}_{branch}",  # Exact match
+                f"{module_code}_{semester}_{branch}",
             ]
             
             # Add branch variations for matching
@@ -2336,8 +2389,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 if key not in scheduled_lookup:
                     scheduled_lookup[key] = []
                 scheduled_lookup[key].append(row)
-    
-    #st.write(f"📊 Created lookup with {len(scheduled_lookup)} unique keys")
     
     # Process each row for matching
     for idx, row in verification_df.iterrows():
@@ -2359,7 +2410,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
             branch = f"{program}-{stream}" if program and stream and program != "nan" and stream != "nan" else program
             
             if not branch:
-                #st.write(f"⚠️ Empty branch for module {module_code}")
                 unmatched_count += 1
                 unique_subjects_unmatched.add(module_code)
                 continue
@@ -2369,29 +2419,23 @@ def save_verification_excel(original_df, semester_wise_timetable):
             match_found = False
             
             if lookup_key in scheduled_lookup:
-                # Found exact match
-                matched_subject = scheduled_lookup[lookup_key][0]  # Take first match
+                matched_subject = scheduled_lookup[lookup_key][0]
                 match_found = True
             else:
                 # Try alternative matching approaches
-                # 1. Try with just module code and semester (for common subjects)
                 for key, subjects in scheduled_lookup.items():
                     if key.startswith(f"{module_code}_{semester_num}_"):
-                        # Check if this is a common subject
                         matched_subject = subjects[0]
                         if matched_subject.get('CommonAcrossSems', False):
                             match_found = True
                             break
                 
-                # 2. Try partial branch matching
                 if not match_found:
                     for key, subjects in scheduled_lookup.items():
-                        if key.startswith(f"{module_code}_{semester_num}_"):
-                            # Extract branch from key
+                        if key.startswith(f"{module_code}_{semester_num}_"):                            
                             key_parts = key.split('_')
                             if len(key_parts) >= 3:
                                 key_branch = '_'.join(key_parts[2:])
-                                # Check if branches are similar (same program or stream)
                                 if branch in key_branch or key_branch in branch:
                                     matched_subject = subjects[0]
                                     match_found = True
@@ -2409,30 +2453,25 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 except:
                     duration = 3.0
                 
-                # Calculate Time Slot (semester default) and Exam Time (subject-specific)#
+                # NEW: Get Exam Slot Number from matched subject
+                exam_slot_number = matched_subject.get('ExamSlotNumber', 1)
+                if pd.isna(exam_slot_number) or exam_slot_number == 0:
+                    exam_slot_number = 1
+                else:
+                    exam_slot_number = int(exam_slot_number)
                 
-                try:
-                    time_slots_dict = st.session_state.get('time_slots', {
-                        1: {"start": "10:00 AM", "end": "1:00 PM"},
-                        2: {"start": "2:00 PM", "end": "5:00 PM"}
-                    })
-                    exam_slot_num = matched_subject.get('ExamSlotNumber', 1)
-                    semester_default_slot = get_time_slot_from_number(exam_slot_num, time_slots_dict)
-                except:
-                    time_slots_dict = st.session_state.get('time_slots', {
-                        1: {"start": "10:00 AM", "end": "1:00 PM"}
-                    })
-                    semester_default_slot = get_time_slot_from_number(1, time_slots_dict)
-
-                #---
+                verification_df.at[idx, "Exam Slot Number"] = exam_slot_number
                 
-                # Time Slot = Semester default timing
-                verification_df.at[idx, "Time Slot"] = semester_default_slot
+                # NEW: Show what this slot number maps to
+                configured_slot_display = get_time_slot_from_number(exam_slot_number, time_slots_dict)
+                verification_df.at[idx, "Configured Slot"] = configured_slot_display
                 
-                # Exam Time = Subject-specific timing
+                # Time Slot = Actual scheduled time slot
+                verification_df.at[idx, "Time Slot"] = str(assigned_time_slot) if assigned_time_slot else "TBD"
+                
+                # Exam Time = Subject-specific timing based on duration
                 if assigned_time_slot and str(assigned_time_slot).strip() and str(assigned_time_slot) != "nan":
                     try:
-                        # Calculate subject-specific exam time based on duration
                         if duration != 3:
                             # Non-standard duration: calculate specific time range
                             start_time = str(assigned_time_slot).split(" - ")[0].strip()
@@ -2440,19 +2479,13 @@ def save_verification_excel(original_df, semester_wise_timetable):
                             exam_time = f"{start_time} - {end_time}"
                         else:
                             # Standard 3-hour duration
-                            if assigned_time_slot != semester_default_slot:
-                                # Common subject with different timing than semester default
-                                exam_time = str(assigned_time_slot)
-                            else:
-                                # Regular subject with semester default timing
-                                start_time = str(assigned_time_slot).split(" - ")[0].strip()
-                                end_time = calculate_end_time(start_time, duration)
-                                exam_time = f"{start_time} - {end_time}"
+                            start_time = str(assigned_time_slot).split(" - ")[0].strip()
+                            end_time = calculate_end_time(start_time, duration)
+                            exam_time = f"{start_time} - {end_time}"
                         
                         verification_df.at[idx, "Exam Time"] = exam_time
                         
                     except Exception as e:
-                        #st.write(f"⚠️ Error calculating time for {module_code}: {e}")
                         verification_df.at[idx, "Exam Time"] = str(assigned_time_slot)
                 else:
                     verification_df.at[idx, "Exam Time"] = "TBD"
@@ -2485,16 +2518,14 @@ def save_verification_excel(original_df, semester_wise_timetable):
             else:
                 # No match found
                 verification_df.at[idx, "Exam Date"] = "Not Scheduled"
+                verification_df.at[idx, "Exam Slot Number"] = ""
                 verification_df.at[idx, "Time Slot"] = "Not Scheduled"
+                verification_df.at[idx, "Configured Slot"] = ""
                 verification_df.at[idx, "Exam Time"] = "Not Scheduled" 
                 verification_df.at[idx, "Is Common Status"] = "N/A"
                 verification_df.at[idx, "Subject Type"] = "Unscheduled"
                 unmatched_count += 1
                 unique_subjects_unmatched.add(module_code)
-                
-                if unmatched_count <= 10:  # Show first 10 unmatched for debugging
-                    pass
-                    #st.write(f"   ❌ **NO MATCH** for {module_code} ({branch}, Sem {semester_num})")
                      
         except Exception as e:
             st.error(f"Error processing row {idx}: {e}")
@@ -2508,12 +2539,8 @@ def save_verification_excel(original_df, semester_wise_timetable):
     unique_unmatched_count = len(unique_subjects_unmatched)
 
     st.success(f"✅ **Enhanced Verification Results:**")
-    #st.write(f"   📊 **Total Instances:** Matched: {matched_count}, Unmatched: {unmatched_count}")
-    #st.write(f"   🔗 **Unique Subjects:** Total: {total_unique_subjects}, Matched: {unique_matched_count}, Unmatched: {unique_unmatched_count}")
-    #st.write(f"   📈 **Instance Match Rate:** {(matched_count/(matched_count+unmatched_count)*100):.1f}%")
-    #st.write(f"   🎯 **Unique Subject Match Rate:** {(unique_matched_count/total_unique_subjects*100):.1f}%")
 
-    # Create daily statistics by campus
+    # Create daily statistics by campus with time slot information
     scheduled_subjects = verification_df[verification_df["Scheduling Status"] == "Scheduled"].copy()
     
     daily_stats = []
@@ -2531,15 +2558,25 @@ def save_verification_excel(original_df, semester_wise_timetable):
             # Count unique subjects for this day
             unique_subjects_count = len(day_group['Module Abbreviation'].unique())
             
-            # Calculate total students (handle missing student count data)
+            # Calculate total students
             day_group['Student Count Clean'] = pd.to_numeric(day_group.get('Student count', 0), errors='coerce').fillna(0)
             total_students = int(day_group['Student Count Clean'].sum())
+            
+            # NEW: Get time slots used on this day
+            time_slots_used = day_group['Time Slot'].unique()
+            time_slots_display = ' | '.join([str(slot) for slot in time_slots_used if pd.notna(slot) and str(slot) != "TBD"])
+            
+            # NEW: Get exam slot numbers used
+            slot_numbers_used = day_group['Exam Slot Number'].unique()
+            slot_numbers_display = ', '.join([f"Slot {int(slot)}" for slot in slot_numbers_used if pd.notna(slot) and slot != ""])
             
             # Initialize row data
             row_data = {
                 'Exam Date': exam_date,
                 'Total Unique Subjects': unique_subjects_count,
-                'Total Students': total_students
+                'Total Students': total_students,
+                'Time Slots Used': time_slots_display if time_slots_display else "Not specified",
+                'Exam Slot Numbers': slot_numbers_display if slot_numbers_display else "Not specified"
             }
             
             # Calculate students per campus
@@ -2555,38 +2592,77 @@ def save_verification_excel(original_df, semester_wise_timetable):
         daily_stats_df = pd.DataFrame(daily_stats)
         daily_stats_df = daily_stats_df.sort_values('Exam Date')
     else:
-        daily_stats_df = pd.DataFrame(columns=['Exam Date', 'Total Unique Subjects', 'Total Students'])
+        daily_stats_df = pd.DataFrame(columns=['Exam Date', 'Total Unique Subjects', 'Total Students', 'Time Slots Used', 'Exam Slot Numbers'])
 
-    # Create campus breakdown
+    # Create campus breakdown with time slot analysis
     campus_breakdown = []
     if not scheduled_subjects.empty:
         for campus in scheduled_subjects['Campus'].unique():
             campus_group = scheduled_subjects[scheduled_subjects['Campus'] == campus]
+            
+            # Analyze time slots for this campus
+            slot_usage = campus_group['Exam Slot Number'].value_counts().to_dict()
+            slot_usage_display = ', '.join([f"Slot {int(k)}: {v} subjects" for k, v in sorted(slot_usage.items()) if pd.notna(k) and k != ""])
+            
             campus_breakdown.append({
                 'Campus': campus,
                 'Total Subjects': len(campus_group),
                 'Unique Subjects': len(campus_group['Module Abbreviation'].unique()),
                 'Total Students': int(campus_group.get('Student count', pd.Series([0])).fillna(0).sum()),
-                'Average Students per Subject': round(campus_group.get('Student count', pd.Series([0])).fillna(0).mean(), 1)
+                'Average Students per Subject': round(campus_group.get('Student count', pd.Series([0])).fillna(0).mean(), 1),
+                'Slot Usage': slot_usage_display if slot_usage_display else "Not specified"
             })
     
-    # Save to Excel with campus-based statistics
+    # NEW: Create time slot usage summary
+    slot_usage_summary = []
+    if not scheduled_subjects.empty and 'Exam Slot Number' in scheduled_subjects.columns:
+        for slot_num in sorted(scheduled_subjects['Exam Slot Number'].unique()):
+            if pd.isna(slot_num) or slot_num == "":
+                continue
+            
+            slot_num_int = int(slot_num)
+            slot_group = scheduled_subjects[scheduled_subjects['Exam Slot Number'] == slot_num]
+            
+            # Get configured time for this slot
+            configured_time = get_time_slot_from_number(slot_num_int, time_slots_dict)
+            
+            slot_usage_summary.append({
+                'Slot Number': slot_num_int,
+                'Configured Time': configured_time,
+                'Total Subjects': len(slot_group),
+                'Total Students': int(slot_group['Student Count Clean'].sum()),
+                'Unique Dates': len(slot_group['Exam Date'].unique()),
+                'Campuses Using': ', '.join(slot_group['Campus'].unique())
+            })
+    
+    # Save to Excel with all sheets
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Main verification sheet
-        verification_df.drop(columns=['Exam Date Parsed', 'Student Count Clean'], errors='ignore').to_excel(writer, sheet_name="Verification", index=False)
+        # Main verification sheet - reorder columns to show slot info early
+        column_order = ['Module Abbreviation', 'Module Description', 'Program', 'Stream', 'Current Session',
+                       'Exam Date', 'Exam Slot Number', 'Configured Slot', 'Time Slot', 'Exam Time',
+                       'Student count', 'Campus', 'Scheduling Status', 'Subject Type', 'Is Common Status']
         
-        # Daily statistics sheet (campus-wise)
+        # Add any remaining columns that weren't in the order list
+        remaining_cols = [col for col in verification_df.columns if col not in column_order and col not in ['Exam Date Parsed', 'Student Count Clean']]
+        final_column_order = [col for col in column_order if col in verification_df.columns] + remaining_cols
+        
+        verification_df_export = verification_df[final_column_order].copy()
+        verification_df_export.to_excel(writer, sheet_name="Verification", index=False)
+        
+        # Daily statistics sheet (campus-wise with time slot info)
         if not daily_stats_df.empty:
             daily_stats_df.to_excel(writer, sheet_name="Daily_Statistics", index=False)
-            st.success(f"📅 Generated daily statistics for {len(daily_stats_df)} exam days with campus-wise student counts")
+            st.success(f"📅 Generated daily statistics for {len(daily_stats_df)} exam days with time slot information")
         
         # Enhanced summary sheet
         summary_data = {
             "Metric": [
                 "Total Subject Instances", "Scheduled Instances", "Unscheduled Instances", "Instance Match Rate (%)",
                 "Total Unique Subjects", "Unique Subjects Matched", "Unique Subjects Unmatched", "Unique Subject Match Rate (%)",
-                "Total Students (Scheduled)"
+                "Total Students (Scheduled)",
+                "Total Time Slots Configured",
+                "Time Slots Actually Used"
             ] + [f"{campus} Students" for campus in scheduled_subjects['Campus'].unique()],
             "Value": [
                 matched_count + unmatched_count, 
@@ -2597,7 +2673,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 unique_matched_count,
                 unique_unmatched_count,
                 round(unique_matched_count/total_unique_subjects*100, 1) if total_unique_subjects > 0 else 0,
-                int(scheduled_subjects.get('Student count', pd.Series([0])).fillna(0).sum()) if not scheduled_subjects.empty else 0
+                int(scheduled_subjects.get('Student count', pd.Series([0])).fillna(0).sum()) if not scheduled_subjects.empty else 0,
+                len(time_slots_dict),
+                len(scheduled_subjects['Exam Slot Number'].unique()) if not scheduled_subjects.empty else 0
             ] + [
                 int(scheduled_subjects[scheduled_subjects['Campus'] == campus].get('Student count', pd.Series([0])).fillna(0).sum())
                 for campus in scheduled_subjects['Campus'].unique()
@@ -2612,13 +2690,21 @@ def save_verification_excel(original_df, semester_wise_timetable):
             campus_breakdown_df.to_excel(writer, sheet_name="Campus_Breakdown", index=False)
             st.success(f"🏫 Generated campus breakdown for {len(campus_breakdown)} campuses")
         
+        # NEW: Time Slot Usage Summary sheet
+        if slot_usage_summary:
+            slot_usage_df = pd.DataFrame(slot_usage_summary)
+            slot_usage_df = slot_usage_df.sort_values('Slot Number')
+            slot_usage_df.to_excel(writer, sheet_name="Slot_Usage_Summary", index=False)
+            st.success(f"⏰ Generated time slot usage summary for {len(slot_usage_summary)} slots")
+        
         # Add unmatched subjects sheet for debugging
         unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
         if not unmatched_subjects.empty:
-            unmatched_subjects.drop(columns=['Exam Date Parsed', 'Student Count Clean'], errors='ignore').to_excel(writer, sheet_name="Unmatched_Subjects", index=False)
+            unmatched_export = unmatched_subjects[final_column_order].copy()
+            unmatched_export.to_excel(writer, sheet_name="Unmatched_Subjects", index=False)
 
     output.seek(0)
-    st.success(f"📊 **Enhanced verification Excel generated with campus-wise student counts and comprehensive analysis**")
+    st.success(f"📊 **Enhanced verification Excel generated with time slot analysis and comprehensive breakdown**")
     return output
 
 def convert_semester_to_number(semester_value):
@@ -4405,6 +4491,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
