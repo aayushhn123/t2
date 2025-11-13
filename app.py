@@ -1717,7 +1717,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
     
     # Add header
-    header_height = 95  # Increased to accommodate multiple time slots
+    header_height = 95
     pdf.set_y(0)
     
     logo_width = 45
@@ -1725,12 +1725,22 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", 'B', 16)
+    
+    # Get selected college name from session state
+    college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
+    
+    # Adjust font size based on college name length
+    if len(college_name) > 80:
+        pdf.set_font("Arial", 'B', 12)
+    elif len(college_name) > 60:
+        pdf.set_font("Arial", 'B', 14)
+    else:
+        pdf.set_font("Arial", 'B', 16)
+    
     pdf.rect(10, 30, pdf.w - 20, 14, 'F')
     pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14,
-             "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
-             0, 1, 'C')
+    pdf.cell(pdf.w - 20, 14, college_name, 0, 1, 'C')
+    
     pdf.set_font("Arial", 'B', 15)
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
@@ -1845,12 +1855,22 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_s
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", 'B', 16)
+    
+    # Get selected college name from session state
+    college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
+    
+    # Adjust font size based on college name length
+    if len(college_name) > 80:
+        pdf.set_font("Arial", 'B', 12)
+    elif len(college_name) > 60:
+        pdf.set_font("Arial", 'B', 14)
+    else:
+        pdf.set_font("Arial", 'B', 16)
+    
     pdf.rect(10, 30, pdf.w - 20, 14, 'F')
     pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14,
-             "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING / SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING",
-             0, 1, 'C')
+    pdf.cell(pdf.w - 20, 14, college_name, 0, 1, 'C')
+    
     pdf.set_font("Arial", 'B', 15)
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(10, 51)
@@ -1894,7 +1914,7 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_s
         pdf.set_xy(10, 65)
         pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
         pdf.set_y(71)
-
+        
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
     try:
@@ -4515,6 +4535,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
