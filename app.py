@@ -2049,8 +2049,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 # Get columns - IMPROVED CHECK
                 fixed_cols = ["Exam Date"]
                 sub_branch_cols = [c for c in sheet_df.columns 
-                                 if c not in fixed_cols 
-                                 and not c.startswith('Unnamed')
+                                 if c not in fixed_cols#and not c.startswith('Unnamed')
                                  and c not in ['Note', 'Message']
                                  and pd.notna(c)  # NEW: Filter out NaN column names
                                  and str(c).strip() != '']  # NEW: Filter out empty strings
@@ -4513,6 +4512,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
