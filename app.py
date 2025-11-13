@@ -2764,13 +2764,20 @@ def save_to_excel(semester_wise_timetable):
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
-                            difficulty_suffix = difficulty_values[idx]
                             
-                            # Add CM Group if present
+                            # Add CM Group if present - Format as [CM:1] instead of [3.0]
                             cm_group = str(row.get('CMGroup', '')).strip()
-                            cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
+                            if cm_group and cm_group != "" and cm_group != "nan":
+                                try:
+                                    # Convert to integer if it's a float
+                                    cm_group_num = int(float(cm_group))
+                                    cm_group_prefix = f"[CM:{cm_group_num}] "
+                                except (ValueError, TypeError):
+                                    cm_group_prefix = f"[CM:{cm_group}] "
+                            else:
+                                cm_group_prefix = ""
                             
-                            # NEW: Add Exam Slot Number in format (Time:1)
+                            # Add Exam Slot Number in format (Time:1)
                             exam_slot_number = row.get('ExamSlotNumber', 1)
                             if pd.isna(exam_slot_number) or exam_slot_number == 0:
                                 exam_slot_number = 1
@@ -2779,8 +2786,8 @@ def save_to_excel(semester_wise_timetable):
                             
                             slot_suffix = f" (Time:{exam_slot_number})"
                             
-                            # Subject display: [CM Group] Subject - (Code) (Time:X) (Difficulty)
-                            subject_display = cm_group_prefix + base_subject + slot_suffix + difficulty_suffix
+                            # Subject display: [CM:X] Subject - (Code) (Time:X) - NO DIFFICULTY
+                            subject_display = cm_group_prefix + base_subject + slot_suffix
                             subject_displays.append(subject_display)
                         
                         df_processed["SubjectDisplay"] = subject_displays
@@ -4447,6 +4454,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
