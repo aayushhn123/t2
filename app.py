@@ -3525,99 +3525,99 @@ def main():
 
     #---
     with st.sidebar:
-    st.markdown("### ⚙️ Configuration")
-    st.markdown("---")
+        st.markdown("### ⚙️ Configuration")
+        st.markdown("---")
     
-    st.markdown("#### 📅 Examination Period")
-    st.markdown("")
+        st.markdown("#### 📅 Examination Period")
+        st.markdown("")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        base_date = st.date_input("📆 Start Date", value=datetime(2025, 4, 1))
-        base_date = datetime.combine(base_date, datetime.min.time())
-    
-    with col2:
-        end_date = st.date_input("📆 End Date", value=datetime(2025, 5, 30))
-        end_date = datetime.combine(end_date, datetime.min.time())
-
-    # Validate date range
-    if end_date <= base_date:
-        st.error("⚠️ End date must be after start date!")
-        end_date = base_date + timedelta(days=30)
-        st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
-
-    st.markdown("---")
-    st.markdown("#### 👥 Capacity Configuration")
-    st.markdown("")
-    
-    max_students_per_session = st.slider(
-        "Maximum Students Per Session",
-        min_value=0,
-        max_value=3000,
-        value=st.session_state.capacity_slider,
-        step=50,
-        help="Set the maximum number of students allowed in a single session (morning or afternoon)",
-        key="capacity_slider"
-    )
-
-    # Display capacity info with better formatting
-    st.info(f"📊 **Current Capacity:** {st.session_state.capacity_slider} students per session")
-    
-    st.markdown("---")
-    
-    with st.expander("🗓️ Holiday Configuration", expanded=False):
-        st.markdown("##### 📌 Predefined Holidays")
-        
-        # Initialize holiday_dates list
-        holiday_dates = []
-
         col1, col2 = st.columns(2)
         with col1:
-            if st.checkbox("🎉 April 14, 2025", value=True):
-                holiday_dates.append(datetime(2025, 4, 14).date())
+            base_date = st.date_input("📆 Start Date", value=datetime(2025, 4, 1))
+            base_date = datetime.combine(base_date, datetime.min.time())
+    
         with col2:
-            if st.checkbox("🎊 May 1, 2025", value=True):
-                holiday_dates.append(datetime(2025, 5, 1).date())
+            end_date = st.date_input("📆 End Date", value=datetime(2025, 5, 30))
+            end_date = datetime.combine(end_date, datetime.min.time())
 
-        if st.checkbox("🇮🇳 August 15, 2025", value=True):
-            holiday_dates.append(datetime(2025, 8, 15).date())
+        # Validate date range
+        if end_date <= base_date:
+            st.error("⚠️ End date must be after start date!")
+            end_date = base_date + timedelta(days=30)
+            st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
 
         st.markdown("---")
-        st.markdown("##### ➕ Custom Holidays")
+        st.markdown("#### 👥 Capacity Configuration")
+        st.markdown("")
+    
+        max_students_per_session = st.slider(
+            "Maximum Students Per Session",
+            min_value=0,
+            max_value=3000,
+            value=st.session_state.capacity_slider,
+            step=50,
+            help="Set the maximum number of students allowed in a single session (morning or afternoon)",
+            key="capacity_slider"
+        )
+
+        # Display capacity info with better formatting
+        st.info(f"📊 **Current Capacity:** {st.session_state.capacity_slider} students per session")
+    
+        st.markdown("---")
+    
+        with st.expander("🗓️ Holiday Configuration", expanded=False):
+            st.markdown("##### 📌 Predefined Holidays")
         
-        if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
-            st.session_state.custom_holidays.extend(
-                [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
-            )
+            # Initialize holiday_dates list
+            holiday_dates = []
 
-        for i in range(st.session_state.num_custom_holidays):
-            st.session_state.custom_holidays[i] = st.date_input(
-                f"📅 Custom Holiday {i + 1}",
-                value=st.session_state.custom_holidays[i],
-                key=f"custom_holiday_{i}"
-            )
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.checkbox("🎉 April 14, 2025", value=True):
+                    holiday_dates.append(datetime(2025, 4, 14).date())
+            with col2:
+                if st.checkbox("🎊 May 1, 2025", value=True):
+                    holiday_dates.append(datetime(2025, 5, 1).date())
 
-        if st.button("➕ Add Another Holiday", use_container_width=True):
-            st.session_state.num_custom_holidays += 1
-            st.session_state.custom_holidays.append(None)
-            st.rerun()
+            if st.checkbox("🇮🇳 August 15, 2025", value=True):
+                holiday_dates.append(datetime(2025, 8, 15).date())
 
-        # Add custom holidays to the main list
-        custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
-        for custom_holiday in custom_holidays:
-            holiday_dates.append(custom_holiday)
-
-        # Create the final holidays set
-        holidays_set = set(holiday_dates)
-        st.session_state.holidays_set = holidays_set
-
-        if holidays_set:
             st.markdown("---")
-            st.markdown("##### 📋 Selected Holidays")
-            for holiday in sorted(holidays_set):
-                st.markdown(f"• {holiday.strftime('%B %d, %Y')}")
-    #---
-    col1, col2 = st.columns([2, 1])
+            st.markdown("##### ➕ Custom Holidays")
+        
+            if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
+                st.session_state.custom_holidays.extend(
+                    [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
+                )
+
+            for i in range(st.session_state.num_custom_holidays):
+                st.session_state.custom_holidays[i] = st.date_input(
+                    f"📅 Custom Holiday {i + 1}",
+                    value=st.session_state.custom_holidays[i],
+                    key=f"custom_holiday_{i}"
+                )
+
+            if st.button("➕ Add Another Holiday", use_container_width=True):
+                st.session_state.num_custom_holidays += 1
+                st.session_state.custom_holidays.append(None)
+                st.rerun()
+    
+            # Add custom holidays to the main list
+            custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
+            for custom_holiday in custom_holidays:
+                holiday_dates.append(custom_holiday)
+
+            # Create the final holidays set
+            holidays_set = set(holiday_dates)
+            st.session_state.holidays_set = holidays_set
+
+            if holidays_set:
+                st.markdown("---")
+                st.markdown("##### 📋 Selected Holidays")
+                for holiday in sorted(holidays_set):
+                    st.markdown(f"• {holiday.strftime('%B %d, %Y')}")
+        #---
+col1, col2 = st.columns([2, 1])
 
 with col1:
     st.markdown("""
@@ -4296,6 +4296,7 @@ with col1:
     
 if __name__ == "__main__":
     main()
+
 
 
 
