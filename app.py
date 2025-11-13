@@ -2739,13 +2739,11 @@ def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         st.warning("No timetable data to save")
         return None
-
     # Get time slots configuration from session state
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
     })
-
     def int_to_roman(num):
         roman_values = [
             (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
@@ -2758,44 +2756,42 @@ def save_to_excel(semester_wise_timetable):
                 result += numeral
                 num -= value
         return result
-
     output = io.BytesIO()
-    
+   
     try:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             sheets_created = 0
-            
+           
             for sem, df_sem in semester_wise_timetable.items():
                 if df_sem.empty:
                     st.info(f"Semester {sem} has no data, skipping")
                     continue
-                    
+                   
                 for main_branch in df_sem["MainBranch"].unique():
                     df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-                    
+                   
                     if df_mb.empty:
                         continue
-                    
+                   
                     # Separate non-electives and electives
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
-
                     roman_sem = int_to_roman(sem)
                     sheet_name = f"{main_branch}_Sem_{roman_sem}"
                     if len(sheet_name) > 31:
                         sheet_name = sheet_name[:31]
-                    
+                   
                     # Process non-electives
                     if not df_non_elec.empty:
                         df_processed = df_non_elec.copy().reset_index(drop=True)
-                        
+                       
                         # Create subject display with CM Group and Slot Number
                         subject_displays = []
-                        
+                       
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
-                            
+                           
                             # Add CM Group if present
                             cm_group = str(row.get('CMGroup', '')).strip()
                             if cm_group and cm_group != "" and cm_group != "nan":
@@ -2806,35 +2802,35 @@ def save_to_excel(semester_wise_timetable):
                                     cm_group_prefix = f"[CM:{cm_group}] "
                             else:
                                 cm_group_prefix = ""
-                            
+                           
                             # Add Exam Slot Number
                             exam_slot_number = row.get('ExamSlotNumber', 1)
                             if pd.isna(exam_slot_number) or exam_slot_number == 0:
                                 exam_slot_number = 1
                             else:
                                 exam_slot_number = int(exam_slot_number)
-                            
+                           
                             slot_suffix = f" (Time:{exam_slot_number})"
-                            
+                           
                             subject_display = cm_group_prefix + base_subject + slot_suffix
                             subject_displays.append(subject_display)
-                        
+                       
                         df_processed["SubjectDisplay"] = subject_displays
-                        
+                       
                         # Convert dates
                         df_processed["Exam Date"] = pd.to_datetime(
-                            df_processed["Exam Date"], 
-                            format="%d-%m-%Y", 
-                            dayfirst=True, 
+                            df_processed["Exam Date"],
+                            format="%d-%m-%Y",
+                            dayfirst=True,
                             errors='coerce'
                         )
                         df_processed = df_processed.sort_values(by="Exam Date", ascending=True)
-                        
+                       
                         # Group by date and subbranch
                         grouped_by_date = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
                             'SubjectDisplay': lambda x: ", ".join(str(i) for i in x)
                         }).reset_index()
-                        
+                       
                         # Create pivot table
                         try:
                             pivot_df = grouped_by_date.pivot_table(
@@ -2843,9 +2839,9 @@ def save_to_excel(semester_wise_timetable):
                                 values="SubjectDisplay",
                                 aggfunc=lambda x: ", ".join(str(i) for i in x)
                             ).fillna("---")
-                            
+                           
                             pivot_df = pivot_df.sort_index(ascending=True)
-                            
+                           
                             # Check if pivot has any columns
                             if pivot_df.empty or len(pivot_df.columns) == 0:
                                 st.warning(f"No valid data for {sheet_name}, creating placeholder")
@@ -2856,16 +2852,16 @@ def save_to_excel(semester_wise_timetable):
                                 empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
                                 sheets_created += 1
                                 continue
-                            
+                           
                             # Format dates and reset index
                             pivot_df = pivot_df.reset_index()
                             pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(
                                 lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else ""
                             )
-                            
+                           
                             pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
-                            
+                           
                         except Exception as e:
                             st.warning(f"Could not create pivot for {sheet_name}: {str(e)}")
                             # Fallback: Create simple table
@@ -2875,7 +2871,7 @@ def save_to_excel(semester_wise_timetable):
                             )
                             simple_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
-                            
+                           
                     else:
                         # No non-elective subjects
                         st.info(f"No core subjects for {sheet_name}")
@@ -2886,95 +2882,98 @@ def save_to_excel(semester_wise_timetable):
                         empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         sheets_created += 1
 
-                    # Process electives with validation
+                    # ==================================================================
+                    # FIXED ELECTIVE SECTION: DE-DUPLICATE REPEATED SUBJECT NAMES
+                    # ==================================================================
                     if not df_elec.empty:
                         df_elec_processed = df_elec.copy().reset_index(drop=True)
-                        
-                        # Create subject display for electives
+
+                        # Create subject display for electives (same logic as core)
                         subject_displays_elec = []
-                        
                         for idx in range(len(df_elec_processed)):
                             row = df_elec_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
                             oe_type = str(row.get('OE', ''))
-                            
+
                             # Add CM Group if present
                             cm_group = str(row.get('CMGroup', '')).strip()
                             cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
-                            
+
                             # Add Exam Slot Number
                             exam_slot_number = row.get('ExamSlotNumber', 1)
                             if pd.isna(exam_slot_number) or exam_slot_number == 0:
                                 exam_slot_number = 1
                             else:
                                 exam_slot_number = int(exam_slot_number)
-                            
+
                             slot_suffix = f" (Time:{exam_slot_number})"
-                            
+
                             base_display = f"{cm_group_prefix}{base_subject} [{oe_type}]"
                             subject_display = base_display + slot_suffix
                             subject_displays_elec.append(subject_display)
-                        
+
                         df_elec_processed["SubjectDisplay"] = subject_displays_elec
-                        
-                        # Validate required columns
-                        if 'OE' not in df_elec_processed.columns or 'Exam Date' not in df_elec_processed.columns:
-                            st.warning(f"Missing required columns for electives in {sheet_name}")
-                            continue
-                        
+
+                        # CRITICAL FIX: Group by ModuleCode + OE + Exam Date → keep only ONE row per subject
+                        df_elec_processed = df_elec_processed.drop_duplicates(
+                            subset=['ModuleCode', 'OE', 'Exam Date'], keep='first'
+                        ).copy()
+
+                        # Now group by OE Type and Date (subjects are already unique)
                         try:
-                            # Group electives
                             elec_pivot = df_elec_processed.groupby(['OE', 'Exam Date']).agg({
                                 'SubjectDisplay': lambda x: ", ".join(sorted(set(x)))
                             }).reset_index()
-                            
+
                             if elec_pivot.empty:
                                 st.info(f"No elective data for {sheet_name}")
                                 continue
-                            
+
                             # Format dates
                             elec_pivot['Exam Date'] = pd.to_datetime(
-                                elec_pivot['Exam Date'], 
-                                format="%d-%m-%Y", 
+                                elec_pivot['Exam Date'],
+                                format="%d-%m-%Y",
                                 errors='coerce'
                             ).dt.strftime("%d-%m-%Y")
                             elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
-                            
+
                             elec_pivot = elec_pivot.rename(columns={
                                 'OE': 'OE Type',
                                 'SubjectDisplay': 'Subjects'
                             })
-                            
+
                             elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
                             if len(elective_sheet_name) > 31:
                                 elective_sheet_name = elective_sheet_name[:31]
-                            
+
                             elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
                             sheets_created += 1
-                            
+
                         except Exception as e:
                             st.warning(f"Could not create elective sheet for {sheet_name}: {str(e)}")
+                    # ==================================================================
+                    # END OF FIXED ELECTIVE SECTION
+                    # ==================================================================
 
             if sheets_created == 0:
                 st.error("No sheets were created! Creating a dummy sheet.")
                 dummy_df = pd.DataFrame({'Message': ['No data available']})
                 dummy_df.to_excel(writer, sheet_name="No_Data", index=False)
-                
+               
         output.seek(0)
-        
+       
         if sheets_created > 0:
-            st.success(f"✅ Excel file created successfully with {sheets_created} sheets")
+            st.success(f"Excel file created successfully with {sheets_created} sheets")
         else:
-            st.warning("⚠️ Excel file created with dummy sheet due to no data")
-            
+            st.warning("Excel file created with dummy sheet due to no data")
+           
         return output
-        
+       
     except Exception as e:
         st.error(f"Error creating Excel file: {e}")
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
         return None
-
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -4504,6 +4503,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
