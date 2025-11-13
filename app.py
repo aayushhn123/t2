@@ -2415,9 +2415,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
                     time_slots_dict = st.session_state.get('time_slots', {
                         1: {"start": "10:00 AM", "end": "1:00 PM"},
                         2: {"start": "2:00 PM", "end": "5:00 PM"}
-                        })
-                        exam_slot_num = matched_subject.get('ExamSlotNumber', 1)
-                        semester_default_slot = get_time_slot_from_number(exam_slot_num, time_slots_dict)
+                    })
+                    exam_slot_num = matched_subject.get('ExamSlotNumber', 1)
+                    semester_default_slot = get_time_slot_from_number(exam_slot_num, time_slots_dict)
                 except:
                     time_slots_dict = st.session_state.get('time_slots', {
                         1: {"start": "10:00 AM", "end": "1:00 PM"}
@@ -4405,6 +4405,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
