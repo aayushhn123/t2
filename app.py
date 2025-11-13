@@ -3616,57 +3616,57 @@ def main():
                 for holiday in sorted(holidays_set):
                     st.markdown(f"• {holiday.strftime('%B %d, %Y')}")
         #---
-col1, col2 = st.columns([2, 1])
+    col1, col2 = st.columns([2, 1])
 
-with col1:
-    st.markdown("""
-    <div class="upload-section">
-        <h3 style="margin: 0 0 1rem 0; color: #951C1C;">📄 Upload Excel File</h3>
-        <p style="margin: 0; color: #666; font-size: 1rem;">Upload your timetable data file (.xlsx format)</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    uploaded_file = st.file_uploader(
-        "Choose an Excel file",
-        type=['xlsx', 'xls'],
-        help="Upload the Excel file containing your timetable data",
-        label_visibility="collapsed"
-    )
-
-    if uploaded_file is not None:
-        st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
-        
-        st.markdown("")
-        
-        file_details = {
-            "📁 Filename": uploaded_file.name,
-            "💾 File size": f"{uploaded_file.size / 1024:.2f} KB",
-            "📋 File type": uploaded_file.type
-        }
-
-        for key, value in file_details.items():
-            st.markdown(f"**{key}:** `{value}`")
-    
-        #--
-
-    with col2:
+    with col1:
         st.markdown("""
-        <div class="feature-card">
-            <h4 style="margin: 0 0 1rem 0; color: #951C1C; font-size: 1.2rem;">🚀 Key Features</h4>
-            <ul style="margin: 0; padding-left: 1.5rem; line-height: 1.8;">
-                <li>📊 Excel file processing</li>
-                <li>🎯 Priority-based scheduling</li>
-                <li>🔗 Common subject handling</li>
-                <li>📍 Gap-filling optimization</li>
-                <li>🔄 Stream-wise scheduling</li>
-                <li>🎓 OE elective optimization</li>
-                <li>⚡ Conflict prevention</li>
-                <li>📋 PDF generation</li>
-                <li>✅ Verification export</li>
-                <li>📱 Responsive design</li>
-            </ul>
+        <div class="upload-section">
+            <h3 style="margin: 0 0 1rem 0; color: #951C1C;">📄 Upload Excel File</h3>
+            <p style="margin: 0; color: #666; font-size: 1rem;">Upload your timetable data file (.xlsx format)</p>
         </div>
         """, unsafe_allow_html=True)
+
+        uploaded_file = st.file_uploader(
+            "Choose an Excel file",
+            type=['xlsx', 'xls'],
+            help="Upload the Excel file containing your timetable data",
+            label_visibility="collapsed"
+        )
+
+        if uploaded_file is not None:
+            st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
+            
+            st.markdown("")
+        
+            file_details = {
+                "📁 Filename": uploaded_file.name,
+                "💾 File size": f"{uploaded_file.size / 1024:.2f} KB",
+                "📋 File type": uploaded_file.type
+            }
+
+            for key, value in file_details.items():
+                st.markdown(f"**{key}:** `{value}`")
+    
+            #--
+
+        with col2:
+            st.markdown("""
+            <div class="feature-card">
+                <h4 style="margin: 0 0 1rem 0; color: #951C1C; font-size: 1.2rem;">🚀 Key Features</h4>
+                <ul style="margin: 0; padding-left: 1.5rem; line-height: 1.8;">
+                    <li>📊 Excel file processing</li>
+                    <li>🎯 Priority-based scheduling</li>
+                    <li>🔗 Common subject handling</li>
+                    <li>📍 Gap-filling optimization</li>
+                    <li>🔄 Stream-wise scheduling</li>
+                    <li>🎓 OE elective optimization</li>
+                    <li>⚡ Conflict prevention</li>
+                    <li>📋 PDF generation</li>
+                    <li>✅ Verification export</li>
+                    <li>📱 Responsive design</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
 
     if uploaded_file is not None:
         st.markdown("")
@@ -4295,6 +4295,7 @@ with col1:
     
 if __name__ == "__main__":
     main()
+
 
 
 
