@@ -1930,7 +1930,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         else:
             sem_num = int(semester) if semester else 1
         
-        return get_preferred_slot(sem_num)
+        return get_time_slot_from_number(sem_num)
 
     sheets_processed = 0
     
@@ -2424,9 +2424,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 try:
                     # Get program type for this subject
                     matched_program = matched_subject.get('Program', 'B TECH')
-                    semester_default_slot = get_preferred_slot(semester_num, matched_program)
+                    semester_default_slot = get_time_slot_from_number(semester_num, matched_program)
                 except:
-                    semester_default_slot = get_preferred_slot(semester_num)
+                    semester_default_slot = get_time_slot_from_number(semester_num)
                 
                 # Time Slot = Semester default timing
                 verification_df.at[idx, "Time Slot"] = semester_default_slot
@@ -2699,7 +2699,7 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = sheet_name[:31]
                     
                     if not df_non_elec.empty:
-                        semester_default_slot = get_preferred_slot(sem)
+                        semester_default_slot = get_time_slot_from_number(sem)
                         df_processed = df_non_elec.copy().reset_index(drop=True)
                         
                         # Add difficulty info
@@ -2934,7 +2934,7 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             subject = subject_info['subject']
             
             # Get preferred time slot for this semester
-            preferred_slot = get_preferred_slot(semester)
+            preferred_slot = get_time_slot_from_number(semester)
             
             # Update in the semester dictionary
             mask = (df_dict[semester]['Subject'] == subject) & \
@@ -4238,7 +4238,7 @@ def main():
             cm_group = str(row.get('CMGroup', '')).strip()
             cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
     
-            preferred_slot = get_preferred_slot(semester)
+            preferred_slot = get_time_slot_from_number(semester)
     
             time_range = ""
     
@@ -4376,6 +4376,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
