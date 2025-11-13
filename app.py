@@ -3523,149 +3523,157 @@ def main():
     if 'capacity_slider' not in st.session_state:
         st.session_state.capacity_slider = 2000
 
+    #---
     with st.sidebar:
-        st.markdown("### ⚙️ Configuration")
-        st.markdown("#### 📅 Examination Period")
+    st.markdown("### ⚙️ Configuration")
+    st.markdown("---")
+    
+    st.markdown("#### 📅 Examination Period")
+    st.markdown("")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        base_date = st.date_input("📆 Start Date", value=datetime(2025, 4, 1))
+        base_date = datetime.combine(base_date, datetime.min.time())
+    
+    with col2:
+        end_date = st.date_input("📆 End Date", value=datetime(2025, 5, 30))
+        end_date = datetime.combine(end_date, datetime.min.time())
+
+    # Validate date range
+    if end_date <= base_date:
+        st.error("⚠️ End date must be after start date!")
+        end_date = base_date + timedelta(days=30)
+        st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
+
+    st.markdown("---")
+    st.markdown("#### 👥 Capacity Configuration")
+    st.markdown("")
+    
+    max_students_per_session = st.slider(
+        "Maximum Students Per Session",
+        min_value=0,
+        max_value=3000,
+        value=st.session_state.capacity_slider,
+        step=50,
+        help="Set the maximum number of students allowed in a single session (morning or afternoon)",
+        key="capacity_slider"
+    )
+
+    # Display capacity info with better formatting
+    st.info(f"📊 **Current Capacity:** {st.session_state.capacity_slider} students per session")
+    
+    st.markdown("---")
+    
+    with st.expander("🗓️ Holiday Configuration", expanded=False):
+        st.markdown("##### 📌 Predefined Holidays")
         
+        # Initialize holiday_dates list
+        holiday_dates = []
+
         col1, col2 = st.columns(2)
         with col1:
-            base_date = st.date_input("Start date for exams", value=datetime(2025, 4, 1))
-            base_date = datetime.combine(base_date, datetime.min.time())
-        
+            if st.checkbox("🎉 April 14, 2025", value=True):
+                holiday_dates.append(datetime(2025, 4, 14).date())
         with col2:
-            end_date = st.date_input("End date for exams", value=datetime(2025, 5, 30))
-            end_date = datetime.combine(end_date, datetime.min.time())
+            if st.checkbox("🎊 May 1, 2025", value=True):
+                holiday_dates.append(datetime(2025, 5, 1).date())
 
-        # ADD THIS NEW SECTION FOR CAPACITY SLIDER
+        if st.checkbox("🇮🇳 August 15, 2025", value=True):
+            holiday_dates.append(datetime(2025, 8, 15).date())
+
+        st.markdown("---")
+        st.markdown("##### ➕ Custom Holidays")
         
-        
-        # Validate date range
-        if end_date <= base_date:
-            st.error("❌ End date must be after start date!")
-            end_date = base_date + timedelta(days=30)  # Default to 30 days after start
-            st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
+        if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
+            st.session_state.custom_holidays.extend(
+                [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
+            )
 
-        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
-        st.markdown("#### 👥 Capacity Configuration")
-        max_students_per_session = st.slider(
-            "Maximum Students Per Session",
-            min_value=0,
-            max_value=3000,
-            value=st.session_state.capacity_slider,  # Use the session state key for initial value
-            step=50,
-            help="Set the maximum number of students allowed in a single session (morning or afternoon)",
-            key="capacity_slider"  # Keep the key
-        )
-    
-        # Display capacity info
-        st.info(f"📊 Current capacity: **{st.session_state.capacity_slider}** students per session")
-        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
-        with st.expander("Holiday Configuration", expanded=True):
-            st.markdown("#### 📅 Select Predefined Holidays")
-        
-            # Initialize holiday_dates list
-            holiday_dates = []
+        for i in range(st.session_state.num_custom_holidays):
+            st.session_state.custom_holidays[i] = st.date_input(
+                f"📅 Custom Holiday {i + 1}",
+                value=st.session_state.custom_holidays[i],
+                key=f"custom_holiday_{i}"
+            )
 
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.checkbox("April 14, 2025", value=True):
-                    holiday_dates.append(datetime(2025, 4, 14).date())
-            with col2:
-                if st.checkbox("May 1, 2025", value=True):
-                    holiday_dates.append(datetime(2025, 5, 1).date())
+        if st.button("➕ Add Another Holiday", use_container_width=True):
+            st.session_state.num_custom_holidays += 1
+            st.session_state.custom_holidays.append(None)
+            st.rerun()
 
-            if st.checkbox("August 15, 2025", value=True):
-                holiday_dates.append(datetime(2025, 8, 15).date())
+        # Add custom holidays to the main list
+        custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
+        for custom_holiday in custom_holidays:
+            holiday_dates.append(custom_holiday)
 
-            st.markdown("#### 📅 Add Custom Holidays")
-            if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
-                st.session_state.custom_holidays.extend(
-                    [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
-                )
+        # Create the final holidays set
+        holidays_set = set(holiday_dates)
+        st.session_state.holidays_set = holidays_set
 
-            for i in range(st.session_state.num_custom_holidays):
-                st.session_state.custom_holidays[i] = st.date_input(
-                    f"Custom Holiday {i + 1}",
-                    value=st.session_state.custom_holidays[i],
-                    key=f"custom_holiday_{i}"
-                )
-
-            if st.button("➕ Add Another Holiday"):
-                st.session_state.num_custom_holidays += 1
-                st.session_state.custom_holidays.append(None)
-                st.rerun()
-
-            # Add custom holidays to the main list
-            custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
-            for custom_holiday in custom_holidays:
-                holiday_dates.append(custom_holiday)
-
-            # Create the final holidays set - ensure all are date objects
-            holidays_set = set(holiday_dates)
-        
-            # Store in session state so it's accessible throughout the app
-            st.session_state.holidays_set = holidays_set
-
-            if holidays_set:
-                st.markdown("#### Selected Holidays:")
-                for holiday in sorted(holidays_set):
-                    pass
-                    #st.write(f"• {holiday.strftime('%B %d, %Y')}")
-
+        if holidays_set:
+            st.markdown("---")
+            st.markdown("##### 📋 Selected Holidays")
+            for holiday in sorted(holidays_set):
+                st.markdown(f"• {holiday.strftime('%B %d, %Y')}")
+    #---
     col1, col2 = st.columns([2, 1])
 
-    with col1:
-        st.markdown("""
-        <div class="upload-section">
-            <h3>📁 Upload Excel File</h3>
-            <p>Upload your timetable data file (.xlsx format)</p>
-        </div>
-        """, unsafe_allow_html=True)
+with col1:
+    st.markdown("""
+    <div class="upload-section">
+        <h3 style="margin: 0 0 1rem 0; color: #951C1C;">📄 Upload Excel File</h3>
+        <p style="margin: 0; color: #666; font-size: 1rem;">Upload your timetable data file (.xlsx format)</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        uploaded_file = st.file_uploader(
-            "Choose an Excel file",
-            type=['xlsx', 'xls'],
-            help="Upload the Excel file containing your timetable data"
-        )
+    uploaded_file = st.file_uploader(
+        "Choose an Excel file",
+        type=['xlsx', 'xls'],
+        help="Upload the Excel file containing your timetable data",
+        label_visibility="collapsed"
+    )
 
-        if uploaded_file is not None:
-            st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
+    if uploaded_file is not None:
+        st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
+        
+        st.markdown("")
+        
+        file_details = {
+            "📁 Filename": uploaded_file.name,
+            "💾 File size": f"{uploaded_file.size / 1024:.2f} KB",
+            "📋 File type": uploaded_file.type
+        }
 
-            file_details = {
-                "Filename": uploaded_file.name,
-                "File size": f"{uploaded_file.size / 1024:.2f} KB",
-                "File type": uploaded_file.type
-            }
-
-            st.markdown("#### File Details:")
-            for key, value in file_details.items():
-                pass
-                #st.write(f"**{key}:** {value}")
+        for key, value in file_details.items():
+            st.markdown(f"**{key}:** `{value}`")
+    
+        #--
 
     with col2:
         st.markdown("""
         <div class="feature-card">
-            <h4>🚀 Features</h4>
-            <ul>
+            <h4 style="margin: 0 0 1rem 0; color: #951C1C; font-size: 1.2rem;">🚀 Key Features</h4>
+            <ul style="margin: 0; padding-left: 1.5rem; line-height: 1.8;">
                 <li>📊 Excel file processing</li>
-                <li>🎯 Common across semesters first</li>
-                <li>🔗 Common within semester scheduling</li>
-                <li>🔍 Gap-filling optimization</li>
-                <li>📄 Stream-wise uncommon scheduling</li>
+                <li>🎯 Priority-based scheduling</li>
+                <li>🔗 Common subject handling</li>
+                <li>📍 Gap-filling optimization</li>
+                <li>🔄 Stream-wise scheduling</li>
                 <li>🎓 OE elective optimization</li>
-                <li>⚡ One exam per day per branch</li>
+                <li>⚡ Conflict prevention</li>
                 <li>📋 PDF generation</li>
-                <li>✅ Verification file export</li>
-                <li>🎯 Three-phase priority scheduling</li>
-                <li>📱 Mobile-friendly interface</li>
-                <li>📅 Date range enforcement</li>
+                <li>✅ Verification export</li>
+                <li>📱 Responsive design</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
     if uploaded_file is not None:
-        if st.button("📄 Generate Timetable", type="primary", use_container_width=True):
-            with st.spinner("Processing your timetable... Please wait..."):
+        st.markdown("")
+        if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
+            with st.spinner("⏳ Processing your timetable... Please wait..."):
+                # ... rest of the processing code
                 try:
                     # Use holidays from session state
                     holidays_set = st.session_state.get('holidays_set', set())
@@ -3922,40 +3930,43 @@ def main():
         st.markdown("---")
 
         # Download options
+        #--
+        # Download options
         st.markdown("### 📥 Download Options")
+        st.markdown("")
 
         col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
             if st.session_state.excel_data:
                 st.download_button(
-                label="📊 Download Excel File",
-                data=st.session_state.excel_data,
-                file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="download_excel"
-            )
+                    label="📊 Excel",
+                    data=st.session_state.excel_data,
+                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="download_excel"
+                )
             else:
-                st.button("📊 Excel Not Available", disabled=True, use_container_width=True)
+                st.button("📊 Excel", disabled=True, use_container_width=True)
 
         with col2:
             if st.session_state.pdf_data:
                 st.download_button(
-                    label="📄 Download PDF File",
+                    label="📄 PDF",
                     data=st.session_state.pdf_data,
-                    file_name=f"complete_timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                     mime="application/pdf",
                     use_container_width=True,
                     key="download_pdf"
                 )
             else:
-                st.button("📄 PDF Not Available", disabled=True, use_container_width=True)
+                st.button("📄 PDF", disabled=True, use_container_width=True)
 
         with col3:
             if st.session_state.verification_data:
                 st.download_button(
-                    label="📋 Download Verification File",
+                    label="📋 Verify",
                     data=st.session_state.verification_data,
                     file_name=f"verification_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3963,14 +3974,13 @@ def main():
                     key="download_verification"
                 )
             else:
-                st.button("📋 Verification Not Available", disabled=True, use_container_width=True)
+                st.button("📋 Verify", disabled=True, use_container_width=True)
 
         with col4:
-            # New redirect button
-            st.link_button("♻️Re-upload Verification File", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
-           
+            st.link_button("♻️ Convert", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
+
         with col5:
-            if st.button("🔄 Generate New Timetable", use_container_width=True):
+            if st.button("🔄 New", use_container_width=True):
                 # Clear session state and rerun
                 st.session_state.processing_complete = False
                 st.session_state.timetable_data = {}
@@ -3984,6 +3994,7 @@ def main():
                 st.session_state.overall_date_range = 0
                 st.session_state.unique_exam_days = 0
                 st.rerun()
+        #--
 
         # Statistics Overview
         # Statistics Overview
@@ -4285,6 +4296,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
