@@ -1894,9 +1894,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     # Enable automatic page numbering with alias
     pdf.alias_nb_pages()
     
+    # Get time slots configuration
+    time_slots_dict = st.session_state.get('time_slots', {
+        1: {"start": "10:00 AM", "end": "1:00 PM"},
+        2: {"start": "2:00 PM", "end": "5:00 PM"}
+    })
+    
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
-        #st.write(f"📊 Read Excel file with {len(df_dict)} sheets: {list(df_dict.keys())}")
     except Exception as e:
         st.error(f"Error reading Excel file for PDF generation: {e}")
         return
@@ -1915,22 +1920,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         return result
 
     def get_semester_program_time_slot(semester, program_type):
-        """Get correct time slot based on semester and program type"""
-        if isinstance(semester, str):
-            # Extract numeric semester from string
-            if semester.isdigit():
-                sem_num = int(semester)
-            else:
-                # Handle roman numerals or semester strings
-                roman_to_num = {
-                    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
-                    'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12
-                }
-                sem_num = roman_to_num.get(semester, 1)
-        else:
-            sem_num = int(semester) if semester else 1
-        
-        return get_time_slot_from_number(sem_num)
+        """Get correct time slot - uses default slot 1 since actual slot comes from data"""
+        # UPDATED: Return default slot, actual slots are in the data already
+        return get_time_slot_from_number(1, time_slots_dict)
 
     sheets_processed = 0
     
@@ -1977,7 +1969,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             # Check if 'Exam Date' column exists
             if 'Exam Date' not in sheet_df.columns:
                 st.warning(f"⚠️ Missing 'Exam Date' column in sheet {sheet_name}")
-                #st.write(f"Available columns: {list(sheet_df.columns)}")
                 
                 # Try to handle sheets with no exams
                 if len(sheet_df.columns) >= 2 and 'No exams scheduled' in str(sheet_df.iloc[0, 0]):
@@ -1997,8 +1988,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             if not sub_branch_cols:
                 st.warning(f"⚠️ No subject columns found in sheet {sheet_name}")
                 continue
-            
-            #st.write(f"📊 Found {len(sub_branch_cols)} subbranch columns: {sub_branch_cols}")
             
             exam_date_width = 60
             line_height = 10
@@ -2026,7 +2015,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
 
-                # FIXED: Get the correct time slot for this semester and program
+                # UPDATED: Use default time slot display (actual times are in the subject display from Excel)
                 correct_time_slot = get_semester_program_time_slot(semester, program_type)
 
                 # Convert Exam Date to desired format
@@ -2052,7 +2041,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 footer_height = 25
                 add_footer_with_page_number(pdf, footer_height)
                 
-                # FIXED: Pass the correct time slot
+                # Note: Time slot shown is just for reference, actual times are in subject names
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
                                  header_content=header_content, branches=chunk, time_slot=correct_time_slot)
                 
@@ -2120,7 +2109,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
            
-            # FIXED: Get correct time slot for electives based on program
+            # UPDATED: Use default time slot for electives
             elective_time_slot = get_semester_program_time_slot(semester, program_type)
            
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
@@ -2134,7 +2123,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
    
     try:
        pdf.output(pdf_path)
-       st.success(f"✅ PDF generated successfully with {sheets_processed} pages and correct time slots")
+       st.success(f"✅ PDF generated successfully with {sheets_processed} pages")
     except Exception as e:
        st.error(f"❌ Error saving PDF: {e}")
        import traceback
@@ -2420,13 +2409,22 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 except:
                     duration = 3.0
                 
-                # Calculate Time Slot (semester default) and Exam Time (subject-specific)
+                # Calculate Time Slot (semester default) and Exam Time (subject-specific)#
+                
                 try:
-                    # Get program type for this subject
-                    matched_program = matched_subject.get('Program', 'B TECH')
-                    semester_default_slot = get_time_slot_from_number(semester_num, matched_program)
+                    time_slots_dict = st.session_state.get('time_slots', {
+                        1: {"start": "10:00 AM", "end": "1:00 PM"},
+                        2: {"start": "2:00 PM", "end": "5:00 PM"}
+                        })
+                        exam_slot_num = matched_subject.get('ExamSlotNumber', 1)
+                        semester_default_slot = get_time_slot_from_number(exam_slot_num, time_slots_dict)
                 except:
-                    semester_default_slot = get_time_slot_from_number(semester_num)
+                    time_slots_dict = st.session_state.get('time_slots', {
+                        1: {"start": "10:00 AM", "end": "1:00 PM"}
+                    })
+                    semester_default_slot = get_time_slot_from_number(1, time_slots_dict)
+
+                #---
                 
                 # Time Slot = Semester default timing
                 verification_df.at[idx, "Time Slot"] = semester_default_slot
@@ -2640,9 +2638,16 @@ def convert_semester_to_number(semester_value):
     return semester_map.get(semester_str, 0)
 
 
+
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
+
+    # Get time slots configuration from session state
+    time_slots_dict = st.session_state.get('time_slots', {
+        1: {"start": "10:00 AM", "end": "1:00 PM"},
+        2: {"start": "2:00 PM", "end": "5:00 PM"}
+    })
 
     def int_to_roman(num):
         roman_values = [
@@ -2656,6 +2661,12 @@ def save_to_excel(semester_wise_timetable):
                 result += numeral
                 num -= value
         return result
+
+    def get_semester_program_time_slot(semester, program_type):
+        """Get correct time slot based on semester and program type - DEPRECATED, kept for compatibility"""
+        # This function is now deprecated but kept for backward compatibility
+        # The actual time slot should come from ExamSlotNumber
+        return get_time_slot_from_number(1, time_slots_dict)  # Default to slot 1
 
     def should_show_exam_time(row, semester_default_slot):
         """Determine if subject needs to show specific exam time"""
@@ -2699,7 +2710,13 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = sheet_name[:31]
                     
                     if not df_non_elec.empty:
-                        semester_default_slot = get_time_slot_from_number(sem)
+                        # UPDATED: Get semester default slot based on most common ExamSlotNumber
+                        if 'ExamSlotNumber' in df_non_elec.columns:
+                            most_common_slot = df_non_elec['ExamSlotNumber'].mode()[0] if not df_non_elec['ExamSlotNumber'].mode().empty else 1
+                            semester_default_slot = get_time_slot_from_number(most_common_slot, time_slots_dict)
+                        else:
+                            semester_default_slot = get_time_slot_from_number(1, time_slots_dict)
+                        
                         df_processed = df_non_elec.copy().reset_index(drop=True)
                         
                         # Add difficulty info
@@ -2858,6 +2875,7 @@ def save_to_excel(semester_wise_timetable):
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
         return None
+
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -4226,30 +4244,41 @@ def main():
 
         # Define the subject display formatting functions for Streamlit display
         # Add inside the main() function where timetable results are displayed
+        #####
+        # Around line 2900 in main()
         def format_subject_display(row):
             """Format subject display for non-electives in Streamlit interface"""
             subject = row['Subject']
             time_slot = row['Time Slot']
             duration = row.get('Exam Duration', 3)
             is_common = row.get('CommonAcrossSems', False)
-            semester = row['Semester']
+            exam_slot_number = row.get('ExamSlotNumber', 1)
+
+            # Get time slots configuration
+            time_slots_dict = st.session_state.get('time_slots', {
+                1: {"start": "10:00 AM", "end": "1:00 PM"},
+                2: {"start": "2:00 PM", "end": "5:00 PM"}
+            })
     
+            preferred_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
+
             # NEW: Add CM Group prefix
             cm_group = str(row.get('CMGroup', '')).strip()
             cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
-    
-            preferred_slot = get_time_slot_from_number(semester)
-    
+
             time_range = ""
-    
+
             if duration != 3 and time_slot and time_slot.strip():
                 start_time = time_slot.split(' - ')[0].strip()
                 end_time = calculate_end_time(start_time, duration)
                 time_range = f" ({start_time} - {end_time})"
             elif is_common and time_slot != preferred_slot and time_slot and time_slot.strip():
                 time_range = f" ({time_slot})"
-    
+
             return cm_group_prefix + subject + time_range
+        
+
+        #####
 
         def format_elective_display(row):
             """Format subject display for electives in Streamlit interface"""
@@ -4376,6 +4405,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
