@@ -818,38 +818,66 @@ def find_next_valid_day_in_range(start_date, end_date, holidays_set):
         current_date += timedelta(days=1)
     return None
 
-def get_preferred_slot(semester, program_type="B TECH"):
-    """Get preferred time slot based on semester and program type"""
-    if semester % 2 != 0:  # Odd semester
-        odd_sem_position = (semester + 1) // 2
-        return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-    else:  # Even semester
-        even_sem_position = semester // 2
-        return "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+def get_time_slot_from_number(slot_number, time_slots_dict):
+    """
+    Get time slot string based on slot number from configuration
+    
+    Args:
+        slot_number: The exam slot number (1, 2, 3, etc.)
+        time_slots_dict: Dictionary of configured time slots
+    
+    Returns:
+        str: Time slot string in format "HH:MM AM - HH:MM PM"
+    """
+    # Default to slot 1 if invalid or missing
+    if pd.isna(slot_number) or slot_number == 0 or slot_number not in time_slots_dict:
+        slot_number = 1
+    
+    slot_config = time_slots_dict.get(int(slot_number), time_slots_dict[1])
+    return f"{slot_config['start']} - {slot_config['end']}"
 
-def get_preferred_slot_with_capacity(semester, date_str, session_capacity, student_count, max_capacity=2000):
-    """Get preferred slot considering capacity constraints"""
-    base_slot = get_preferred_slot(semester)
+def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student_count, 
+                                 time_slots_dict, max_capacity=2000):
+    """
+    Get time slot considering capacity constraints and slot number
+    
+    Args:
+        slot_number: Exam slot number from Excel
+        date_str: Date string in DD-MM-YYYY format
+        session_capacity: Dictionary tracking capacity per date/slot
+        student_count: Number of students for this exam
+        time_slots_dict: Dictionary of configured time slots
+        max_capacity: Maximum students per session
+    
+    Returns:
+        str: Time slot string or None if no capacity available
+    """
+    # Get preferred time slot based on slot number
+    preferred_slot = get_time_slot_from_number(slot_number, time_slots_dict)
     
     if date_str not in session_capacity:
-        return base_slot
+        return preferred_slot
     
-    # Check if preferred slot has capacity
-    session_type = 'morning' if '10:00 AM' in base_slot else 'afternoon'
-    current_capacity = session_capacity[date_str].get(session_type, 0)
+    # Get slot key for capacity tracking
+    slot_key = f"slot_{int(slot_number) if not pd.isna(slot_number) else 1}"
+    current_capacity = session_capacity[date_str].get(slot_key, 0)
     
     if current_capacity + student_count <= max_capacity:
-        return base_slot
+        return preferred_slot
     
-    # Try alternate slot
-    alternate_slot = "2:00 PM - 5:00 PM" if base_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
-    alternate_type = 'afternoon' if session_type == 'morning' else 'morning'
-    alternate_capacity = session_capacity[date_str].get(alternate_type, 0)
+    # Try other available slots
+    for alt_slot_num in sorted(time_slots_dict.keys()):
+        if alt_slot_num == slot_number:
+            continue
+        
+        alt_slot = get_time_slot_from_number(alt_slot_num, time_slots_dict)
+        alt_slot_key = f"slot_{alt_slot_num}"
+        alt_capacity = session_capacity[date_str].get(alt_slot_key, 0)
+        
+        if alt_capacity + student_count <= max_capacity:
+            return alt_slot
     
-    if alternate_capacity + student_count <= max_capacity:
-        return alternate_slot
-    
-    # If neither fits, return None to indicate no slot available
+    # If no slot fits, return None
     return None
 
 
@@ -883,25 +911,35 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # NEW: Track student counts per date and time slot
     session_capacity = {}  # Format: {date_str: {'morning': count, 'afternoon': count}}
     
-    def get_session_capacity(date_str, time_slot):
-        """Get current student count for a session"""
+    def get_session_capacity(date_str, time_slot, time_slots_dict):
+        """Get current student count for a session using slot-based tracking"""
         if date_str not in session_capacity:
-            session_capacity[date_str] = {'morning': 0, 'afternoon': 0}
-        
-        session_type = 'morning' if '10:00 AM' in time_slot else 'afternoon'
-        return session_capacity[date_str][session_type]
+            session_capacity[date_str] = {f"slot_{i}": 0 for i in time_slots_dict.keys()}
     
-    def add_to_session_capacity(date_str, time_slot, student_count):
+        # Determine which slot this time_slot corresponds to
+        for slot_num, slot_config in time_slots_dict.items():
+            configured_slot = f"{slot_config['start']} - {slot_config['end']}"
+            if configured_slot == time_slot:
+                return session_capacity[date_str].get(f"slot_{slot_num}", 0)
+    
+        return 0
+    
+    def add_to_session_capacity(date_str, time_slot, student_count, time_slots_dict):
         """Add students to a session's capacity"""
         if date_str not in session_capacity:
-            session_capacity[date_str] = {'morning': 0, 'afternoon': 0}
-        
-        session_type = 'morning' if '10:00 AM' in time_slot else 'afternoon'
-        session_capacity[date_str][session_type] += student_count
+            session_capacity[date_str] = {f"slot_{i}": 0 for i in time_slots_dict.keys()}
     
-    def can_fit_in_session(date_str, time_slot, student_count):
+        # Determine which slot this time_slot corresponds to
+        for slot_num, slot_config in time_slots_dict.items():
+            configured_slot = f"{slot_config['start']} - {slot_config['end']}"
+            if configured_slot == time_slot:
+                slot_key = f"slot_{slot_num}"
+                session_capacity[date_str][slot_key] += student_count
+                break
+    
+    def can_fit_in_session(date_str, time_slot, student_count, time_slots_dict):
         """Check if adding these students would exceed capacity"""
-        current_capacity = get_session_capacity(date_str, time_slot)
+        current_capacity = get_session_capacity(date_str, time_slot, time_slots_dict)
         return (current_capacity + student_count) <= MAX_STUDENTS_PER_SESSION
     
     # STEP 2: CREATE ATOMIC SUBJECT UNITS (from original code)
@@ -1034,30 +1072,38 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             
             if not conflicts and available_branch_sems:
                 # Determine time slot
-                semester_counts = {}
-                for sem in atomic_unit['unique_semesters']:
-                    semester_counts[sem] = semester_counts.get(sem, 0) + 1
-                
-                preferred_semester = max(semester_counts.keys()) if semester_counts else atomic_unit['unique_semesters'][0]
-                time_slot = get_preferred_slot(preferred_semester)
-                
+                #---
+                # Get exam slot number from the first row of this atomic unit
+                first_row = df.loc[atomic_unit['all_rows'][0]]
+                exam_slot_number = first_row.get('ExamSlotNumber', 1)
+
+                # Get time slot based on exam slot number
+                time_slots_dict = st.session_state.get('time_slots', {1: {"start": "10:00 AM", "end": "1:00 PM"}})
+                time_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
+
                 # NEW: Calculate total student count for this unit
                 total_students = 0
                 for row_idx in atomic_unit['all_rows']:
                     student_count = df.loc[row_idx, 'StudentCount']
                     total_students += int(student_count) if pd.notna(student_count) else 0
-                
+
                 # NEW: Check if this unit fits in the session capacity
-                if not can_fit_in_session(date_str, time_slot, total_students):
-                    # Try alternate time slot
-                    alternate_slot = "2:00 PM - 5:00 PM" if time_slot == "10:00 AM - 1:00 PM" else "10:00 AM - 1:00 PM"
-                    
-                    if can_fit_in_session(date_str, alternate_slot, total_students):
-                        time_slot = alternate_slot
-                        #st.write(f"  🔄 Moved to alternate slot due to capacity: {atomic_unit['subject_name']}")
-                    else:
+                if not can_fit_in_session(date_str, time_slot, total_students, time_slots_dict):
+                    # Try to find alternative slot
+                    found_alternate = False
+                    for alt_slot_num in sorted(time_slots_dict.keys()):
+                        if alt_slot_num == exam_slot_number:
+                            continue
+                        alt_slot = get_time_slot_from_number(alt_slot_num, time_slots_dict)
+                        if can_fit_in_session(date_str, alt_slot, total_students, time_slots_dict):
+                            time_slot = alt_slot
+                            found_alternate = True
+                            break
+    
+                    if not found_alternate:
                         # Cannot fit today, skip to next unit
                         continue
+                #-------        
                 
                 # Schedule ALL instances of this subject
                 unit_scheduled_count = 0
@@ -3523,6 +3569,7 @@ def main():
     
 
     #---
+    # Replace the existing sidebar configuration with this:
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
         st.markdown("---")
@@ -3546,8 +3593,70 @@ def main():
             st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
 
         st.markdown("---")
+    
+        # NEW: Time Slot Configuration
+        st.markdown("#### ⏰ Time Slot Configuration")
+        st.markdown("")
+    
+        # Initialize session state for time slots
+        if 'time_slots' not in st.session_state:
+            st.session_state.time_slots = {
+                1: {"start": "10:00 AM", "end": "1:00 PM"},
+                2: {"start": "2:00 PM", "end": "5:00 PM"}
+            }
+    
+        # Number of time slots
+        num_slots = st.number_input(
+            "Number of Time Slots",
+            min_value=1,
+            max_value=10,
+            value=len(st.session_state.time_slots),
+            step=1,
+            help="Define how many time slots are available per day"
+        )
+    
+        # Adjust time slots dictionary if number changed
+        if num_slots > len(st.session_state.time_slots):
+            for i in range(len(st.session_state.time_slots) + 1, num_slots + 1):
+                st.session_state.time_slots[i] = {"start": "10:00 AM", "end": "1:00 PM"}
+        elif num_slots < len(st.session_state.time_slots):
+            keys_to_remove = [k for k in st.session_state.time_slots.keys() if k > num_slots]
+            for k in keys_to_remove:
+                del st.session_state.time_slots[k]
+    
+        # Display time slot configuration
+        with st.expander("⏰ Configure Time Slots", expanded=True):
+            for slot_num in sorted(st.session_state.time_slots.keys()):
+                st.markdown(f"**Slot {slot_num}**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    start_time = st.text_input(
+                        f"Start Time",
+                        value=st.session_state.time_slots[slot_num]["start"],
+                        key=f"start_slot_{slot_num}",
+                        help="Format: HH:MM AM/PM"
+                    )
+                    st.session_state.time_slots[slot_num]["start"] = start_time
+                with col2:
+                    end_time = st.text_input(
+                        f"End Time",
+                        value=st.session_state.time_slots[slot_num]["end"],
+                        key=f"end_slot_{slot_num}",
+                        help="Format: HH:MM AM/PM"
+                    )
+                    st.session_state.time_slots[slot_num]["end"] = end_time
+            
+                # Display the full time slot
+                full_slot = f"{start_time} - {end_time}"
+                st.info(f"Slot {slot_num}: {full_slot}")
+    
+        
+
+        st.markdown("---")
         st.markdown("#### 👥 Capacity Configuration")
         st.markdown("")
+
+        #-------
     
         max_students_per_session = st.slider(
             "Maximum Students Per Session",
@@ -4295,6 +4404,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
