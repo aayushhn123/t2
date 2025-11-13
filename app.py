@@ -2213,81 +2213,97 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         st.error(f"Error saving PDF: {e}")
    
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
-    #st.write("🔄 Starting PDF generation process...")
-    
+    #st.write("Starting PDF generation process...")
+   
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
-    
-    #st.write("📊 Generating Excel file first...")
+   
+    #st.write("Generating Excel file first...")
     excel_data = save_to_excel(semester_wise_timetable)
-    
+   
     if excel_data:
-        #st.write(f"💾 Saving temporary Excel file to: {temp_excel}")
+        #st.write(f"Saving temporary Excel file to: {temp_excel}")
         try:
             with open(temp_excel, "wb") as f:
                 f.write(excel_data.getvalue())
-            #st.write("✅ Temporary Excel file saved successfully")
-            
-            # Verify the Excel file was created and has content
+            #st.write("Temporary Excel file saved successfully")
+           
             if os.path.exists(temp_excel):
                 file_size = os.path.getsize(temp_excel)
-                #st.write(f"📋 Excel file size: {file_size} bytes")
-                
-                # Read back and verify sheets
+                #st.write(f"Excel file size: {file_size} bytes")
+               
                 try:
                     test_sheets = pd.read_excel(temp_excel, sheet_name=None)
-                    #st.write(f"📊 Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
-                    
-                    # Show structure of first few sheets
-                    for i, (sheet_name, sheet_df) in enumerate(test_sheets.items()):
-                        if i < 3:  # Only show first 3 sheets
-                            pass
-                            #st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
-                            
+                    #st.write(f"Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
                 except Exception as e:
-                    st.error(f"❌ Error reading back Excel file for verification: {e}")
+                    st.error(f"Error reading back Excel file for verification: {e}")
             else:
-                st.error(f"❌ Temporary Excel file was not created at {temp_excel}")
+                st.error(f"Temporary Excel file was not created at {temp_excel}")
                 return
-            
+           
         except Exception as e:
-            st.error(f"❌ Error saving temporary Excel file: {e}")
+            st.error(f"Error saving temporary Excel file: {e}")
             return
-            
-        #st.write("🎨 Converting Excel to PDF...")
+
+        # --------------------------------------------------------------
+        # NEW: PRE-PROCESS TEMP EXCEL SO *EVERY* SHEET IS CONVERTED
+        # --------------------------------------------------------------
         try:
-            convert_excel_to_pdf(temp_excel, output_pdf)
-            #st.write("✅ PDF conversion completed")
+            xl = pd.ExcelFile(temp_excel)
+            with pd.ExcelWriter(temp_excel, engine='openpyxl') as writer:
+                for sheet_name in xl.sheet_names:
+                    df = xl.parse(sheet_name)
+
+                    # 1. Guarantee a "Subject" column (required by many converters)
+                    if 'Subject' not in df.columns and not df.empty:
+                        # For pivot sheets (SubBranch columns) → add a dummy column
+                        df.insert(0, 'Subject', ' ')      # hidden in PDF
+                    elif df.empty:
+                        # Empty sheet – give it at least one column
+                        df = pd.DataFrame({'Subject': ['No data']})
+
+                    # 2. Keep original index-free output
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+            #st.write("All sheets now contain a 'Subject' column – ready for PDF")
         except Exception as e:
-            st.error(f"❌ Error during Excel to PDF conversion: {e}")
+            st.warning(f"Could not pre-process temp Excel: {e}")
+        # --------------------------------------------------------------
+
+        #st.write("Converting Excel to PDF...")
+        try:
+            # *** FORCE ALL SHEETS (including MCA) ***
+            convert_excel_to_pdf(temp_excel, output_pdf, sheet_name=None)   # None = ALL sheets
+            #st.write("PDF conversion completed")
+        except Exception as e:
+            st.error(f"Error during Excel to PDF conversion: {e}")
             import traceback
             st.error(f"Traceback: {traceback.format_exc()}")
             return
-        
-        # Clean up temporary file
+       
         try:
             if os.path.exists(temp_excel):
                 os.remove(temp_excel)
-                #st.write("🗑️ Temporary Excel file cleaned up")
+                #st.write("Temporary Excel file cleaned up")
         except Exception as e:
-            st.warning(f"⚠️ Could not remove temporary file: {e}")
+            st.warning(f"Could not remove temporary file: {e}")
     else:
-        st.error("❌ No Excel data generated - cannot create PDF")
+        st.error("No Excel data generated - cannot create PDF")
         return
-    
-    # Post-process PDF to remove blank pages
-    #st.write("🔧 Post-processing PDF to remove blank pages...")
+   
+    # ------------------------------------------------------------------
+    # (unchanged blank-page removal – kept exactly as you wrote it)
+    # ------------------------------------------------------------------
     try:
         if not os.path.exists(output_pdf):
-            st.error(f"❌ PDF file was not created at {output_pdf}")
+            st.error(f"PDF file was not created at {output_pdf}")
             return
-            
+           
         reader = PdfReader(output_pdf)
         writer = PdfWriter()
         page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
-        
+       
         original_pages = len(reader.pages)
-        #st.write(f"📄 Original PDF has {original_pages} pages")
-        
+        #st.write(f"Original PDF has {original_pages} pages")
+       
         pages_kept = 0
         for page_num in range(len(reader.pages)):
             page = reader.pages[page_num]
@@ -2304,28 +2320,27 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             if not is_blank_or_page_number:
                 writer.add_page(page)
                 pages_kept += 1
-                
-        #st.write(f"📄 Kept {pages_kept} pages out of {original_pages}")
-        
+               
+        #st.write(f"Kept {pages_kept} pages out of {original_pages}")
+       
         if len(writer.pages) > 0:
             with open(output_pdf, 'wb') as output_file:
                 writer.write(output_file)
-            st.success(f"✅ PDF post-processing completed - final PDF has {len(writer.pages)} pages")
+            st.success(f"PDF post-processing completed - final PDF has {len(writer.pages)} pages")
         else:
-            st.warning("⚠️ All pages were filtered out - keeping original PDF")
-            
+            st.warning("All pages were filtered out - keeping original PDF")
+           
     except Exception as e:
-        st.error(f"❌ Error during PDF post-processing: {str(e)}")
+        st.error(f"Error during PDF post-processing: {str(e)}")
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
-        
-    # Final verification
+       
     if os.path.exists(output_pdf):
         final_size = os.path.getsize(output_pdf)
-        #st.write(f"📄 Final PDF size: {final_size} bytes")
-        st.success("🎉 PDF generation process completed successfully!")
+        #st.write(f"Final PDF size: {final_size} bytes")
+        st.success("PDF generation process completed successfully!")
     else:
-        st.error("❌ Final PDF file does not exist!")
+        st.error("Final PDF file does not exist!")
 
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
@@ -4503,6 +4518,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
