@@ -1917,7 +1917,7 @@ def calculate_end_time(start_time, duration_hours):
         
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     """
-    FIXED: Enhanced PDF generation with comprehensive error handling
+    FIXED: Enhanced PDF generation with comprehensive error handling and MCA support
     """
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
@@ -1990,7 +1990,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # Parse sheet name
+            # Parse sheet name - IMPROVED FOR MCA
             parts = sheet_name.split('_Sem_')
             if len(parts) < 2:
                 st.warning(f"Cannot parse sheet name: {sheet_name}, skipping")
@@ -1999,22 +1999,26 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 
             main_branch = parts[0]
             
-            # Determine program type
-            program_type = "B TECH"
-            if sheet_name.startswith("DIPL_"):
-                program_type = "DIPLOMA"
-                main_branch = main_branch.replace("DIPL_", "")
-            elif sheet_name.startswith("MTECH_"):
-                program_type = "M TECH"
-                main_branch = main_branch.replace("MTECH_", "")
-            elif "M TECH" in main_branch:
-                program_type = "M TECH"
-            elif "DIPLOMA" in main_branch:
-                program_type = "DIPLOMA"
-            elif "MCA" in main_branch:
-                program_type = "MCA"
+            # Determine program type - FIXED FOR MCA
+            program_type = "B TECH"  # Default
             
+            # Check for MCA first (most specific)
+            if "MCA" in main_branch.upper():
+                program_type = "MCA"
+                # Don't strip MCA from branch name for MCA program
+            # Then check for other program types
+            elif sheet_name.startswith("DIPL_") or "DIPLOMA" in main_branch.upper():
+                program_type = "DIPLOMA"
+                main_branch = main_branch.replace("DIPL_", "").replace("DIPLOMA", "").strip()
+            elif sheet_name.startswith("MTECH_") or "M TECH" in main_branch.upper():
+                program_type = "M TECH"
+                main_branch = main_branch.replace("MTECH_", "").replace("M TECH", "").strip()
+            elif "MBA" in main_branch.upper():
+                program_type = "MBA TECH"
+            
+            # Get full branch name from mapping, or use as-is
             main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+            
             semester = parts[1] if len(parts) > 1 else ""
             
             if semester.endswith('_Electives'):
@@ -2042,17 +2046,21 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 # Remove empty rows
                 sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
                 
-                # Get columns
+                # Get columns - IMPROVED CHECK
                 fixed_cols = ["Exam Date"]
                 sub_branch_cols = [c for c in sheet_df.columns 
                                  if c not in fixed_cols 
                                  and not c.startswith('Unnamed')
-                                 and c not in ['Note', 'Message']]
+                                 and c not in ['Note', 'Message']
+                                 and pd.notna(c)  # NEW: Filter out NaN column names
+                                 and str(c).strip() != '']  # NEW: Filter out empty strings
                 
                 if not sub_branch_cols:
-                    st.warning(f"No subject columns in {sheet_name}, skipping")
+                    st.warning(f"No valid subject columns in {sheet_name}, skipping")
                     sheets_skipped += 1
                     continue
+                
+                st.info(f"✅ Processing {sheet_name} with {len(sub_branch_cols)} subject columns: {sub_branch_cols}")
                 
                 exam_date_width = 60
                 line_height = 10
@@ -2196,6 +2204,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 
         except Exception as e:
             st.warning(f"Error processing sheet {sheet_name}: {str(e)}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
             sheets_skipped += 1
             continue
 
@@ -4503,6 +4513,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
