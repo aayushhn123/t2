@@ -1937,7 +1937,7 @@ def calculate_end_time(start_time, duration_hours):
         
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     """
-    FIXED: Enhanced PDF generation with comprehensive error handling and MCA support
+    FIXED: Enhanced PDF generation with comprehensive error handling and dynamic branch support
     """
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
@@ -1989,6 +1989,41 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         
         return time_slots
 
+    def parse_branch_info(main_branch_raw):
+        """
+        Dynamic branch parsing that works for any college/program structure
+        Returns: (program_type, main_branch, main_branch_full)
+        """
+        # Split by "-" to separate program and stream
+        branch_parts = main_branch_raw.split("-", 1)
+        
+        if len(branch_parts) > 1:
+            # Format: "PROGRAM-STREAM" (e.g., "B TECH-Computer Engineering")
+            program_type = branch_parts[0].strip().upper()
+            main_branch = branch_parts[1].strip()
+        else:
+            # Format: Single name (e.g., "DIPLOMA", "MCA", "B TECH")
+            program_type = main_branch_raw.strip().upper()
+            main_branch = main_branch_raw.strip()
+        
+        # Get full branch name from BRANCH_FULL_FORM mapping
+        # If program_type is in the mapping, use it; otherwise use the original
+        if program_type in BRANCH_FULL_FORM:
+            main_branch_full = BRANCH_FULL_FORM[program_type]
+        elif main_branch in BRANCH_FULL_FORM:
+            main_branch_full = BRANCH_FULL_FORM[main_branch]
+        else:
+            # No mapping found - use the original name as-is
+            # This handles any new programs not in BRANCH_FULL_FORM
+            if len(branch_parts) > 1:
+                # If there's a stream, show full name
+                main_branch_full = f"{program_type} - {main_branch}"
+            else:
+                # Single program name
+                main_branch_full = program_type
+        
+        return program_type, main_branch, main_branch_full
+
     sheets_processed = 0
     sheets_skipped = 0
     
@@ -2010,7 +2045,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # Parse sheet name - FIXED FOR DIPLOMA/MCA/M TECH
+            # Parse sheet name - DYNAMIC FOR ALL PROGRAMS
             parts = sheet_name.split('_Sem_')
             if len(parts) < 2:
                 st.warning(f"Cannot parse sheet name: {sheet_name}, skipping")
@@ -2019,28 +2054,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 
             main_branch_raw = parts[0]
             
-            # FIXED: Split main_branch by "-" to separate program and stream
-            branch_parts = main_branch_raw.split("-", 1)
-            if len(branch_parts) > 1:
-                program_type = branch_parts[0].strip().upper()
-                main_branch = branch_parts[1].strip()
-            else:
-                program_type = main_branch_raw.upper()
-                main_branch = main_branch_raw
-            
-            # Special handling for known programs - keep main_branch as is if no stream
-            if "MCA" in program_type:
-                program_type = "MCA"
-            elif "DIPLOMA" in program_type:
-                program_type = "DIPLOMA"
-            elif "M TECH" in program_type or "MTECH" in program_type:
-                program_type = "M TECH"
-            
-            # Get full branch name: Use program_type if main_branch is empty/generic, else main_branch
-            if not main_branch or main_branch.upper() in ["DIPLOMA", "MCA", "M TECH", "MTECH"]:
-                main_branch_full = BRANCH_FULL_FORM.get(program_type, program_type)
-            else:
-                main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
+            # Use dynamic branch parsing function
+            program_type, main_branch, main_branch_full = parse_branch_info(main_branch_raw)
             
             semester = parts[1] if len(parts) > 1 else ""
             
@@ -2072,10 +2087,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 # Get columns - IMPROVED CHECK
                 fixed_cols = ["Exam Date"]
                 sub_branch_cols = [c for c in sheet_df.columns 
-                                 if c not in fixed_cols#and not c.startswith('Unnamed')
+                                 if c not in fixed_cols
                                  and c not in ['Note', 'Message']
-                                 and pd.notna(c)  # NEW: Filter out NaN column names
-                                 and str(c).strip() != '']  # NEW: Filter out empty strings
+                                 and pd.notna(c)
+                                 and str(c).strip() != '']
                 
                 if not sub_branch_cols:
                     st.warning(f"No valid subject columns in {sheet_name}, skipping")
@@ -4535,6 +4550,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
