@@ -476,6 +476,32 @@ def show_college_selector():
     st.markdown("### Choose Your School")
     st.markdown("Select the school for which you want to generate the exam timetable:")
 
+    # Add custom CSS for uniform college selector buttons
+    st.markdown("""
+    <style>
+        /* College selector button styling */
+        div[data-testid="column"] button[kind="secondary"] {
+            height: 120px !important;
+            min-height: 120px !important;
+            max-height: 120px !important;
+            white-space: normal !important;
+            padding: 1rem !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            text-align: center !important;
+            font-size: 0.9rem !important;
+            line-height: 1.3 !important;
+        }
+        
+        div[data-testid="column"] button[kind="secondary"]:hover {
+            transform: translateY(-4px) !important;
+            box-shadow: 0 8px 16px rgba(149, 28, 28, 0.3) !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     # Create columns for better layout (3 colleges per row)
     cols_per_row = 3
     num_colleges = len(COLLEGES)
@@ -487,25 +513,15 @@ def show_college_selector():
             if idx < num_colleges:
                 college = COLLEGES[idx]
                 with cols[j]:
+                    # Create button with icon and truncated text for consistency
+                    button_text = f"{college['icon']}\n\n{college['name']}"
                     if st.button(
-                        f"{college['icon']}\n\n{college['name']}", 
+                        button_text,
                         key=f"college_{idx}",
                         use_container_width=True
                     ):
                         st.session_state.selected_college = college['name']
                         st.rerun()
-
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div class="footer">
-        <p><strong>Unified Exam Timetable Generation System</strong></p>
-        <p>SVKM's Narsee Monjee Institute of Management Studies (NMIMS)</p>
-        <p style="font-size: 0.9em; margin-top: 1rem;">
-            Intelligent Scheduling • Conflict Resolution • Multi-Campus Support
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
 
 
 # Set page configuration
@@ -4550,6 +4566,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
