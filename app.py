@@ -807,6 +807,35 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 # Cache for text wrapping results
 wrap_text_cache = {}
 
+def get_friendly_error_message(e):
+    """Translates technical Python errors into user-friendly advice."""
+    error_str = str(e)
+    
+    # 1. File Upload/Format Errors
+    if "openpyxl" in error_str or "Excel file" in error_str:
+        return "⚠️ The uploaded file is not a valid Excel file. Please ensure it ends in .xlsx and is not corrupted."
+    
+    if "Worksheet" in error_str and "does not exist" in error_str:
+        return "⚠️ It looks like a required sheet is missing in your Excel file. Please check the template."
+        
+    # 2. Missing Column Errors (KeyErrors)
+    if isinstance(e, KeyError):
+        return f"⚠️ Your Excel file is missing a required column: '{e.args[0]}'. Please check the input template."
+        
+    # 3. Data Type Errors
+    if "could not convert string to float" in error_str:
+        return "⚠️ Found text where a number was expected (likely in 'Student Count' or 'Duration'). Please check for non-numeric values."
+    
+    if "int() argument must be a string" in error_str:
+        return "⚠️ A calculation failed because of empty or invalid data. Please ensure all cells in required columns are filled."
+
+    # 4. Date Errors
+    if "day is out of range" in error_str or "month must be in" in error_str:
+        return "⚠️ An invalid date was found. Please check your holiday dates or semester start/end dates."
+
+    # Default fallback for unknown errors
+    return f"⚠️ An unexpected error occurred. Technical details: {str(e)}"
+
 def get_valid_dates_in_range(start_date, end_date, holidays_set):
     """
     Get all valid examination dates within the specified range.
@@ -1659,10 +1688,18 @@ def read_timetable(uploaded_file):
         return df_non[available_cols], df_ele[available_cols] if not df_ele.empty and available_cols else df_ele, df
         
     except Exception as e:
-        st.error(f"Error reading the Excel file: {str(e)}")
-        st.error(f"Error details: {type(e).__name__}")
-        import traceback
-        st.error(f"Full traceback: {traceback.format_exc()}")
+        # Use the helper function to get a friendly message
+        friendly_msg = get_friendly_error_message(e)
+        
+        st.error("❌ **We couldn't read your file properly.**")
+        st.warning(friendly_msg)
+        
+        # Only show technical details inside an expander for debugging (optional)
+        with st.expander("Show Technical Details (for IT Support)"):
+            st.code(str(e))
+            import traceback
+            st.code(traceback.format_exc())
+            
         return None, None, None
    
 def wrap_text(pdf, text, col_width):
@@ -4231,8 +4268,26 @@ def main():
                             unsafe_allow_html=True)
 
                 except Exception as e:
-                    st.markdown(f'<div class="status-error">❌ An error occurred: {str(e)}</div>',
-                                unsafe_allow_html=True)
+                    # Get friendly message using the helper function defined earlier
+                    friendly_msg = get_friendly_error_message(e)
+                    
+                    st.markdown("""
+                        <div class="status-error">
+                            <h3 style="margin:0;">❌ Process Stopped</h3>
+                            <p style="margin:5px 0 0 0;">We encountered an issue while processing your timetable.</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.warning(f"**Action Required:**\n\n{friendly_msg}")
+                    
+                    st.info("💡 **Tip:** Try downloading the 'Input Template' to verify that your column names and data formats match exactly.")
+                    
+                    # Hidden technical details for you (the developer)
+                    with st.expander("Show Technical Error (For Developers)"):
+                        st.write(f"**Error Type:** {type(e).__name__}")
+                        st.code(str(e))
+                        import traceback
+                        st.code(traceback.format_exc())
 
     # Display timetable results if processing is complete
     if st.session_state.processing_complete:
@@ -4616,6 +4671,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
