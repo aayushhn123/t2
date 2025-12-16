@@ -4590,13 +4590,14 @@ def main():
     st.markdown("""
     <div class="footer">
         <p>🎓 <strong>Three-Phase Timetable Generator with Date Range Control & Gap-Filling</strong></p>
-        <p>Developed for MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
+        <p>Developed for SVKM's Group of Colleges</p>
         <p style="font-size: 0.9em;">Common across semesters first • Common within semester • Gap-filling optimization • One exam per day per branch • OE optimization • Date range enforcement • Maximum efficiency • Verification export</p>
     </div>
     """, unsafe_allow_html=True)
     
 if __name__ == "__main__":
     main()
+
 
 
 
