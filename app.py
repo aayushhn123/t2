@@ -2728,13 +2728,19 @@ def save_verification_excel(original_df, semester_wise_timetable):
             })
     
     # Save to Excel
+    # Save to Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Removed 'Time Slot' and 'Exam Time' from this list
         column_order = ['Module Abbreviation', 'Module Description', 'Program', 'Stream', 'Current Session',
-                       'Exam Date', 'Exam Slot Number', 'Configured Slot', 'Time Slot', 'Exam Time',
+                       'Exam Date', 'Exam Slot Number', 'Configured Slot',
                        'Student count', 'Campus', 'Scheduling Status', 'Subject Type', 'Is Common Status']
         
-        remaining_cols = [col for col in verification_df.columns if col not in column_order and col not in ['Exam Date Parsed', 'Student Count Clean']]
+        # Added 'Time Slot' and 'Exam Time' to the exclusion list here so they aren't added to remaining columns
+        remaining_cols = [col for col in verification_df.columns 
+                         if col not in column_order 
+                         and col not in ['Exam Date Parsed', 'Student Count Clean', 'Time Slot', 'Exam Time']]
+        
         final_column_order = [col for col in column_order if col in verification_df.columns] + remaining_cols
         
         verification_df_export = verification_df[final_column_order].copy()
@@ -4587,6 +4593,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
