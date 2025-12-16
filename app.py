@@ -3937,6 +3937,10 @@ def main():
             #--
 
         with col2:
+            # NEW: Button added here to sit beside the upload section
+            st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+            st.link_button("♻️ Convert Verification File to PDF", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
+            
             st.markdown("""
             <div class="feature-card">
                 <h4 style="margin: 0 0 1rem 0; color: #951C1C; font-size: 1.2rem;">🚀 Key Features</h4>
@@ -4593,6 +4597,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
