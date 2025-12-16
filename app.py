@@ -942,10 +942,9 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     return None
 
 
-
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=2000):
     """
-    FIXED: scheduling with explicit Exam Slot Number support OR Alternate Semester Logic
+    FIXED: Scheduling with updated Alternate Semester Logic (1&2->Slot1, 3&4->Slot2, etc.)
     """
     st.info(f"🚀 SCHEDULING with {MAX_STUDENTS_PER_SESSION} students max per session...")
     
@@ -1107,9 +1106,17 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     # Case 1: Use specific slot from Excel
                     exam_slot_number = raw_slot_num
                 else:
-                    # Case 2: Alternate Semester Logic (Odd=1, Even=2)
+                    # Case 2: New Alternate Semester Logic
+                    # Sem 1, 2 -> Slot 1 | Sem 3, 4 -> Slot 2 | Sem 5, 6 -> Slot 1 ...
                     primary_sem = atomic_unit['unique_semesters'][0] if atomic_unit['unique_semesters'] else 1
-                    exam_slot_number = 2 if primary_sem % 2 == 0 else 1
+                    
+                    # Logic: ((Sem + 1) // 2) % 2
+                    # Sem 1: (2//2)%2 = 1 (Slot 1)
+                    # Sem 2: (3//2)%2 = 1 (Slot 1)
+                    # Sem 3: (4//2)%2 = 0 (Slot 2)
+                    # Sem 4: (5//2)%2 = 0 (Slot 2)
+                    slot_indicator = ((primary_sem + 1) // 2) % 2
+                    exam_slot_number = 1 if slot_indicator == 1 else 2
                 # ---------------------------------------------
                 
                 time_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
@@ -1173,7 +1180,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                             exam_slot_number = raw_slot_num
                         else:
                             primary_sem = atomic_unit['unique_semesters'][0] if atomic_unit['unique_semesters'] else 1
-                            exam_slot_number = 2 if primary_sem % 2 == 0 else 1
+                            slot_indicator = ((primary_sem + 1) // 2) % 2
+                            exam_slot_number = 1 if slot_indicator == 1 else 2
                         # -----------------------------------------------------------
 
                         time_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
@@ -1244,7 +1252,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         exam_slot_number = raw_slot_num
                     else:
                         primary_sem = atomic_unit['unique_semesters'][0] if atomic_unit['unique_semesters'] else 1
-                        exam_slot_number = 2 if primary_sem % 2 == 0 else 1
+                        slot_indicator = ((primary_sem + 1) // 2) % 2
+                        exam_slot_number = 1 if slot_indicator == 1 else 2
                     # --------------------------------------------------------
 
                     time_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
@@ -1285,6 +1294,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     
     st.success(f"🏆 **SCHEDULING COMPLETE**")
     return df
+
 
 def validate_capacity_constraints(df_dict, max_capacity=2000):
     """
@@ -4596,6 +4606,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
