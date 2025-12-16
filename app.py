@@ -2897,7 +2897,7 @@ def save_to_excel(semester_wise_timetable):
                            
                             slot_suffix = f" (Time:{exam_slot_number})"
                            
-                            subject_display = cm_group_prefix + base_subject + slot_suffix
+                            subject_display = base_subject + slot_suffix
                             subject_displays.append(subject_display)
                        
                         df_processed["SubjectDisplay"] = subject_displays
@@ -2993,7 +2993,7 @@ def save_to_excel(semester_wise_timetable):
 
                             slot_suffix = f" (Time:{exam_slot_number})"
 
-                            base_display = f"{cm_group_prefix}{base_subject} [{oe_type}]"
+                            base_display = f"{base_subject} [{oe_type}]"
                             subject_display = base_display + slot_suffix
                             subject_displays_elec.append(subject_display)
 
@@ -4593,6 +4593,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
