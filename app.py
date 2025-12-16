@@ -3920,6 +3920,25 @@ def main():
             label_visibility="collapsed"
         )
 
+        # --- START CHANGE: Add Template Download Button ---
+        # Make sure 'sample_timetable_template.xlsx' exists in your repo root
+        template_file_path = "Template File.xlsx"
+        
+        if os.path.exists(template_file_path):
+            with open(template_file_path, "rb") as f:
+                st.download_button(
+                    label="📥 Download Input Template",
+                    data=f,
+                    file_name="timetable_input_template.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    help="Click to download a sample format file"
+                )
+        else:
+            # Fallback if file is missing in repo
+            st.warning("⚠️ Template file not found. Please add 'sample_timetable_template.xlsx' to the app directory.")
+        # --- END CHANGE ---
+
         if uploaded_file is not None:
             st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
             
@@ -4597,6 +4616,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
