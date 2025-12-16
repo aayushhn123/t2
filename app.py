@@ -1519,7 +1519,7 @@ def read_timetable(uploaded_file):
                 unique_branches = group['Branch'].unique()
                 unique_programs = group['Program'].unique() if 'Program' in group.columns else []
                 
-                # If subject appears in multiple branches or programs within same semester
+                # If subject appears in multiple Programs or programs within same semester
                 if len(unique_branches) > 1 or len(unique_programs) > 1:
                     df.loc[group.index, "IsCommon"] = "YES"
         else:
@@ -1698,7 +1698,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None, actual_time_slots=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None):
     if df.empty:
         return
     setattr(pdf, '_row_counter', 0)
@@ -1768,7 +1768,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.cell(pdf.w - 20, 6, "(Check individual subject for specific exam time if multiple slots shown)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(85)
     elif time_slot:
         # Fallback to old behavior if actual_time_slots not provided
@@ -1780,7 +1780,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(85)
     else:
         pdf.set_font("Arial", 'I', 10)
@@ -1788,7 +1788,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(71)
     
     # Calculate available space
@@ -1826,7 +1826,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             add_footer_with_page_number(pdf, footer_height)
             
             # Add header to new page
-            add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_slot, actual_time_slots)
+            add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot, actual_time_slots)
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
@@ -1852,7 +1852,7 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_slot=None, actual_time_slots=None):
+def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot=None, actual_time_slots=None):
     """Add header to a new page"""
     pdf.set_y(0)
     
@@ -1897,7 +1897,7 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_s
         pdf.cell(pdf.w - 20, 6, "(Check individual subject for specific exam time if multiple slots shown)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(85)
     elif time_slot:
         pdf.set_font("Arial", 'B', 14)
@@ -1908,7 +1908,7 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_s
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(85)
     else:
         pdf.set_font("Arial", 'I', 10)
@@ -1916,7 +1916,7 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_s
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(71)
         
 def calculate_end_time(start_time, duration_hours):
@@ -2165,7 +2165,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         pdf, chunk_df, cols_to_print, col_widths, 
                         line_height=line_height, 
                         header_content=header_content, 
-                        branches=chunk, 
+                        Programs=chunk, 
                         time_slot=None, 
                         actual_time_slots=actual_time_slots
                     )
@@ -2236,7 +2236,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     pdf, elective_data, cols_to_print, col_widths, 
                     line_height=10, 
                     header_content=header_content, 
-                    branches=['All Streams'], 
+                    Programs=['All Streams'], 
                     time_slot=None, 
                     actual_time_slots=actual_time_slots_elec
                 )
@@ -4161,7 +4161,7 @@ def main():
                                         unsafe_allow_html=True)
                             
                             # Show improved three-phase scheduling summary
-                            st.info("✅ **Three-Phase Scheduling Applied:**\n1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date\n2. 🔗 **Phase 2:** Common within semester subjects (COMP/ELEC appearing in multiple branches)\n3. 🔍 **Phase 3:** Truly uncommon subjects with gap-filling optimization within date range\n4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)\n5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester")
+                            st.info("✅ **Three-Phase Scheduling Applied:**\n1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date\n2. 🔗 **Phase 2:** Common within semester subjects (COMP/ELEC appearing in multiple Programs)\n3. 🔍 **Phase 3:** Truly uncommon subjects with gap-filling optimization within date range\n4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)\n5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester")
                             
                             # Show efficiency improvement
                             efficiency = (unique_exam_days / overall_date_range) * 100 if overall_date_range > 0 else 0
@@ -4377,7 +4377,7 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>🎓 {st.session_state.total_semesters}</h3><p>Semesters</p></div>',
                         unsafe_allow_html=True)
         with col3:
-            st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.total_branches}</h3><p>Branches</p></div>',
+            st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.total_branches}</h3><p>Programs</p></div>',
                         unsafe_allow_html=True)
         with col4:
             st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Overall Span</p></div>',
@@ -4606,6 +4606,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
