@@ -3726,12 +3726,17 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = default_value
         
-    st.markdown("""
+    # --- CHANGE STARTS HERE ---
+    # Get the selected college dynamically
+    current_college = st.session_state.get('selected_college', "SVKM's NMIMS University")
+
+    st.markdown(f"""
     <div class="main-header">
         <h1>📅 Exam Timetable Generator</h1>
-        <p>MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING</p>
+        <p>{current_college}</p>
     </div>
     """, unsafe_allow_html=True)
+    # --- CHANGE ENDS HERE ---
 
     
 
@@ -4582,6 +4587,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
