@@ -2361,7 +2361,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         # Note: 'semester_roman' is used in "Semester X", so we pass "General"
         instr_header_content = {
             'main_branch_full': 'EXAMINATION GUIDELINES', 
-            'semester_roman': 'General'
+            'semester_roman': '- Applicable to All'
         }
         
         # Calculate logo position (same logic as print_table_custom)
@@ -4854,6 +4854,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
