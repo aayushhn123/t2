@@ -1842,7 +1842,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
     if df.empty:
         return
     setattr(pdf, '_row_counter', 0)
@@ -1868,6 +1868,14 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     header_height = 95
     pdf.set_y(0)
     
+    # NEW: Print Declaration Date at Top Right (First Page)
+    if declaration_date:
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_text_color(0, 0, 0)
+        decl_str = f"Declaration Date: {declaration_date.strftime('%d-%m-%Y')}"
+        pdf.set_xy(pdf.w - 60, 10)
+        pdf.cell(50, 10, decl_str, 0, 0, 'R')
+
     logo_width = 45
     logo_x = (pdf.w - logo_width) / 2
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
@@ -1970,7 +1978,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             add_footer_with_page_number(pdf, footer_height)
             
             # Add header to new page
-            add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot, actual_time_slots)
+            add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot, actual_time_slots, declaration_date=declaration_date)
             
             # Reprint header row
             pdf.set_font("Arial", size=12)
@@ -1996,10 +2004,20 @@ def add_footer_with_page_number(pdf, footer_height):
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot=None, actual_time_slots=None):
+def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot=None, actual_time_slots=None, declaration_date=None):
     """Add header to a new page"""
     pdf.set_y(0)
     
+    # NEW: Print Declaration Date at Top Right
+    if declaration_date:
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_text_color(0, 0, 0)
+        # Format date as DD-MM-YYYY
+        decl_str = f"Declaration Date: {declaration_date.strftime('%d-%m-%Y')}"
+        # Position at top right (margin 10)
+        pdf.set_xy(pdf.w - 60, 10)
+        pdf.cell(50, 10, decl_str, 0, 0, 'R')
+
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
@@ -2083,7 +2101,7 @@ def calculate_end_time(start_time, duration_hours):
         #st.write(f"⚠️ Error calculating end time for {start_time}, duration {duration_hours}: {e}")
         return f"{start_time} + {duration_hours}h"
         
-def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
+def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
     """
     FIXED: Enhanced PDF generation with comprehensive error handling and dynamic branch support
     """
@@ -2311,7 +2329,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                         header_content=header_content, 
                         Programs=chunk, 
                         time_slot=None, 
-                        actual_time_slots=actual_time_slots
+                        actual_time_slots=actual_time_slots,
+                        declaration_date=declaration_date # Pass date here
                     )
                     
                     sheets_processed += 1
@@ -2382,7 +2401,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     header_content=header_content, 
                     Programs=['All Streams'], 
                     time_slot=None, 
-                    actual_time_slots=actual_time_slots_elec
+                    actual_time_slots=actual_time_slots_elec,
+                    declaration_date=declaration_date # Pass date here
                 )
                 
                 sheets_processed += 1
@@ -2407,7 +2427,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     except Exception as e:
         st.error(f"Error saving PDF: {e}")
    
-def generate_pdf_timetable(semester_wise_timetable, output_pdf):
+
+def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
     #st.write("🔄 Starting PDF generation process...")
     
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
@@ -2450,7 +2471,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
             
         #st.write("🎨 Converting Excel to PDF...")
         try:
-            convert_excel_to_pdf(temp_excel, output_pdf)
+            convert_excel_to_pdf(temp_excel, output_pdf, declaration_date=declaration_date)
             #st.write("✅ PDF conversion completed")
         except Exception as e:
             st.error(f"❌ Error during Excel to PDF conversion: {e}")
@@ -3886,6 +3907,14 @@ def main():
             end_date = base_date + timedelta(days=30)
             st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
 
+        # NEW: Declaration Date Selector
+        st.markdown("")
+        declaration_date = st.date_input(
+            "📆 Declaration Date (Optional)",
+            value=None,
+            help="Select a date to appear on the top right of the PDF. Leave empty to hide."
+        )
+
         st.markdown("---")
     
         # NEW: Time Slot Configuration
@@ -4281,7 +4310,8 @@ def main():
                                 if sem_dict:
                                     pdf_output = io.BytesIO()
                                     temp_pdf_path = "temp_timetable.pdf"
-                                    generate_pdf_timetable(sem_dict, temp_pdf_path)
+                                    # Pass declaration_date from the sidebar variable we created
+                                    generate_pdf_timetable(sem_dict, temp_pdf_path, declaration_date=declaration_date)
                                     
                                     # Check if PDF was created successfully
                                     if os.path.exists(temp_pdf_path):
@@ -4833,6 +4863,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
