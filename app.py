@@ -72,21 +72,58 @@ def show_semesters_breakdown(df):
         hide_index=True,
     )
 
-@dialog_decorator("🏫 Programs Breakdown")
-def show_programs_breakdown(df):
-    if 'MainBranch' in df.columns:
-        programs = sorted(df['MainBranch'].unique())
-        st.write(f"**Total Programs:** {len(programs)}")
-        
-        search = st.text_input("🔍 Search Programs", placeholder="Type to filter...")
-        filtered = [p for p in programs if search.lower() in p.lower()]
+@dialog_decorator("🏫 Programs & Streams Breakdown")
+def show_programs_streams_breakdown(df):
+    # Get lists of programs and streams
+    programs = sorted(df['MainBranch'].unique()) if 'MainBranch' in df.columns else []
+    
+    # Filter out empty streams for the count
+    if 'SubBranch' in df.columns:
+        streams = df['SubBranch'].dropna().astype(str)
+        streams = sorted(streams[streams.str.strip() != ''].unique())
+    else:
+        streams = []
+
+    # Summary Metrics
+    col1, col2 = st.columns(2)
+    col1.metric("Total Programs", len(programs))
+    col2.metric("Total Streams", len(streams))
+    
+    st.markdown("---")
+    
+    # Tabs for detailed view
+    tab1, tab2 = st.tabs(["📂 Grouped by Program", "💧 All Streams List"])
+    
+    with tab1:
+        if 'MainBranch' in df.columns and 'SubBranch' in df.columns:
+            for prog in programs:
+                # Find streams belonging to this program
+                prog_streams = df[df['MainBranch'] == prog]['SubBranch'].dropna().unique()
+                # Clean up empty strings
+                prog_streams = [s for s in prog_streams if str(s).strip() != '']
+                
+                # Create an expander for each program
+                with st.expander(f"**{prog}** ({len(prog_streams)} Streams)"):
+                    if len(prog_streams) > 0:
+                        for s in sorted(prog_streams):
+                            st.caption(f"• {s}")
+                    else:
+                        st.caption("No specific streams defined (General).")
+    
+    with tab2:
+        search = st.text_input("🔍 Search Streams", placeholder="Type stream name...")
+        filtered = [s for s in streams if search.lower() in s.lower()]
         
         if filtered:
-            st.markdown("---")
-            for p in filtered:
-                st.caption(f"• {p}")
+            # Display in columns for better density
+            sc1, sc2 = st.columns(2)
+            for i, s in enumerate(filtered):
+                if i % 2 == 0:
+                    sc1.caption(f"• {s}")
+                else:
+                    sc2.caption(f"• {s}")
         else:
-            st.warning("No programs match your search.")
+            st.warning("No streams match your search.")
 
 @dialog_decorator("📅 Schedule Span Details")
 def show_span_breakdown(df, holidays_set):
@@ -4405,33 +4442,39 @@ def main():
         # Statistics Overview
         # ... inside if st.session_state.processing_complete:
         
-        # [Previous code: Download Options ...] 
-        
+        # [Previous code: Download Options ...]
+
         # ==========================================
-        # 📈 STATISTICS OVERVIEW (FIXED)
+        # 📈 STATISTICS OVERVIEW
         # ==========================================
         st.markdown("---")
         
-        # 1. Prepare Data
+        # 1. Prepare Data & Calculate Metrics
         if st.session_state.timetable_data:
             final_stats_df = pd.concat(st.session_state.timetable_data.values(), ignore_index=True)
             
-            # Calculate metrics
+            # --- Metrics Calculation ---
             s_exams = len(final_stats_df)
             s_sems = final_stats_df['Semester'].nunique() if 'Semester' in final_stats_df else 0
             s_progs = final_stats_df['MainBranch'].nunique() if 'MainBranch' in final_stats_df else 0
             
-            # Date calc
+            # Calculate Streams (SubBranch) - Filter out empty/null
+            if 'SubBranch' in final_stats_df:
+                stream_list = final_stats_df['SubBranch'].dropna().astype(str)
+                s_streams = stream_list[stream_list.str.strip() != ''].nunique()
+            else:
+                s_streams = 0
+            
+            # Date Span Calculation
             d_dates = pd.to_datetime(final_stats_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
             s_span = (max(d_dates) - min(d_dates)).days + 1 if not d_dates.empty else 0
         else:
             final_stats_df = pd.DataFrame()
-            s_exams, s_sems, s_progs, s_span = 0, 0, 0, 0
+            s_exams, s_sems, s_progs, s_streams, s_span = 0, 0, 0, 0, 0
 
-        # 2. Styling for Tiles
+        # 2. Styling (Maintains your aesthetic)
         st.markdown("""
         <style>
-            /* Force height and styling for the buttons in the stats row */
             div.row-widget.stButton > button {
                 width: 100%;
                 padding: 1rem;
@@ -4456,14 +4499,20 @@ def main():
                 margin-bottom: 0.2rem !important;
                 line-height: 1.2 !important;
             }
+            /* Helper to make the label text slightly smaller/lighter */
+            div.row-widget.stButton > button div p:last-child {
+                font-size: 0.9rem !important;
+                opacity: 0.9;
+                font-weight: 500 !important;
+                text-transform: uppercase;
+            }
         </style>
         """, unsafe_allow_html=True)
 
         st.markdown("### 📈 Statistics Overview")
         st.caption("Click on any tile below for detailed breakdowns.")
 
-        # 3. Display Buttons
-        # Note: We split into 4 columns. We check for clicks immediately.
+        # 3. Display Buttons (Updated 3rd Column)
         stat_c1, stat_c2, stat_c3, stat_c4 = st.columns(4)
         
         with stat_c1:
@@ -4475,13 +4524,15 @@ def main():
                 show_semesters_breakdown(final_stats_df)
 
         with stat_c3:
-            if st.button(f"{s_progs}\nPROGRAMS", key="stat_btn_progs", use_container_width=True):
-                show_programs_breakdown(final_stats_df)
+            # UPDATED BUTTON LABEL: "6 / 12 \n PROGS / STREAMS"
+            if st.button(f"{s_progs} / {s_streams}\nPROGS / STREAMS", key="stat_btn_progs", use_container_width=True):
+                show_programs_streams_breakdown(final_stats_df)
 
         with stat_c4:
             if st.button(f"{s_span}\nOVERALL SPAN", key="stat_btn_span", use_container_width=True):
                 show_span_breakdown(final_stats_df, st.session_state.get('holidays_set', set()))
 
+        
         # ==========================================
         # END STATISTICS OVERVIEW
         # ==========================================
@@ -4781,5 +4832,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
