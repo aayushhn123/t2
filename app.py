@@ -4294,94 +4294,265 @@ def main():
                 st.session_state.unique_exam_days = 0
                 st.rerun()
         #--
+        # ==========================================
+    # 📊 STATISTICS BREAKDOWN DIALOGS
+    # ==========================================
+    
+    @st.dialog("📚 Total Exams Breakdown")
+    def show_exams_breakdown(df):
+        st.write(f"**Total Scheduled Exams:** {len(df)}")
+        
+        # Tabs for different views
+        tab1, tab2 = st.tabs(["By Type", "By Branch"])
+        
+        with tab1:
+            # Breakdown by Category (Core vs Elective)
+            type_counts = df['Category'].value_counts().reset_index()
+            type_counts.columns = ['Category', 'Count']
+            st.dataframe(type_counts, use_container_width=True, hide_index=True)
+            
+            # Common vs Uncommon
+            st.markdown("---")
+            st.caption("Commonality Breakdown")
+            common_count = len(df[df['CommonAcrossSems'] == True])
+            uncommon_count = len(df) - common_count
+            
+            col1, col2 = st.columns(2)
+            col1.metric("Common Across Sems", common_count)
+            col2.metric("Unique/Uncommon", uncommon_count)
+            
+        with tab2:
+            # Breakdown by Branch
+            branch_counts = df['MainBranch'].value_counts().reset_index()
+            branch_counts.columns = ['Branch', 'Exam Count']
+            st.dataframe(branch_counts, use_container_width=True, hide_index=True)
 
+    @st.dialog("🎓 Semesters Breakdown")
+    def show_semesters_breakdown(df):
+        unique_sems = sorted(df['Semester'].unique())
+        st.write(f"**Active Semesters:** {', '.join(map(str, unique_sems))}")
+        
+        # Exams per semester
+        sem_counts = df['Semester'].value_counts().sort_index().reset_index()
+        sem_counts.columns = ['Semester', 'Subject Count']
+        
+        # Add a progress bar visual
+        st.dataframe(
+            sem_counts,
+            column_config={
+                "Subject Count": st.column_config.ProgressColumn(
+                    "Subject Count",
+                    format="%d",
+                    min_value=0,
+                    max_value=int(sem_counts['Subject Count'].max()),
+                ),
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    @st.dialog("🏫 Programs & Streams Breakdown")
+    def show_programs_breakdown(df):
+        programs = sorted(df['MainBranch'].unique())
+        st.write(f"**Total Programs:** {len(programs)}")
+        
+        # Searchable list of programs
+        search = st.text_input("🔍 Search Programs", placeholder="Type to filter...")
+        
+        filtered_progs = [p for p in programs if search.lower() in p.lower()]
+        
+        if filtered_progs:
+            # Display as a clean list or small chips
+            for prog in filtered_progs:
+                st.markdown(f"• {prog}")
+        else:
+            st.info("No programs found matching your search.")
+
+    @st.dialog("📅 Schedule Span Details")
+    def show_span_breakdown(df, holidays_set):
+        # Calculate dates
+        dates = pd.to_datetime(df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+        if dates.empty:
+            st.warning("No valid dates found.")
+            return
+
+        start_date = min(dates)
+        end_date = max(dates)
+        total_days = (end_date - start_date).days + 1
+        unique_exam_days = len(dates.unique())
+        
+        st.write(f"**Start Date:** {start_date.strftime('%A, %d %B %Y')}")
+        st.write(f"**End Date:** {end_date.strftime('%A, %d %B %Y')}")
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        col1.metric("Total Span", f"{total_days} Days")
+        col2.metric("Active Exam Days", f"{unique_exam_days} Days")
+        
+        st.markdown("### 🗓️ Daily Exam Load")
+        # Daily distribution
+        daily_counts = df['Exam Date'].value_counts().reset_index()
+        daily_counts.columns = ['Date', 'Exams']
+        # Convert to datetime for proper sorting
+        daily_counts['DateObj'] = pd.to_datetime(daily_counts['Date'], format="%d-%m-%Y")
+        daily_counts = daily_counts.sort_values('DateObj')
+        
+        st.bar_chart(daily_counts.set_index('Date')['Exams'])
+
+
+        
         # Statistics Overview
-        # Statistics Overview
+        # ==========================================
+        # 📈 STATISTICS OVERVIEW (INTERACTIVE)
+        # ==========================================
+        
         st.markdown("""
         <div class="stats-section">
             <h2>📈 Complete Timetable Statistics</h2>
+            <p style="font-size: 0.9rem; opacity: 0.8;">Click on any tile below for detailed breakdowns.</p>
         </div>
         """, unsafe_allow_html=True)
 
-        # Calculate additional statistics
+        # 1. PREPARE DATA FOR STATS
         if st.session_state.timetable_data:
-            # Combine all data to calculate date ranges
             final_all_data = pd.concat(st.session_state.timetable_data.values(), ignore_index=True)
-    
-            # Separate non-elective and OE subjects
-            non_elective_data = final_all_data[~(final_all_data['OE'].notna() & (final_all_data['OE'].str.strip() != ""))]
-            oe_data = final_all_data[final_all_data['OE'].notna() & (final_all_data['OE'].str.strip() != "")]
-    
-            # Calculate non-elective date range
-            if not non_elective_data.empty:
-                non_elec_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                if not non_elec_dates.empty:
-                    non_elec_range = (max(non_elec_dates) - min(non_elec_dates)).days + 1
-                    non_elec_start = min(non_elec_dates).strftime("%-d %B")  # e.g., "1 April"
-                    non_elec_end = max(non_elec_dates).strftime("%-d %B")    # e.g., "20 April"
             
-                    if non_elec_start == non_elec_end:
-                        non_elec_display = f"{non_elec_start}"
-                    else:
-                        non_elec_display = f"{non_elec_start} to {non_elec_end}"
-                else:
-                    non_elec_display = "No dates"
-            else:
-                non_elec_display = "No subjects"
-    
-            # Calculate OE date range
-            if not oe_data.empty:
-                oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                if not oe_dates.empty:
-                    oe_range = (max(oe_dates) - min(oe_dates)).days + 1
-                    unique_oe_dates = sorted(oe_dates.dt.strftime("%-d %B").unique())
+            # Metrics
+            stat_exams = len(final_all_data)
+            stat_sems = final_all_data['Semester'].nunique()
+            stat_progs = final_all_data['MainBranch'].nunique()
             
-                    if len(unique_oe_dates) == 1:
-                        oe_display = unique_oe_dates[0]
-                    elif len(unique_oe_dates) == 2:
-                        oe_display = f"{unique_oe_dates[0]}, {unique_oe_dates[1]}"
-                    else:
-                        oe_start = unique_oe_dates[0]
-                        oe_end = unique_oe_dates[-1]
-                        oe_display = f"{oe_start} to {oe_end}"
-                else:
-                    oe_display = "No dates"
+            # Date calcs
+            all_dates = pd.to_datetime(final_all_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+            if not all_dates.empty:
+                stat_span = (max(all_dates) - min(all_dates)).days + 1
             else:
-                oe_display = "No OE subjects"
-    
-            # Calculate gap between non-elective and OE
-            if not non_elective_data.empty and not oe_data.empty:
-                non_elec_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-        
-                if not non_elec_dates.empty and not oe_dates.empty:
-                    max_non_elec = max(non_elec_dates)
-                    min_oe = min(oe_dates)
-                    gap_days = (min_oe - max_non_elec).days - 1
-                    gap_display = f"{max(0, gap_days)} days"
-                else:
-                    gap_display = "N/A"
-            else:
-                gap_display = "N/A"
+                stat_span = 0
         else:
-            non_elec_display = "No data"
-            oe_display = "No data"
-            gap_display = "N/A"
+            # Fallback if no data yet
+            final_all_data = pd.DataFrame()
+            stat_exams, stat_sems, stat_progs, stat_span = 0, 0, 0, 0
 
-        # Display metrics in two rows
+        # 2. CUSTOM CSS FOR CLICKABLE TILES (BUTTONS)
+        # This CSS specifically targets the buttons in the stats row to look like cards
+        st.markdown("""
+        <style>
+            /* Define a specific class scope for stats buttons if possible, 
+               but here we target the buttons via their specific layout context */
+            
+            div[data-testid="column"] button.stats-tile {
+                width: 100%;
+                height: 120px;
+                border: none;
+                border-radius: 16px;
+                background: linear-gradient(135deg, #4a5db0 0%, #764ba2 100%);
+                color: white;
+                transition: transform 0.2s, box-shadow 0.2s;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+            }
+            
+            div[data-testid="column"] button.stats-tile:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+                border: 1px solid rgba(255,255,255,0.3);
+            }
+
+            div[data-testid="column"] button.stats-tile p {
+                font-size: 2rem; 
+                font-weight: 700; 
+                margin: 0;
+            }
+            
+            div[data-testid="column"] button.stats-tile span {
+                font-size: 0.9rem; 
+                text-transform: uppercase; 
+                letter-spacing: 1px; 
+                opacity: 0.9;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # 3. RENDER CLICKABLE TILES
+        # We use a trick: Button text supports newlines. 
+        # We style the buttons with the CSS above.
+        
         col1, col2, col3, col4 = st.columns(4)
+
         with col1:
-            st.markdown(f'<div class="metric-card"><h3>📚 {st.session_state.total_exams}</h3><p>Total Exams</p></div>',
-                        unsafe_allow_html=True)
+            # Note: We use help param to give a tooltip
+            if st.button(f"📚 {stat_exams}\nTOTAL EXAMS", key="btn_stat_exams", use_container_width=True):
+                if not final_all_data.empty:
+                    show_exams_breakdown(final_all_data)
+                else:
+                    st.warning("No data generated yet.")
+
         with col2:
-            st.markdown(f'<div class="metric-card"><h3>🎓 {st.session_state.total_semesters}</h3><p>Semesters</p></div>',
-                        unsafe_allow_html=True)
+            if st.button(f"🎓 {stat_sems}\nSEMESTERS", key="btn_stat_sems", use_container_width=True):
+                if not final_all_data.empty:
+                    show_semesters_breakdown(final_all_data)
+                else:
+                    st.warning("No data generated yet.")
+
         with col3:
-            st.markdown(f'<div class="metric-card"><h3>🏫 {st.session_state.total_branches}</h3><p>Programs</p></div>',
-                        unsafe_allow_html=True)
+            if st.button(f"🏫 {stat_progs}\nPROGRAMS", key="btn_stat_progs", use_container_width=True):
+                if not final_all_data.empty:
+                    show_programs_breakdown(final_all_data)
+                else:
+                    st.warning("No data generated yet.")
+
         with col4:
-            st.markdown(f'<div class="metric-card"><h3>📅 {st.session_state.overall_date_range}</h3><p>Overall Span</p></div>',
-                        unsafe_allow_html=True)
+            if st.button(f"🗓️ {stat_span}\nOVERALL SPAN", key="btn_stat_span", use_container_width=True):
+                if not final_all_data.empty:
+                    show_span_breakdown(final_all_data, st.session_state.holidays_set)
+                else:
+                    st.warning("No data generated yet.")
+
+        # Inject CSS to override the specific button styles for these 4 keys
+        # This is necessary because standard st.button styling is rigid.
+        # We target the specific elements by their aria-label content approximation or structure.
+        st.markdown("""
+        <script>
+            // Optional: JS to enforce stricter styling if CSS fails
+        </script>
+        <style>
+            /* Force the gradient background on these specific buttons */
+            div[data-testid="stButton"] button {
+                white-space: pre-wrap; /* Allow newlines in button text */
+                line-height: 1.4;
+            }
+            
+            /* Target the specific buttons by checking the hierarchy or just applying to the row 
+               Since we can't easily add classes to Streamlit widgets directly in Python, 
+               we rely on the 'key' trick or standard button styling enhancement */
+            
+            /* Apply 'Card' look to ALL buttons in this specific section context if possible. 
+               Alternatively, we style buttons that contain specific emoji/text patterns using CSS :has() if supported,
+               or just apply a general style for large buttons in columns. */
+             
+            button[kind="secondary"] {
+                height: auto;
+                min-height: 100px;
+                padding: 20px;
+                border-radius: 12px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+            }
+            button[kind="secondary"]:hover {
+                 background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+                 color: white;
+                 border: 1px solid white;
+            }
+            button[kind="secondary"] p {
+                font-size: 24px;
+            }
+        </style>
+        """, unsafe_allow_html=True)
 
         # Second row with date range information
         st.markdown("### 📅 Examination Schedule Breakdown")
@@ -4606,6 +4777,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
