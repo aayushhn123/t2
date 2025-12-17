@@ -1870,9 +1870,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     
     # NEW: Print Declaration Date at Top Right (First Page)
     if declaration_date:
-        pdf.set_font("Arial", 'B', 10)
+        pdf.set_font("Arial", 'B', 20)
         pdf.set_text_color(0, 0, 0)
-        decl_str = f"Declaration Date: {declaration_date.strftime('%d-%m-%Y')}"
+        decl_str = f"Declaration Date: {declaration_date.strftime('%d %B %Y')}"
         pdf.set_xy(pdf.w - 60, 10)
         pdf.cell(50, 10, decl_str, 0, 0, 'R')
 
@@ -2010,10 +2010,10 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_s
     
     # NEW: Print Declaration Date at Top Right
     if declaration_date:
-        pdf.set_font("Arial", 'B', 10)
+        pdf.set_font("Arial", 'B', 20)
         pdf.set_text_color(0, 0, 0)
         # Format date as DD-MM-YYYY
-        decl_str = f"Declaration Date: {declaration_date.strftime('%d-%m-%Y')}"
+        decl_str = f"Declaration Date: {declaration_date.strftime('%d %B %Y')}"
         # Position at top right (margin 10)
         pdf.set_xy(pdf.w - 60, 10)
         pdf.cell(50, 10, decl_str, 0, 0, 'R')
@@ -4863,6 +4863,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
