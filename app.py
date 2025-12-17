@@ -4525,7 +4525,8 @@ def main():
 
         with stat_c3:
             # UPDATED BUTTON LABEL: "6 / 12 \n PROGS / STREAMS"
-            if st.button(f"{s_progs} / {s_streams}\nPROGS / STREAMS", key="stat_btn_progs", use_container_width=True):
+            #if st.button(f"{s_progs} / {s_streams}\nPROGS / STREAMS", key="stat_btn_progs", use_container_width=True):
+            if st.button(f"{s_progs} \nPROGS / {s_streams} STREAMS", key="stat_btn_progs", use_container_width=True):
                 show_programs_streams_breakdown(final_stats_df)
 
         with stat_c4:
@@ -4832,6 +4833,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
