@@ -2024,7 +2024,8 @@ def calculate_end_time(start_time, duration_hours):
         
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
     """
-    FIXED: Enhanced PDF generation with single Header Time Logic based on Semester
+    FIXED: Resolved 'Series is ambiguous' error by using proper pandas vectorization 
+    for filtering rows.
     """
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
@@ -2057,8 +2058,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
 
     # -- Helper to determine the standard/header time for a semester --
     def get_header_time_for_semester(semester_num):
-        # Logic: Sem 1,2 -> Slot 1 | Sem 3,4 -> Slot 2 | Sem 5,6 -> Slot 1 ...
-        # Formula: ((Sem + 1) // 2) % 2 == 1 -> Slot 1, else Slot 2
         try:
             sem_int = int(semester_num)
             slot_indicator = ((sem_int + 1) // 2) % 2
@@ -2066,10 +2065,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             slot_cfg = time_slots_dict.get(slot_num, time_slots_dict.get(1))
             return f"{slot_cfg['start']} - {slot_cfg['end']}"
         except:
-            # Fallback if semester is not a standard number
             return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
 
-    # Branch parsing helper (kept as is)
     def parse_branch_info(main_branch_raw):
         branch_parts = main_branch_raw.split("-", 1)
         if len(branch_parts) > 1:
@@ -2098,7 +2095,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 sheets_skipped += 1
                 continue
             
-            # Reset index if needed
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
@@ -2115,7 +2111,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             if semester_raw.endswith('_Electives'):
                 semester_raw = semester_raw.replace('_Electives', '')
                 
-            # Convert Roman/String semester to Integer for logic
             roman_map = {'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9, 'X':10}
             try:
                 if semester_raw.isdigit():
@@ -2125,11 +2120,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             except:
                 sem_int = 1
 
-            # Prepare Header Content
             semester_roman = semester_raw if not semester_raw.isdigit() else int_to_roman(int(semester_raw))
             header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
             
-            # Determine Header Time using the new logic
+            # Determine Header Time
             header_exam_time = get_header_time_for_semester(sem_int)
 
             # --- PROCESS STANDARD SHEETS ---
@@ -2156,12 +2150,28 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     cols_to_print = fixed_cols + chunk
                     chunk_df = sheet_df[cols_to_print].copy()
                     
-                    # Filters
-                    mask = chunk_df[chunk].apply(lambda row: 
-                        (row.astype(str).str.strip() != "") and (row.astype(str).str.strip() != "---")
-                    ).any(axis=1)
-                    final_mask = mask & (~chunk_df['Exam Date'].astype(str).str.contains('No exams scheduled', na=False))
+                    # --- FIX: ROBUST PANDAS FILTERING ---
+                    # 1. Clean data to string and strip whitespace
+                    subset = chunk_df[chunk].astype(str).apply(lambda x: x.str.strip())
+                    
+                    # 2. Identify valid cells (not empty, not ---, not nan)
+                    valid_cells = (
+                        (subset != "") & 
+                        (subset != "nan") & 
+                        (subset != "---") & 
+                        (subset != "No subjects available")
+                    )
+                    
+                    # 3. Create mask: Keep row if ANY column in this chunk has data
+                    mask = valid_cells.any(axis=1)
+                    
+                    # 4. Filter out 'No exams scheduled' rows
+                    exam_date_mask = ~chunk_df['Exam Date'].astype(str).str.contains('No exams scheduled', na=False)
+                    
+                    # 5. Combine masks
+                    final_mask = mask & exam_date_mask
                     chunk_df = chunk_df[final_mask].reset_index(drop=True)
+                    # ------------------------------------
                     
                     if chunk_df.empty: continue
 
@@ -2170,7 +2180,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     except:
                         chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
 
-                    # Col Widths
                     page_width = pdf.w - 2 * pdf.l_margin
                     sub_width = (page_width - exam_date_width) / max(len(chunk), 1)
                     col_widths = [exam_date_width] + [sub_width] * len(chunk)
@@ -2183,8 +2192,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                         pdf, chunk_df, cols_to_print, col_widths, 
                         line_height=line_height, header_content=header_content, 
                         Programs=chunk, 
-                        time_slot=header_exam_time, # PASS SINGLE TIME STRING
-                        actual_time_slots=None,     # Disable dynamic check
+                        time_slot=header_exam_time,
+                        actual_time_slots=None,
                         declaration_date=declaration_date
                     )
                     sheets_processed += 1
@@ -2214,14 +2223,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     pdf, elec_df, cols, col_widths, 
                     line_height=10, header_content=header_content, 
                     Programs=['All Streams'], 
-                    time_slot=header_exam_time, # PASS SINGLE TIME STRING
-                    actual_time_slots=None,     # Disable dynamic check
+                    time_slot=header_exam_time,
+                    actual_time_slots=None,
                     declaration_date=declaration_date
                 )
                 sheets_processed += 1
                 
         except Exception as e:
             st.warning(f"Error processing {sheet_name}: {e}")
+            import traceback
+            st.error(traceback.format_exc())
             continue
 
     if sheets_processed == 0:
@@ -4680,6 +4691,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
