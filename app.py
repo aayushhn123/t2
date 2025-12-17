@@ -4486,6 +4486,72 @@ def main():
         # END STATISTICS OVERVIEW
         # ==========================================
 
+        # ==========================================
+        # 🔄 RE-CALCULATE VARIABLES FOR BREAKDOWN
+        # ==========================================
+        if st.session_state.timetable_data:
+            # Re-create the combined dataframe for calculations
+            final_all_data_calc = pd.concat(st.session_state.timetable_data.values(), ignore_index=True)
+            
+            # --- 1. Non-Elective Date Range ---
+            non_elective_data = final_all_data_calc[~(final_all_data_calc['OE'].notna() & (final_all_data_calc['OE'].str.strip() != ""))]
+            
+            if not non_elective_data.empty:
+                ne_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                if not ne_dates.empty:
+                    ne_start = min(ne_dates).strftime("%-d %B")
+                    ne_end = max(ne_dates).strftime("%-d %B")
+                    non_elec_display = f"{ne_start}" if ne_start == ne_end else f"{ne_start} to {ne_end}"
+                else:
+                    non_elec_display = "No dates"
+            else:
+                non_elec_display = "No subjects"
+
+            # --- 2. OE Date Range ---
+            oe_data = final_all_data_calc[final_all_data_calc['OE'].notna() & (final_all_data_calc['OE'].str.strip() != "")]
+            
+            if not oe_data.empty:
+                oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                if not oe_dates.empty:
+                    # Sort unique dates
+                    u_oe_dates = sorted(oe_dates.dt.strftime("%-d %B").unique(), key=lambda x: pd.to_datetime(x, format="%-d %B"))
+                    # Fallback sort if strict format fails or just use original datetime sort
+                    sorted_oe_dt = sorted(oe_dates.unique())
+                    u_oe_dates = [pd.to_datetime(d).strftime("%-d %B") for d in sorted_oe_dt]
+                    
+                    if len(u_oe_dates) == 1:
+                        oe_display = u_oe_dates[0]
+                    elif len(u_oe_dates) == 2:
+                        oe_display = f"{u_oe_dates[0]}, {u_oe_dates[1]}"
+                    else:
+                        oe_display = f"{u_oe_dates[0]} to {u_oe_dates[-1]}"
+                else:
+                    oe_display = "No dates"
+            else:
+                oe_display = "No OE subjects"
+                
+            # --- 3. Gap Calculation ---
+            if not non_elective_data.empty and not oe_data.empty:
+                ne_dates_gap = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                oe_dates_gap = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+                
+                if not ne_dates_gap.empty and not oe_dates_gap.empty:
+                    max_ne = max(ne_dates_gap)
+                    min_oe = min(oe_dates_gap)
+                    gap_val = (min_oe - max_ne).days - 1
+                    gap_display = f"{max(0, gap_val)} days"
+                else:
+                    gap_display = "N/A"
+            else:
+                gap_display = "N/A"
+        else:
+            # Default values if no data exists
+            non_elec_display = "No data"
+            oe_display = "No data"
+            gap_display = "N/A"
+
+        # ... (The "Examination Schedule Breakdown" header follows here)
+
         # Second row with date range information
         st.markdown("### 📅 Examination Schedule Breakdown")
 
@@ -4709,3 +4775,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
