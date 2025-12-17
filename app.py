@@ -2799,12 +2799,12 @@ def convert_semester_to_number(semester_value):
     
     return semester_map.get(semester_str, 0)
 
-
 def save_to_excel(semester_wise_timetable):
     """
     FIXED: 
-    1. Removed [CM Group] number from subject display.
-    2. Fixed time redundancy check by normalizing time formats (e.g. 01:00 PM == 1:00 PM).
+    1. Recalculates exact subject timing based on Duration before comparing with Header.
+    2. Ensures subjects with different durations (e.g., 2 hours vs 3 hours) always show their time.
+    3. Handles the [CM Group] and redundant time display logic.
     """
     if not semester_wise_timetable:
         st.warning("No timetable data to save")
@@ -2829,12 +2829,11 @@ def save_to_excel(semester_wise_timetable):
                 num -= value
         return result
 
-    # Helper to normalize time strings for comparison (removes leading zeros from hours)
-    # e.g., "01:00 PM" -> "1:00 PM"
     def normalize_time(t_str):
+        """Standardizes time strings (e.g., '01:00 PM' -> '1:00 PM') for accurate comparison"""
         if not isinstance(t_str, str): return ""
         t_str = t_str.strip()
-        # Replace 01: through 09: with 1: through 9:
+        # Remove leading zeros from hours (01: -> 1:, 09: -> 9:)
         for i in range(1, 10):
             t_str = t_str.replace(f"0{i}:", f"{i}:")
         return t_str
@@ -2849,14 +2848,13 @@ def save_to_excel(semester_wise_timetable):
                 if df_sem.empty:
                     continue
                 
-                # DETERMINE PRIMARY TIME SLOT FOR THIS SEMESTER HEADER
+                # 1. DETERMINE HEADER TIME FOR THIS SEMESTER
+                # Logic: Sem 1,2->Slot 1 | Sem 3,4->Slot 2, etc.
                 slot_indicator = ((sem + 1) // 2) % 2
                 primary_slot_num = 1 if slot_indicator == 1 else 2
                 
                 primary_slot_config = time_slots_dict.get(primary_slot_num, time_slots_dict.get(1))
                 primary_slot_str = f"{primary_slot_config['start']} - {primary_slot_config['end']}"
-                
-                # Normalize the header time for comparison
                 primary_slot_norm = normalize_time(primary_slot_str)
                    
                 for main_branch in df_sem["MainBranch"].unique():
@@ -2865,13 +2863,10 @@ def save_to_excel(semester_wise_timetable):
                     if df_mb.empty:
                         continue
                    
-                    # Separate non-electives and electives
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
                     roman_sem = int_to_roman(sem)
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
-                    if len(sheet_name) > 31:
-                        sheet_name = sheet_name[:31]
+                    sheet_name = f"{main_branch}_Sem_{roman_sem}"[:31]
                    
                     # --- PROCESS NON-ELECTIVES ---
                     if not df_non_elec.empty:
@@ -2881,44 +2876,42 @@ def save_to_excel(semester_wise_timetable):
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
-                           
-                            # --- FIX 1: REMOVED CM GROUP PREFIX ---
-                            # We no longer add [10] or [CM:10] before the subject name
-                            cm_group_prefix = "" 
                             
-                            # --- FIX 2: ROBUST TIME CHECK ---
+                            # No CM Group ID in bracket
+                            cm_group_prefix = "" 
+
+                            # 2. CALCULATE ACTUAL SUBJECT TIME USING DURATION
                             assigned_slot_str = str(row.get('Time Slot', '')).strip()
                             duration = float(row.get('Exam Duration', 3.0))
                             
-                            specific_subject_time = assigned_slot_str
+                            # Default to assigned string
+                            calculated_time_str = assigned_slot_str
+                            
+                            # Attempt to calculate exact time: Start Time + Duration
                             try:
                                 if assigned_slot_str and " - " in assigned_slot_str:
-                                    # Recalculate to ensure formatting consistency
-                                    parts = assigned_slot_str.split(" - ")
-                                    start_time_part = parts[0].strip()
-                                    # If original string was valid, let's just use it, 
-                                    # but we normalize it for comparison
-                                    specific_subject_time = assigned_slot_str
+                                    start_time_part = assigned_slot_str.split(" - ")[0].strip()
+                                    end_time_calc = calculate_end_time(start_time_part, duration)
+                                    calculated_time_str = f"{start_time_part} - {end_time_calc}"
                             except:
                                 pass
 
-                            # Normalize specific time for comparison
-                            subj_time_norm = normalize_time(specific_subject_time)
+                            # 3. COMPARE CALCULATED TIME VS HEADER TIME
+                            subj_time_norm = normalize_time(calculated_time_str)
                             
-                            # Compare normalized strings
                             if subj_time_norm != primary_slot_norm and subj_time_norm != "":
-                                # If different, show the specific time
-                                time_suffix = f" [{specific_subject_time}]"
+                                # Mismatch found (e.g. 10-12 vs 10-1), show the specific time
+                                time_suffix = f" [{calculated_time_str}]"
                             else:
-                                # If same as header, show nothing
+                                # Matches header, hide time
                                 time_suffix = ""
                            
                             subject_display = cm_group_prefix + base_subject + time_suffix
                             subject_displays.append(subject_display)
                        
                         df_processed["SubjectDisplay"] = subject_displays
-                       
-                        # Date Formatting & Pivot
+                        
+                        # Date formatting and Pivoting
                         df_processed["Exam Date"] = pd.to_datetime(
                             df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce'
                         )
@@ -2944,15 +2937,12 @@ def save_to_excel(semester_wise_timetable):
                                 pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                                 sheets_created += 1
                             else:
-                                # Empty Fallback
                                 empty_df = pd.DataFrame({'Exam Date': ['No exams'], 'Note': ['No valid data']})
                                 empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
                                 sheets_created += 1
-                           
                         except Exception as e:
                             st.warning(f"Could not create pivot for {sheet_name}: {str(e)}")
                             sheets_created += 1
-                           
                     else:
                         empty_df = pd.DataFrame({'Exam Date': ['No exams scheduled'], 'Note': ['No core subjects']})
                         empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -2967,18 +2957,25 @@ def save_to_excel(semester_wise_timetable):
                             row = df_elec_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
                             oe_type = str(row.get('OE', ''))
-                            
-                            # --- FIX 1: REMOVED CM GROUP PREFIX ---
                             cm_group_prefix = "" 
 
-                            # --- FIX 2: ROBUST TIME CHECK ---
+                            # CALCULATE TIME WITH DURATION
                             assigned_slot_str = str(row.get('Time Slot', '')).strip()
-                            specific_subject_time = assigned_slot_str
+                            duration = float(row.get('Exam Duration', 3.0))
                             
-                            subj_time_norm = normalize_time(specific_subject_time)
+                            calculated_time_str = assigned_slot_str
+                            try:
+                                if assigned_slot_str and " - " in assigned_slot_str:
+                                    start_time_part = assigned_slot_str.split(" - ")[0].strip()
+                                    end_time_calc = calculate_end_time(start_time_part, duration)
+                                    calculated_time_str = f"{start_time_part} - {end_time_calc}"
+                            except:
+                                pass
+                            
+                            subj_time_norm = normalize_time(calculated_time_str)
 
                             if subj_time_norm != primary_slot_norm and subj_time_norm != "":
-                                time_suffix = f" [{specific_subject_time}]"
+                                time_suffix = f" [{calculated_time_str}]"
                             else:
                                 time_suffix = ""
 
@@ -2987,8 +2984,8 @@ def save_to_excel(semester_wise_timetable):
                             subject_displays_elec.append(subject_display)
 
                         df_elec_processed["SubjectDisplay"] = subject_displays_elec
-
-                        # Deduplicate
+                        
+                        # Deduplicate based on ID + Date
                         df_elec_processed = df_elec_processed.drop_duplicates(
                             subset=['ModuleCode', 'OE', 'Exam Date'], keep='first'
                         ).copy()
@@ -3008,7 +3005,6 @@ def save_to_excel(semester_wise_timetable):
                                 elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"[:31]
                                 elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
                                 sheets_created += 1
-
                         except Exception as e:
                             st.warning(f"Could not create elective sheet for {sheet_name}: {str(e)}")
 
@@ -3024,6 +3020,7 @@ def save_to_excel(semester_wise_timetable):
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
         return None
+
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -4691,6 +4688,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
