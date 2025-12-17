@@ -2383,7 +2383,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         pdf.set_y(95)
 
         # 5. Print Title
-        pdf.set_font("Arial", 'B', 14)
+        pdf.set_font("Arial", 'B', 20)
         pdf.set_text_color(0, 0, 0)
         pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
         pdf.ln(5)
@@ -2397,7 +2397,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. Carrying the same will be treated as usage of unfair means."
         ]
 
-        pdf.set_font("Arial", size=12)
+        pdf.set_font("Arial", size=18)
         
         # We use a loop with multi_cell to ensure text wrapping works properly
         for instr in instructions:
@@ -4854,6 +4854,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
