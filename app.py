@@ -4493,8 +4493,9 @@ def main():
             # Re-create the combined dataframe for calculations
             final_all_data_calc = pd.concat(st.session_state.timetable_data.values(), ignore_index=True)
             
-            # --- 1. Non-Elective Date Range ---
+            # --- 1. Non-Elective Stats ---
             non_elective_data = final_all_data_calc[~(final_all_data_calc['OE'].notna() & (final_all_data_calc['OE'].str.strip() != ""))]
+            ne_count = len(non_elective_data)  # <--- NEW: Count exams
             
             if not non_elective_data.empty:
                 ne_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
@@ -4507,15 +4508,13 @@ def main():
             else:
                 non_elec_display = "No subjects"
 
-            # --- 2. OE Date Range ---
+            # --- 2. OE Stats ---
             oe_data = final_all_data_calc[final_all_data_calc['OE'].notna() & (final_all_data_calc['OE'].str.strip() != "")]
+            oe_count = len(oe_data)  # <--- NEW: Count exams
             
             if not oe_data.empty:
                 oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                 if not oe_dates.empty:
-                    # Sort unique dates
-                    u_oe_dates = sorted(oe_dates.dt.strftime("%-d %B").unique(), key=lambda x: pd.to_datetime(x, format="%-d %B"))
-                    # Fallback sort if strict format fails or just use original datetime sort
                     sorted_oe_dt = sorted(oe_dates.unique())
                     u_oe_dates = [pd.to_datetime(d).strftime("%-d %B") for d in sorted_oe_dt]
                     
@@ -4547,12 +4546,14 @@ def main():
         else:
             # Default values if no data exists
             non_elec_display = "No data"
+            ne_count = 0
             oe_display = "No data"
+            oe_count = 0
             gap_display = "N/A"
 
-        # ... (The "Examination Schedule Breakdown" header follows here)
-
-        # Second row with date range information
+        # ==========================================
+        # 📅 EXAMINATION SCHEDULE BREAKDOWN (DISPLAY)
+        # ==========================================
         st.markdown("### 📅 Examination Schedule Breakdown")
 
         col1, col2 = st.columns(2)
@@ -4560,7 +4561,9 @@ def main():
             st.markdown(f"""
             <div class="metric-card" style="text-align: left; padding: 1rem;">
                 <h4 style="margin: 0; color: white;">📖 Non-Elective Exams</h4>
-                <p style="margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.9;">{non_elec_display}</p>
+                <p style="margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.9;">
+                    {non_elec_display} <span style="opacity: 0.8; font-size: 0.9em;">({ne_count} Exams)</span>
+                </p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -4568,10 +4571,13 @@ def main():
             st.markdown(f"""
             <div class="metric-card" style="text-align: left; padding: 1rem;">
                 <h4 style="margin: 0; color: white;">🎓 Open Elective (OE) Exams</h4>
-                <p style="margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.9;">{oe_display}</p>
+                <p style="margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.9;">
+                    {oe_display} <span style="opacity: 0.8; font-size: 0.9em;">({oe_count} Exams)</span>
+                </p>
             </div>
             """, unsafe_allow_html=True)
 
+       
         # Additional metrics row
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -4775,4 +4781,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
