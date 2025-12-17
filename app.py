@@ -2103,7 +2103,8 @@ def calculate_end_time(start_time, duration_hours):
         
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
     """
-    FIXED: Enhanced PDF generation with comprehensive error handling and dynamic branch support
+    FIXED: Enhanced PDF generation with comprehensive error handling, dynamic branch support,
+    and a final 'Instructions to Candidates' page.
     """
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
@@ -2173,19 +2174,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             main_branch = main_branch_raw.strip()
         
         # Get full branch name from BRANCH_FULL_FORM mapping
-        # If program_type is in the mapping, use it; otherwise use the original
         if program_type in BRANCH_FULL_FORM:
             main_branch_full = BRANCH_FULL_FORM[program_type]
         elif main_branch in BRANCH_FULL_FORM:
             main_branch_full = BRANCH_FULL_FORM[main_branch]
         else:
-            # No mapping found - use the original name as-is
-            # This handles any new programs not in BRANCH_FULL_FORM
             if len(branch_parts) > 1:
-                # If there's a stream, show full name
                 main_branch_full = f"{program_type} - {main_branch}"
             else:
-                # Single program name
                 main_branch_full = program_type
         
         return program_type, main_branch, main_branch_full
@@ -2193,122 +2189,86 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
     sheets_processed = 0
     sheets_skipped = 0
     
+    # Process all sheets first
     for sheet_name, sheet_df in df_dict.items():
         try:
             if sheet_df.empty:
-                st.info(f"Sheet {sheet_name} is empty, skipping")
                 sheets_skipped += 1
                 continue
             
-            # Check for "No data available" placeholder
             if len(sheet_df) == 1 and 'Message' in sheet_df.columns:
                 if sheet_df['Message'].iloc[0] == 'No data available':
-                    st.info(f"Sheet {sheet_name} has no data, skipping")
                     sheets_skipped += 1
                     continue
             
-            # Reset index
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # Parse sheet name - DYNAMIC FOR ALL PROGRAMS
             parts = sheet_name.split('_Sem_')
             if len(parts) < 2:
-                st.warning(f"Cannot parse sheet name: {sheet_name}, skipping")
                 sheets_skipped += 1
                 continue
                 
             main_branch_raw = parts[0]
-            
-            # Use dynamic branch parsing function
             program_type, main_branch, main_branch_full = parse_branch_info(main_branch_raw)
             
             semester = parts[1] if len(parts) > 1 else ""
-            
             if semester.endswith('_Electives'):
                 semester = semester.replace('_Electives', '')
-                
             semester_roman = semester if not semester.isdigit() else int_to_roman(int(semester))
             header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
 
-            # Handle normal subjects (non-electives)
             if not sheet_name.endswith('_Electives'):
-                # Validate required columns
                 if 'Exam Date' not in sheet_df.columns:
-                    st.warning(f"Sheet {sheet_name} missing 'Exam Date' column, skipping")
                     sheets_skipped += 1
                     continue
                 
-                # Check for "No exams scheduled" message
                 if len(sheet_df) > 0 and 'Exam Date' in sheet_df.columns:
                     first_date = str(sheet_df['Exam Date'].iloc[0]).strip()
                     if first_date in ['No exams scheduled', 'No data available', '']:
-                        st.info(f"Sheet {sheet_name} has no scheduled exams, skipping")
                         sheets_skipped += 1
                         continue
                 
-                # Remove empty rows
                 sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
-                
-                # Get columns - IMPROVED CHECK
                 fixed_cols = ["Exam Date"]
                 sub_branch_cols = [c for c in sheet_df.columns 
-                                 if c not in fixed_cols
-                                 and c not in ['Note', 'Message']
-                                 and pd.notna(c)
-                                 and str(c).strip() != '']
+                                 if c not in fixed_cols and c not in ['Note', 'Message'] and pd.notna(c) and str(c).strip() != '']
                 
                 if not sub_branch_cols:
-                    st.warning(f"No valid subject columns in {sheet_name}, skipping")
                     sheets_skipped += 1
                     continue
                 
-                st.info(f"✅ Processing {sheet_name} with {len(sub_branch_cols)} subject columns: {sub_branch_cols}")
+                st.info(f"✅ Processing {sheet_name} with {len(sub_branch_cols)} subject columns")
                 
                 exam_date_width = 60
                 line_height = 10
 
-                # Process in chunks
                 for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
                     chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
                     cols_to_print = fixed_cols + chunk
                     chunk_df = sheet_df[cols_to_print].copy()
                     
-                    # Filter valid rows
                     mask = chunk_df[chunk].apply(lambda row: 
                         (row.astype(str).str.strip() != "") & 
                         (row.astype(str).str.strip() != "---") &
                         (row.astype(str).str.strip() != "No subjects available")
                     ).any(axis=1)
-                    
-                    exam_date_mask = ~chunk_df['Exam Date'].astype(str).str.contains(
-                        'No exams scheduled', na=False
-                    )
-                    
+                    exam_date_mask = ~chunk_df['Exam Date'].astype(str).str.contains('No exams scheduled', na=False)
                     final_mask = mask & exam_date_mask
                     chunk_df = chunk_df[final_mask].reset_index(drop=True)
                     
                     if chunk_df.empty:
                         continue
 
-                    # Extract time slots
                     actual_time_slots = extract_time_slots_from_subjects(chunk_df, cols_to_print)
-                    
                     if not actual_time_slots:
-                        actual_time_slots = {f"{slot['start']} - {slot['end']}" 
-                                           for slot in time_slots_dict.values()}
+                        actual_time_slots = {f"{slot['start']} - {slot['end']}" for slot in time_slots_dict.values()}
 
-                    # Convert dates
                     try:
-                        chunk_df["Exam Date"] = pd.to_datetime(
-                            chunk_df["Exam Date"], 
-                            format="%d-%m-%Y", 
-                            errors='coerce'
-                        ).dt.strftime("%A, %d %B, %Y")
+                        chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
                     except:
                         chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
 
-                    # Calculate column widths
                     page_width = pdf.w - 2 * pdf.l_margin
                     remaining = page_width - exam_date_width
                     sub_width = remaining / max(len(chunk), 1)
@@ -2318,112 +2278,143 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                         factor = page_width / total_w
                         col_widths = [w * factor for w in col_widths]
                     
-                    # Add page and print
                     pdf.add_page()
-                    footer_height = 25
-                    add_footer_with_page_number(pdf, footer_height)
-                    
+                    add_footer_with_page_number(pdf, 25)
                     print_table_custom(
                         pdf, chunk_df, cols_to_print, col_widths, 
-                        line_height=line_height, 
-                        header_content=header_content, 
-                        Programs=chunk, 
-                        time_slot=None, 
-                        actual_time_slots=actual_time_slots,
-                        declaration_date=declaration_date # Pass date here
+                        line_height=line_height, header_content=header_content, 
+                        Programs=chunk, time_slot=None, actual_time_slots=actual_time_slots,
+                        declaration_date=declaration_date
                     )
-                    
                     sheets_processed += 1
 
-            # Handle electives
             elif sheet_name.endswith('_Electives'):
                 required_cols = ['Exam Date', 'OE Type', 'Subjects']
                 available_cols = [col for col in required_cols if col in sheet_df.columns]
-                
-                # Try alternate column names
                 if 'OE Type' not in sheet_df.columns and 'OE' in sheet_df.columns:
                     sheet_df = sheet_df.rename(columns={'OE': 'OE type'})
                     available_cols = [col for col in required_cols if col in sheet_df.columns]
                 
                 if len(available_cols) < 2:
-                    st.warning(f"Missing required columns in {sheet_name}, skipping")
                     sheets_skipped += 1
                     continue
                 
                 elective_data = sheet_df[available_cols].copy()
                 elective_data = elective_data.dropna(how='all').reset_index(drop=True)
-                
                 if elective_data.empty:
                     sheets_skipped += 1
                     continue
 
-                # Convert dates
                 try:
-                    elective_data["Exam Date"] = pd.to_datetime(
-                        elective_data["Exam Date"], 
-                        format="%d-%m-%Y", 
-                        errors='coerce'
-                    ).dt.strftime("%A, %d %B, %Y")
+                    elective_data["Exam Date"] = pd.to_datetime(elective_data["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
                 except:
                     elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
 
-                # Extract time slots
                 cols_for_extraction = [col for col in ['Subjects'] if col in elective_data.columns]
-                actual_time_slots_elec = extract_time_slots_from_subjects(
-                    elective_data, cols_for_extraction
-                )
-                
+                actual_time_slots_elec = extract_time_slots_from_subjects(elective_data, cols_for_extraction)
                 if not actual_time_slots_elec:
-                    actual_time_slots_elec = {f"{slot['start']} - {slot['end']}" 
-                                            for slot in time_slots_dict.values()}
+                    actual_time_slots_elec = {f"{slot['start']} - {slot['end']}" for slot in time_slots_dict.values()}
 
-                # Set column widths
                 exam_date_width = 60
                 oe_width = 30
                 subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
-                
-                cols_to_print = [col for col in ['Exam Date', 'OE Type', 'Subjects'] 
-                               if col in elective_data.columns]
+                cols_to_print = [col for col in ['Exam Date', 'OE Type', 'Subjects'] if col in elective_data.columns]
                 
                 if len(cols_to_print) == 2:
                     col_widths = [exam_date_width, subject_width + oe_width]
                 else:
                     col_widths = [exam_date_width, oe_width, subject_width]
                 
-                # Add page and print
                 pdf.add_page()
-                footer_height = 25
-                add_footer_with_page_number(pdf, footer_height)
-                
+                add_footer_with_page_number(pdf, 25)
                 print_table_custom(
                     pdf, elective_data, cols_to_print, col_widths, 
-                    line_height=10, 
-                    header_content=header_content, 
-                    Programs=['All Streams'], 
-                    time_slot=None, 
+                    line_height=10, header_content=header_content, 
+                    Programs=['All Streams'], time_slot=None, 
                     actual_time_slots=actual_time_slots_elec,
-                    declaration_date=declaration_date # Pass date here
+                    declaration_date=declaration_date
                 )
-                
                 sheets_processed += 1
                 
         except Exception as e:
             st.warning(f"Error processing sheet {sheet_name}: {str(e)}")
-            import traceback
-            st.error(f"Traceback: {traceback.format_exc()}")
             sheets_skipped += 1
             continue
 
     if sheets_processed == 0:
         st.error("No sheets were successfully processed for PDF!")
         return
-    
+
+    # ====================================================================
+    # --- NEW: Add Instructions to Candidates Page (Last Page) ---
+    # ====================================================================
+    try:
+        # 1. Add new page
+        pdf.add_page()
+
+        # 2. Add Footer (Same as other pages)
+        footer_height = 25
+        add_footer_with_page_number(pdf, footer_height)
+
+        # 3. Add Header
+        # We reuse the existing function but pass generic "Instructions" content
+        # Note: 'semester_roman' is used in "Semester X", so we pass "General"
+        instr_header_content = {
+            'main_branch_full': 'EXAMINATION GUIDELINES', 
+            'semester_roman': 'General'
+        }
+        
+        # Calculate logo position (same logic as print_table_custom)
+        logo_width = 45
+        logo_x = (pdf.w - logo_width) / 2
+        
+        add_header_to_page(
+            pdf, 
+            logo_x=logo_x, 
+            logo_width=logo_width,
+            header_content=instr_header_content, 
+            Programs=["All Candidates"], # This appears in the "Programs: ..." line
+            time_slot=None, 
+            actual_time_slots=None, 
+            declaration_date=declaration_date
+        )
+
+        # 4. Set cursor position for content (Header ends around y=85-90)
+        pdf.set_y(95)
+
+        # 5. Print Title
+        pdf.set_font("Arial", 'B', 14)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
+        pdf.ln(5)
+
+        # 6. Print Instructions List
+        instructions = [
+            "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
+            "2. Candidates must produce their University Identity Card at the time of the examination.",
+            "3. Candidates are not permitted to enter the examination hall after stipulated time.",
+            "4. Candidates will not be permitted to leave the examination hall during the examination time.",
+            "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. Carrying the same will be treated as usage of unfair means."
+        ]
+
+        pdf.set_font("Arial", size=12)
+        
+        # We use a loop with multi_cell to ensure text wrapping works properly
+        for instr in instructions:
+            # multi_cell(w, h, txt) - w=0 means extend to right margin
+            pdf.multi_cell(0, 8, instr)
+            pdf.ln(2) # Add a small gap between instructions
+
+    except Exception as e:
+        st.warning(f"Could not add instructions page: {e}")
+    # ====================================================================
+
     if sheets_skipped > 0:
         st.info(f"Skipped {sheets_skipped} sheets (empty or invalid data)")
     
     try:
         pdf.output(pdf_path)
-        st.success(f"✅ PDF generated with {sheets_processed} pages")
+        st.success(f"✅ PDF generated with {sheets_processed + 1} pages (incl. instructions)")
     except Exception as e:
         st.error(f"Error saving PDF: {e}")
    
@@ -4863,6 +4854,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
